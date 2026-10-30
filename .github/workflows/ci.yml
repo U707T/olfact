@@ -200,9 +200,10 @@ jobs:
         run: cargo install cargo-ndk --locked
 
       - name: Set up Android NDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: "ndk;28.2.13676358"
+        run: |
+          set -euo pipefail
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "ndk;28.2.13676358"
 
       # crate 路径由 B4 提供（默认 core/adblock/rust），产物直接进 app 的 jniLibs
       - name: Build .so
