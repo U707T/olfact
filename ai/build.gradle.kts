@@ -18,6 +18,8 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    buildFeatures { buildConfig = false }
+    testOptions { unitTests.isReturnDefaultValues = true }
 }
 
 kotlin {
@@ -33,4 +35,5 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:5.5.1")
     implementation("com.squareup.okhttp3:okhttp-sse:5.5.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
+    testImplementation("junit:junit:4.13.2")
 }

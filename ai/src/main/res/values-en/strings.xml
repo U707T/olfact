@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ai_translate">Translate</string>
+    <string name="ai_summarize">Summarize</string>
+    <string name="ai_copy">Copy</string>
+    <string name="ai_close">Close</string>
+</resources>

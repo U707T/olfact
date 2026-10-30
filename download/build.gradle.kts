@@ -17,6 +17,8 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    buildFeatures { buildConfig = false }
+    testOptions { unitTests.isReturnDefaultValues = true }
 }
 
 kotlin {
@@ -29,7 +31,19 @@ dependencies {
     api(project(":core"))
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-    implementation("androidx.work:work-runtime-ktx:2.9.1")
+
+    // 队列
+    implementation("androidx.work:work-runtime-ktx:2.12.0")
+
+    // TS → MP4 remux（不引 ffmpeg）
     implementation("androidx.media3:media3-muxer:1.9.0")
+    implementation("androidx.media3:media3-extractor:1.9.0")
+    implementation("androidx.media3:media3-common:1.9.0")
+    implementation("androidx.media3:media3-datasource:1.9.0")
+
     implementation("com.squareup.okhttp3:okhttp:5.5.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("com.squareup.okhttp3:mockwebserver:5.5.1")
 }

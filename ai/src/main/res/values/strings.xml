@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ai_translate">翻译</string>
+    <string name="ai_summarize">总结</string>
+    <string name="ai_copy">复制</string>
+    <string name="ai_close">关闭</string>
+</resources>
