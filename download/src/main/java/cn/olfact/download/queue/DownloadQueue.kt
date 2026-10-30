@@ -49,6 +49,8 @@ class DownloadQueue(
     val items: StateFlow<List<DownloadRecord>> = _items.asStateFlow()
 
     private val jobs = ConcurrentHashMap<String, Job>()
+    /** 同一任务只允许一个执行者（WorkManager 与前台 kick 可能同时触发）。 */
+    private val activeIds = ConcurrentHashMap.newKeySet<String>()
     private val lastProgressPush = ConcurrentHashMap<String, Long>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -83,6 +85,10 @@ class DownloadQueue(
         if (record.status != DownloadStatus.RUNNING && record.status != DownloadStatus.QUEUED) return
         store.upsert(record.copy(status = DownloadStatus.PAUSED, updatedAt = now()))
         jobs.remove(id)?.cancel()
+        // DownloadManager 没有"暂停"语义，只能取消（进度丢失），恢复时重新入队
+        if (record.engine == DownloadEngine.SYSTEM) {
+            record.systemDownloadId?.let { SystemDownloader(context).cancel(it) }
+        }
         publish()
     }
 
@@ -101,6 +107,7 @@ class DownloadQueue(
             jobs.remove(id)?.cancel()
             record.systemDownloadId?.let { SystemDownloader(context).cancel(it) }
             record.filePath?.let { runCatching { File(it).delete() } }
+            runCatching { DownloadPaths.workDir(context, id).deleteRecursively() }
         }
         store.remove(id)
         notifierProvider()?.cancel(id)
@@ -152,18 +159,27 @@ class DownloadQueue(
      */
     suspend fun processQueue(): Int = coroutineScope {
         val config = configProvider()
-        // 上次进程被杀时处于 RUNNING 的任务：自动重新排队（part 文件还在，会续传）
-        store.all().filter { it.status == DownloadStatus.RUNNING }.forEach {
-            store.upsert(it.copy(status = DownloadStatus.QUEUED, error = "进程重启，自动续传", updatedAt = now()))
-        }
+        // 上次进程被杀时处于 RUNNING 的任务：
+        // - 自研引擎：part 文件还在，重新排队续传；
+        // - 系统下载器：DownloadManager 可能还在下，保留 id 继续跟踪，绝不重复入队。
+        store.all()
+            .filter { it.status == DownloadStatus.RUNNING }
+            .filterNot { it.engine == DownloadEngine.SYSTEM && it.systemDownloadId != null }
+            .forEach {
+                store.upsert(it.copy(status = DownloadStatus.QUEUED, error = "进程重启，自动续传", updatedAt = now()))
+            }
         publish()
 
         val queued = store.all().filter { it.status == DownloadStatus.QUEUED }.sortedBy { it.createdAt }
-        if (queued.isEmpty()) return@coroutineScope 0
+        val tracking = store.all()
+            .filter { it.status == DownloadStatus.RUNNING && it.engine == DownloadEngine.SYSTEM && it.systemDownloadId != null }
+            .map { it.id }
+        val ids = (queued.map { it.id } + tracking).distinct()
+        if (ids.isEmpty()) return@coroutineScope 0
 
         val semaphore = Semaphore(config.maxConcurrentTasks.coerceIn(1, 4))
-        queued.map { record ->
-            async { semaphore.withPermit { runOne(record.id, config) } }
+        ids.map { id ->
+            async { semaphore.withPermit { runOne(id, config) } }
         }.awaitAll()
         queued.size
     }
@@ -172,7 +188,10 @@ class DownloadQueue(
 
     private suspend fun runOne(id: String, config: DownloadConfig) {
         var record = store.get(id) ?: return
-        if (record.status != DownloadStatus.QUEUED) return
+        val isSystemTracking = record.status == DownloadStatus.RUNNING &&
+            record.engine == DownloadEngine.SYSTEM && record.systemDownloadId != null
+        if (record.status != DownloadStatus.QUEUED && !isSystemTracking) return
+        if (!activeIds.add(id)) return
 
         record = record.copy(status = DownloadStatus.RUNNING, error = null, updatedAt = now())
         store.upsert(record)
@@ -207,13 +226,20 @@ class DownloadQueue(
             notifierProvider()?.notifyFailed(failed)
         } finally {
             jobs.remove(id)
+            activeIds.remove(id)
         }
     }
 
     private suspend fun runSystem(record: DownloadRecord, config: DownloadConfig): DownloadRecord {
         val downloader = SystemDownloader(context)
         val subPath = "olfact/" + DownloadPaths.plannedName(record.spec)
-        val systemId = downloader.enqueue(record.spec, config, subPath)
+        // 进程重启后 DownloadManager 里的任务还在：复用 id，避免重复下载
+        val existingId = record.systemDownloadId
+        val systemId = if (existingId != null && downloader.progressOf(existingId) != null) {
+            existingId
+        } else {
+            downloader.enqueue(record.spec, config, subPath)
+        }
         var current = record.copy(systemDownloadId = systemId, updatedAt = now())
         store.upsert(current)
         publish()
@@ -320,7 +346,7 @@ class DownloadQueue(
 
     private fun now() = System.currentTimeMillis()
 
-    /** 供界面主动触发一次队列处理（不等 WorkManager）。 */
+    /** 主动触发一次队列处理：**会绕过 WorkManager 的网络/充电约束**，只在显式"立即下载"时用。 */
     fun kick() {
         scope.launch { runCatching { processQueue() } }
     }

@@ -47,6 +47,13 @@ facade.queue.items.collect { list -> /* 渲染列表 */ }
 facade.pause(record.id); facade.resume(record.id); facade.remove(record.id)
 ```
 
+## 恢复语义（重要）
+
+- 自研引擎（CHUNKED/M3U8）：进程被杀后重进 → 自动重新排队，part/分片文件续传。
+- 系统引擎（SYSTEM）：`DownloadManager` 在进程外继续下载，重进时复用 `systemDownloadId` 继续跟踪，**不会重复入队**；
+  但系统下载器没有"暂停"，点暂停等于取消（进度丢失），恢复时重新下载。
+- 入队只通过 `WorkManager` 调度，约束（仅 WiFi / 充电）由它保证；`DownloadQueue.kick()` 会绕过约束，只在"立即下载"时显式调用。
+
 ## 与方案的三处差异（已记录，勿在合并时回退）
 
 1. **Room → JSON 原子写**：`DownloadStore` 是接口，默认实现 `JsonDownloadStore` 用 `tmp + rename` 持久化。

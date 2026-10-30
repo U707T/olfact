@@ -40,8 +40,8 @@ class DownloadFacade private constructor(private val appContext: Context) {
 
     fun enqueue(spec: DownloadSpec, engine: DownloadEngine? = null): DownloadRecord {
         val record = queue.enqueue(spec, engine)
+        // 只交给 WorkManager：约束（仅 WiFi / 充电）由它保证，不能在这里 kick 绕过。
         DownloadWorker.schedule(appContext, settings.snapshot())
-        queue.kick()
         return record
     }
 
