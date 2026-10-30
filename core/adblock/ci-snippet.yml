@@ -1,0 +1,39 @@
+# 交给 B1 合进 .github/workflows/ci.yml 的 job 片段（.github/ 归 B1，B4 不直接改）。
+#
+# 作用：交叉编译 libadblock_ffi.so，作为 artifact 提供；build job 在 CI 里先跑这个 job，
+# 再把 artifact 下到 core/src/main/jniLibs 参与打包。编不出来也不阻塞 APK —— 有 Kotlin 降级引擎兜底。
+#
+# 注意：
+# 1) 需要 rust stable（≥1.82），adblock 的传递依赖已用 edition 2024，1.75 解析不了；
+# 2) 输出到 core/src/main/jniLibs（模块自己的 jniLibs），不去 app/ 下建目录；
+# 3) 只在 main / 手动触发时跑，PR 不跑，省 CI 额度。
+
+  adblock-native:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust targets
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add aarch64-linux-android armv7-linux-androideabi
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            core/adblock/rust/target
+          key: adblock-ffi-${{ hashFiles('core/adblock/rust/Cargo.lock', 'core/adblock/rust/Cargo.toml') }}
+      - name: cargo-ndk
+        run: cargo install cargo-ndk --locked
+      - name: Build libadblock_ffi.so
+        working-directory: core/adblock/rust
+        run: |
+          cargo ndk -t arm64-v8a -t armeabi-v7a \
+            -o ../../../core/src/main/jniLibs build --release
+          ls -lh ../../../core/src/main/jniLibs/*/libadblock_ffi.so
+      - uses: actions/upload-artifact@v4
+        with:
+          name: adblock-ffi
+          path: core/src/main/jniLibs/**/libadblock_ffi.so
+          if-no-files-found: warn

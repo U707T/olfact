@@ -1,0 +1,52 @@
+[Adblock Plus 2.0]
+! Title: olfact 内置清单（中文站点常用节选）
+! 只收稳定、误伤率低的规则；完整中文清单请启用 EasyList China。
+
+! ---------- 广告联盟 ----------
+||cpro.baidu.com^
+||pos.baidu.com^
+||union.baidu.com^
+||eclick.baidu.com^
+||cbjs.baidu.com^
+||mobads.baidu.com^
+||tanx.com^
+||alimama.com^
+||gdt.qq.com^
+||e.qq.com^
+||ads.tencent.com^
+||pingfore.qq.com^
+||hm.baidu.com^
+||cnzz.com^
+||51.la^
+||umeng.com^
+||mmstat.com^
+||simba.taobao.com^
+||strip.taobao.com^
+||log.mmstat.com^
+||ad.xiaomi.com^
+||ads.mi.com^
+||adservice.samsungapps.com^
+||g.163.com^$third-party
+||dede.163.com^
+
+! ---------- 常见路径 ----------
+/cpro/ui/
+/static/js/ads.
+/adjs.
+/ad_js.
+/guanggao/
+/ggimg/
+/adsense/*
+
+! ---------- 元素隐藏 ----------
+##.ad-close-btn
+##.gg-box
+##.gg-list
+##.ad-float
+##.float-ad
+##.fixed-ad
+##div[id^="cpro_"]
+##div[class^="cpro-"]
+##div[id^="BAIDU_SSP"]
+##.baidu-ad
+##.taobao-ad
