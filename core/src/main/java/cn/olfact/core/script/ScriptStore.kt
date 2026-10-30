@@ -115,6 +115,28 @@ class ScriptStore(
         }
     }
 
+    /**
+     * 供界面层直接保存「元数据 + 脚本体」（脚本编辑器用）。
+     *
+     * 与 [install] 的区别：install 走 `==UserScript==` 头解析，适合导入 .user.js；
+     * 这里接受已结构化的元数据，不做解析，写盘后立即可注入。
+     */
+    @Synchronized
+    fun save(meta: UserScript, code: String): UserScript {
+        val now = System.currentTimeMillis()
+        val existing = find(meta.id)
+        val item = meta.copy(
+            installedAt = existing?.installedAt ?: now,
+            updatedAt = now
+        )
+        StoreFiles.writeAtomic(bodyFile(item.id), code)
+        val items = _scripts.value.toMutableList()
+        val idx = items.indexOfFirst { it.id == item.id }
+        if (idx >= 0) items[idx] = item else items.add(item)
+        saveLocked(items.sortedBy { it.name.lowercase() })
+        return item
+    }
+
     @Synchronized
     fun setEnabled(id: String, enabled: Boolean): Boolean {
         val items = _scripts.value.toMutableList()

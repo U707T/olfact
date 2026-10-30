@@ -58,7 +58,8 @@ dependencies {
     api("androidx.datastore:datastore-preferences:1.1.7")
 
     // ---- B4 报备的需求（订阅下载 / WebDAV / AutoBackupWorker），已由 B1 落在这里 ----
-    implementation("com.squareup.okhttp3:okhttp:5.5.1")
+    // api：GmBridge.defaultClient() 等公开签名里出现 OkHttpClient，app 侧要能看见类型
+    api("com.squareup.okhttp3:okhttp:5.5.1")
     implementation("androidx.work:work-runtime-ktx:2.12.0")
 
     // ---- 单测（B4 的 adblock/backup 用例） ----

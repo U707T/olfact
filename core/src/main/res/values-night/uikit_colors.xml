@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 夜间：同样的语义色，只换明度 -->
+<resources>
+    <color name="uikit_page_bg">#FF111111</color>
+    <color name="uikit_card">#FF1C1C1E</color>
+    <color name="uikit_card_pressed">#FF262628</color>
+    <color name="uikit_soft">#FF232529</color>
+
+    <color name="uikit_text_primary">#FFEDEDED</color>
+    <color name="uikit_text_secondary">#FFA0A0A0</color>
+    <color name="uikit_text_hint">#FF757575</color>
+    <color name="uikit_text_inverse">#FF111111</color>
+
+    <color name="uikit_divider">#FF2A2A2C</color>
+    <color name="uikit_stroke">#FF3A3A3C</color>
+
+    <color name="uikit_accent">#FF2FB877</color>
+    <color name="uikit_accent_dark">#FF109D58</color>
+    <color name="uikit_check">#FF9C8FD0</color>
+    <color name="uikit_danger">#FFFF6B6E</color>
+
+    <color name="uikit_pill">#FF2A2A2C</color>
+    <color name="uikit_pill_dark">#FFEDEDED</color>
+    <color name="uikit_badge">#FFFF6B6E</color>
+</resources>

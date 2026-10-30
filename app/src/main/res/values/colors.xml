@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 应用级色板：数值取自原版 decode/res/values/colors.xml -->
+<resources>
+    <color name="page_bg">#FFF2F2F2</color>
+    <color name="card">#FFFFFFFF</color>
+    <color name="text_primary">#FF212121</color>
+    <color name="text_secondary">#FF757575</color>
+    <color name="text_hint">#FF9E9E9E</color>
+    <color name="divider">#FFEEEEEE</color>
+    <color name="brand">#FF109D58</color>
+    <color name="brand_dark">#FF0C7A44</color>
+    <color name="soft">#FFF1F4F8</color>
+    <color name="danger">#FFE5484D</color>
+    <color name="check">#FFB39DDB</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="scrim">#66000000</color>
+
+    <color name="ic_launcher_background">#FF3DCF9E</color>
+    <color name="pastel_blue">#FF62A6FB</color>
+    <color name="pastel_green">#FF2FC99D</color>
+    <color name="pastel_purple">#FFB7ACF8</color>
+    <color name="pastel_red">#FFFFA19C</color>
+    <color name="pastel_orange">#FFF5B57E</color>
+</resources>

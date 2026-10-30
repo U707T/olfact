@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 尺寸基座：原版 dimens 中真正用到的值（bottom_bar_height=36dip 太窄，按截图 56dp） -->
+<resources>
+    <dimen name="uikit_page_padding">16dp</dimen>
+    <dimen name="uikit_card_radius">16dp</dimen>
+    <dimen name="uikit_sheet_radius">20dp</dimen>
+    <dimen name="uikit_item_height">56dp</dimen>
+    <dimen name="uikit_row_height">64dp</dimen>
+    <dimen name="uikit_bottom_bar_height">56dp</dimen>
+    <dimen name="uikit_title_bar_height">48dp</dimen>
+    <dimen name="uikit_touch">48dp</dimen>
+    <dimen name="uikit_icon">24dp</dimen>
+    <dimen name="uikit_icon_small">18dp</dimen>
+    <dimen name="uikit_icon_large">32dp</dimen>
+    <dimen name="uikit_gap">8dp</dimen>
+    <dimen name="uikit_gap_large">16dp</dimen>
+
+    <dimen name="uikit_text_page_title">28sp</dimen>
+    <dimen name="uikit_text_header">20sp</dimen>
+    <dimen name="uikit_text_body">17sp</dimen>
+    <dimen name="uikit_text_row">16sp</dimen>
+    <dimen name="uikit_text_value">15sp</dimen>
+    <dimen name="uikit_text_small">13sp</dimen>
+    <dimen name="uikit_text_tiny">11sp</dimen>
+    <dimen name="uikit_text_label">12sp</dimen>
+</resources>

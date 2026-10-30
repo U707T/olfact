@@ -1,15 +1,34 @@
 package cn.olfact.app
 
 import android.app.Application
-import cn.olfact.core.Core
+import androidx.appcompat.app.AppCompatDelegate
+import cn.olfact.app.data.AppSettings
+import cn.olfact.app.data.BookmarkStore
+import cn.olfact.app.data.HistoryStore
+import cn.olfact.app.data.K
+import cn.olfact.app.data.LocalBackends
+import cn.olfact.app.data.ModuleBackends
 
-/**
- * 进程入口。只做初始化，不写业务；B5 可在此挂崩溃捕获 / 主题应用。
- */
 class OlfactApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        Core.init(this)
+        AppSettings.init(this)
+        BookmarkStore.init(this)
+        HistoryStore.init(this)
+        // 先把 B2/B3/B4 的真实实现接到 core/api 契约上，
+        // 再由 LocalBackends 给仍然为空的槽位装兜底（它只在 null 时注册）
+        ModuleBackends.install(this)
+        LocalBackends.install(this)
+        applyNightMode()
+    }
+
+    private fun applyNightMode() {
+        val mode = when (AppSettings.get(K.NIGHT_MODE)) {
+            1 -> AppCompatDelegate.MODE_NIGHT_YES
+            2 -> AppCompatDelegate.MODE_NIGHT_NO
+            else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+        }
+        AppCompatDelegate.setDefaultNightMode(mode)
     }
 }
