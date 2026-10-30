@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="doh_panel_title">加密 DNS（DoH）</string>
+    <string name="doh_panel_running">运行中</string>
+    <string name="doh_panel_stopped">未启用</string>
+    <string name="doh_panel_proxying">页面流量已接管</string>
+    <string name="doh_panel_app_only">仅应用内生效</string>
+    <string name="doh_panel_mode">分流模式</string>
+    <string name="doh_panel_upstream">当前上游</string>
+    <string name="doh_panel_latency">平均解析耗时</string>
+    <string name="doh_panel_hit_rate">缓存命中率</string>
+    <string name="doh_panel_today">今日查询</string>
+    <string name="doh_panel_failures">失败次数</string>
+    <string name="doh_panel_rerace">重新竞速</string>
+    <string name="doh_panel_clear_cache">清除缓存</string>
+    <string name="doh_panel_circuit_open">已熔断，页面直连</string>
+    <string name="doh_panel_rule_count">规则 %1$d 条</string>
+    <string name="doh_panel_value_latency">%1$d ms</string>
+    <string name="doh_panel_value_percent">%1$d%%</string>
+    <string name="doh_panel_value_count">%1$d 次</string>
+</resources>
