@@ -1,12 +1,10 @@
 package cn.olfact.app.data
 
 import android.content.Context
-import cn.olfact.core.api.AiProvider
 import cn.olfact.core.api.DownloadCenter
 import cn.olfact.core.api.DownloadState
 import cn.olfact.core.api.DownloadTask
 import cn.olfact.core.api.OlfactServices
-import cn.olfact.core.api.ProviderStore
 import cn.olfact.core.api.ScriptStore
 import cn.olfact.core.api.UserScript
 import kotlinx.coroutines.flow.Flow
@@ -33,9 +31,6 @@ object LocalBackends {
         }
         if (OlfactServices.scriptStore == null) {
             OlfactServices.scriptStore = LocalScriptStore(context)
-        }
-        if (OlfactServices.aiProviders == null) {
-            OlfactServices.aiProviders = LocalProviderStore(context)
         }
     }
 }
@@ -161,49 +156,5 @@ class LocalScriptStore(context: Context) : ScriptStore {
             enabled = false,
             code = "// 示例：去掉浮动广告与吸底栏\n(function () {\n  const css = document.createElement('style');\n  css.textContent = '.float-ad,.fixed-bottom{display:none!important}';\n  document.head.appendChild(css);\n})();"
         )
-    }
-}
-
-/** 本地 AI 供应商库（key 只存本地，永不外传）。 */
-class LocalProviderStore(context: Context) : ProviderStore {
-
-    private val prefs = context.getSharedPreferences("olfact_ai", Context.MODE_PRIVATE)
-
-    override fun all(): List<AiProvider> {
-        val raw = prefs.getString("list", "[]") ?: "[]"
-        return runCatching {
-            val arr = org.json.JSONArray(raw)
-            (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                AiProvider(o.optString("id"), o.optString("name"), o.optString("baseUrl"), o.optString("key"), o.optString("model"), o.optBoolean("enabled", true))
-            }
-        }.getOrDefault(emptyList())
-    }
-
-    override fun save(provider: AiProvider) {
-        val list = all().filterNot { it.id == provider.id } + provider
-        persist(list)
-    }
-
-    override fun remove(id: String) = persist(all().filterNot { it.id == id })
-
-    override fun setEnabled(id: String, enabled: Boolean) =
-        persist(all().map { if (it.id == id) it.copy(enabled = enabled) else it })
-
-    override fun activeId(): String? = prefs.getString("active", null)
-
-    override fun setActive(id: String?) {
-        prefs.edit().apply { if (id == null) remove("active") else putString("active", id) }.apply()
-    }
-
-    private fun persist(list: List<AiProvider>) {
-        val arr = org.json.JSONArray()
-        list.forEach { p ->
-            arr.put(JSONObject().apply {
-                put("id", p.id); put("name", p.name); put("baseUrl", p.baseUrl)
-                put("key", p.apiKey); put("model", p.model); put("enabled", p.enabled)
-            })
-        }
-        prefs.edit().putString("list", arr.toString()).apply()
     }
 }

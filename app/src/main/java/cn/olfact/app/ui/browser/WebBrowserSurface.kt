@@ -12,6 +12,8 @@ import cn.olfact.app.data.ModuleBackends
 import cn.olfact.core.api.BrowserSurface
 import cn.olfact.core.api.BrowserSurfaceHost
 import cn.olfact.core.api.OlfactServices
+import cn.olfact.core.script.RunAt
+import cn.olfact.core.script.ScriptSourceImpl
 import cn.olfact.web.browser.BrowserChromeClient
 import cn.olfact.web.browser.BrowserClient
 import cn.olfact.web.browser.BrowserConfig
@@ -66,7 +68,10 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
                 host.onPageStarted(url)
                 injectScripts(view, url)
             },
-            onPageFinished = { url -> host.onPageFinished(url) },
+            onPageFinished = { url ->
+                host.onPageFinished(url)
+                injectLateScripts(view, url)
+            },
             onExternalScheme = { url -> cn.olfact.app.data.openExternal(context, url) }
         )
         view.webChromeClient = BrowserChromeClient(tabId, events)
@@ -87,6 +92,15 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
     private fun injectScripts(view: WebView, url: String) {
         val scripts = OlfactServices.scripts?.documentStartScripts(url).orEmpty()
         (view as? BrowserView)?.applyDocumentStartScripts(scripts)
+    }
+
+    /** document-end 阶段：`addDocumentStartJavaScript` 只覆盖文档开始，其余阶段要显式注入。 */
+    private fun injectLateScripts(view: WebView, url: String) {
+        val source = OlfactServices.scripts as? ScriptSourceImpl ?: return
+        runCatching {
+            source.scriptsFor(url, RunAt.DOCUMENT_END).forEach { view.evaluateJavascript(it.js, null) }
+            source.scriptsFor(url, RunAt.DOCUMENT_IDLE).forEach { view.evaluateJavascript(it.js, null) }
+        }
     }
 
     private fun configSnapshot(): BrowserConfig {

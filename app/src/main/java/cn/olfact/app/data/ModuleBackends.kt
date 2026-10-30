@@ -436,7 +436,7 @@ class DownloadAdapter(
     override val changes: Flow<Unit> = facade.queue.items.map { }
 }
 
-private fun cn.olfact.download.DownloadRecord.toTask(): DownloadTask = DownloadTask(
+internal fun cn.olfact.download.DownloadRecord.toTask(): DownloadTask = DownloadTask(
     id = id,
     name = spec.fileName,
     url = spec.url,

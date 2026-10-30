@@ -4,3 +4,8 @@ local.properties
 *.iml
 .idea/
 .kotlin/
+
+# 签名材料只在本地/CI secrets，永不入库
+keystore.properties
+*.jks
+*.keystore

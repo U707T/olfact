@@ -22,7 +22,7 @@ android {
         minSdk = 24
         targetSdk = 37
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "1.0.0-rc1"
         resourceConfigurations += listOf("zh", "en")
         vectorDrawables.useSupportLibrary = false
     }
@@ -30,7 +30,7 @@ android {
     signingConfigs {
         if (hasKeystore) {
             create("release") {
-                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
                 storePassword = keystoreProps.getProperty("storePassword")
                 keyAlias = keystoreProps.getProperty("keyAlias")
                 keyPassword = keystoreProps.getProperty("keyPassword")
