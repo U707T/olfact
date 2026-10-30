@@ -36,6 +36,25 @@
 | 11 | B2 自带 `core/api/MediaSniffer.kt`（`MediaType` 只有 4 个值、`MediaItem` 少字段），与 m0 的 `Media.kt` 同名冲突 | 删除重复文件，保留 `Media.kt`；B2 的调用点按 m0 字段（`type/pageUrl/pageTitle/headers`）本就兼容 |
 | 12 | 仓库没有 README / CHANGELOG，发版无处取 Release 文案 | 新增 `README.md`、`CHANGELOG.md`（CI 从 CHANGELOG 抽当前版本段落当 Release 正文） |
 
+## 2.1 CI 二次故障（发版当天才暴露，已修）
+
+| # | 问题 | 证据 | 处理 |
+|---|---|---|---|
+| 12a | `android-actions/setup-android@v3` 在本环境直接失败：它先跑 `sdkmanager tools` 引导，而 `tools` 包已从仓库下架 | run #1 日志 `Warning: Failed to find package 'tools'` → `sdkmanager` exit 1 | 三个 job 全部去掉该 action，改用 runner 预装 SDK（只保留一次 `sdkmanager --licenses`） |
+| 12b | `platforms;android-37` 不存在：新平台按 minor 版本命名（`android-37.0/37.1/37.2`），装机也带 `build-tools;37.0.0` | run #1 日志 `Warning: Failed to find package 'platforms;android-37'`；探测 run 列出可用包 | 无需安装；`compileSdk = 37` 由 AGP 解析到预装的 37.x 平台 |
+| 12c | 临时探测 workflow 用完即删 | `sdk-probe.yml` | 已删除，不留在主干 |
+
+修完后：main 的 `unit tests` + `assembleDebug` 全绿（run #5），打 tag 后 `assembleRelease + publish` 通过（run #6）。
+
+## 2.2 发布结果
+
+| 项 | 值 |
+|---|---|
+| Release | <https://github.com/U707T/olfact/releases/tag/v1.0.0-rc1>（prerelease） |
+| 产物 | `app-arm64-v8a-release.apk` / `app-armeabi-v7a-release.apk`，各 2.8 MB |
+| 签名 | CI 用 secrets 里的 keystore，`apksigner verify` 证书 SHA-256 `d04aad4e…07:97` 与本地一致 |
+| Release 正文 | 由 CHANGELOG 的 `## [1.0.0-rc1]` 段落自动抽取 |
+
 ## 3. 🔵 可选优化（本轮不做，记录在案）
 
 | # | 事项 | 说明 |
