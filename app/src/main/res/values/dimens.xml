@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="page_padding">16dp</dimen>
+    <dimen name="card_radius">16dp</dimen>
+    <dimen name="gap">8dp</dimen>
+    <dimen name="gap_large">16dp</dimen>
+    <dimen name="home_hero_height">150dp</dimen>
+    <dimen name="home_shortcut_icon">54dp</dimen>
+    <dimen name="title_size">28sp</dimen>
+</resources>

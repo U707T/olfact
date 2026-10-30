@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  视觉基座：取自原版 decode/res/values/colors.xml
+  greenAction #109d58 / text_color_primary #212121 / text_color_grey_600 #757575
+-->
+<resources>
+    <color name="uikit_page_bg">#FFF2F2F2</color>
+    <color name="uikit_card">#FFFFFFFF</color>
+    <color name="uikit_card_pressed">#FFF3F3F3</color>
+    <color name="uikit_soft">#FFF1F4F8</color>
+
+    <color name="uikit_text_primary">#FF212121</color>
+    <color name="uikit_text_secondary">#FF757575</color>
+    <color name="uikit_text_hint">#FF9E9E9E</color>
+    <color name="uikit_text_inverse">#FFFFFFFF</color>
+
+    <color name="uikit_divider">#FFEEEEEE</color>
+    <color name="uikit_stroke">#FF1F1F1F</color>
+
+    <color name="uikit_accent">#FF109D58</color>
+    <color name="uikit_accent_dark">#FF0C7A44</color>
+    <color name="uikit_check">#FFB39DDB</color>
+    <color name="uikit_danger">#FFE5484D</color>
+
+    <color name="uikit_pill">#FFF0F0F0</color>
+    <color name="uikit_pill_dark">#FF212121</color>
+    <color name="uikit_badge">#FFE5484D</color>
+
+    <!-- 首页快捷入口（原版 home_*.xml 里的圆底色） -->
+    <color name="uikit_pastel_blue">#FF62A6FB</color>
+    <color name="uikit_pastel_green">#FF2FC99D</color>
+    <color name="uikit_pastel_purple">#FFB7ACF8</color>
+    <color name="uikit_pastel_red">#FFFFA19C</color>
+    <color name="uikit_pastel_orange">#FFF5B57E</color>
+
+    <color name="uikit_black">#FF000000</color>
+    <color name="uikit_white">#FFFFFFFF</color>
+    <color name="uikit_transparent">#00000000</color>
+</resources>
