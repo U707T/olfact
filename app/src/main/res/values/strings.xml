@@ -1,2 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources><string name="app_name">嗅觉浏览器</string></resources>
+<resources>
+    <string name="app_name">嗅觉浏览器</string>
+    <string name="m0_placeholder">M0 骨架 · v%1$s\nUI 由 B5 接入</string>
+</resources>

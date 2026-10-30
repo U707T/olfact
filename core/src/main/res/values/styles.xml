@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Theme.Olfact：按原版 AppTheme（Theme.AppCompat.Light.NoActionBar + greenAction 强调色）重建，
+  不套 Material3 默认色。夜间由 values-night/colors.xml 自动切换。
+-->
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <style name="Theme.Olfact" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- 品牌 -->
+        <item name="colorPrimary">@color/olfact_green</item>
+        <item name="colorPrimaryVariant">@color/olfact_green_dark</item>
+        <item name="colorSecondary">@color/olfact_green</item>
+        <item name="colorSecondaryVariant">@color/olfact_green_dark</item>
+        <item name="colorAccent">@color/olfact_green</item>
+        <item name="android:colorAccent">@color/olfact_green</item>
+        <item name="colorOnPrimary">@color/olfact_text_on_brand</item>
+        <item name="colorOnSecondary">@color/olfact_text_on_brand</item>
+
+        <!-- 表面 -->
+        <item name="android:windowBackground">@color/olfact_background</item>
+        <item name="colorSurface">@color/olfact_surface</item>
+        <item name="colorOnSurface">@color/olfact_text_primary</item>
+        <item name="colorError">@color/olfact_danger</item>
+
+        <!-- 文字 -->
+        <item name="android:textColorPrimary">@color/olfact_text_primary</item>
+        <item name="android:textColorSecondary">@color/olfact_text_secondary</item>
+        <item name="android:textColorTertiary">@color/olfact_text_tertiary</item>
+        <item name="android:textColorHint">@color/olfact_text_hint</item>
+        <item name="android:textAllCaps">false</item>
+
+        <!-- 系统栏 -->
+        <item name="android:statusBarColor">@color/olfact_background</item>
+        <item name="android:navigationBarColor">@color/olfact_background</item>
+        <item name="android:windowLightStatusBar">@bool/olfact_light_status_bar</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">@bool/olfact_light_status_bar</item>
+
+        <!-- 形状 -->
+        <item name="dialogCornerRadius">@dimen/olfact_corner_dialog</item>
+    </style>
+
+    <!-- 首页 / 设置页用的是同一套配色，只是背景更"平"，原版 SettingTheme 就是这样 -->
+    <style name="Theme.Olfact.Settings">
+        <item name="android:windowBackground">@color/olfact_background_alt</item>
+        <item name="android:statusBarColor">@color/olfact_background_alt</item>
+        <item name="colorPrimary">@color/olfact_background_alt</item>
+        <item name="colorPrimaryVariant">@color/olfact_background_alt</item>
+    </style>
+
+    <!-- ===== 文本 ===== -->
+    <style name="TextAppearance.Olfact.Headline" parent="TextAppearance.MaterialComponents.Headline6">
+        <item name="android:textSize">@dimen/olfact_text_headline</item>
+        <item name="android:textColor">@color/olfact_text_primary</item>
+    </style>
+
+    <style name="TextAppearance.Olfact.Title" parent="TextAppearance.MaterialComponents.Subtitle1">
+        <item name="android:textSize">@dimen/olfact_text_title</item>
+        <item name="android:textColor">@color/olfact_text_primary</item>
+    </style>
+
+    <style name="TextAppearance.Olfact.Body" parent="TextAppearance.MaterialComponents.Body2">
+        <item name="android:textSize">@dimen/olfact_text_body</item>
+        <item name="android:textColor">@color/olfact_text_primary</item>
+    </style>
+
+    <style name="TextAppearance.Olfact.Caption" parent="TextAppearance.MaterialComponents.Caption">
+        <item name="android:textSize">@dimen/olfact_text_caption</item>
+        <item name="android:textColor">@color/olfact_text_secondary</item>
+    </style>
+
+    <!-- ===== 常用控件 ===== -->
+    <!-- 设置页列表项之间的 0.5dp 分隔线 -->
+    <style name="Widget.Olfact.Divider" parent="">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">@dimen/olfact_divider_height</item>
+        <item name="android:background">@color/olfact_divider</item>
+    </style>
+
+    <!-- 可点击行的水波纹底色（配合 ?attr/selectableItemBackground 之外的场景） -->
+    <style name="Widget.Olfact.Ripple" parent="">
+        <item name="android:background">?attr/selectableItemBackground</item>
+    </style>
+
+</resources>

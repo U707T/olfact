@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  夜间色：原版 values-night 只覆写了 5 个颜色（colorBackground / webview_bg 等），
+  其余沿用浅色，导致夜间对比度不足；这里按原版取色补齐一套完整语义色。
+-->
+<resources>
+
+    <color name="olfact_background">#FF121212</color>
+    <!-- black_12 -->
+    <color name="olfact_background_alt">#FF1B1B1B</color>
+    <!-- black_third_background -->
+    <color name="olfact_surface">#FF1E1E1E</color>
+    <color name="olfact_card">#FF232323</color>
+    <!-- _xpopup_dark_color -->
+    <color name="olfact_text_primary">#FFF5F5F5</color>
+    <!-- color_text_default in night -->
+    <color name="olfact_text_secondary">#FFAAAAAA</color>
+    <color name="olfact_text_tertiary">#FF949CA8</color>
+    <color name="olfact_text_hint">#FF7A7A7A</color>
+    <color name="olfact_text_on_brand">#FFFFFFFF</color>
+    <color name="olfact_divider">#FF2A2A2A</color>
+    <color name="olfact_line_border">#40FFFFFF</color>
+    <color name="olfact_ripple">#FF3A3A3A</color>
+    <color name="olfact_webview_bg">#FF202124</color>
+</resources>

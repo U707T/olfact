@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  基础尺寸：数值直接来自原版 decode/res/values/dimens.xml 与关键 layout，
+  改动请对照原版截图（B5 验收：间距 ±2dp）。
+-->
+<resources>
+
+    <!-- ===== 结构（原版实测） ===== -->
+    <dimen name="olfact_bottom_bar_height">50dp</dimen>
+    <!-- view_main_bottom.xml -->
+    <dimen name="olfact_bottom_bar_icon">28dp</dimen>
+    <!-- 50dp - 11dp*2 padding -->
+    <dimen name="olfact_toolbar_height">44dp</dimen>
+    <!-- toolbar_height -->
+    <dimen name="olfact_tab_height">30dp</dimen>
+    <!-- tabs_height -->
+    <dimen name="olfact_tab_max_text_width">200dp</dimen>
+
+    <!-- ===== 圆角 ===== -->
+    <dimen name="olfact_corner_dialog">16dp</dimen>
+    <!-- dialog_radius -->
+    <dimen name="olfact_corner_card">8dp</dimen>
+    <dimen name="olfact_corner_chip">16dp</dimen>
+
+    <!-- ===== 间距（4 的倍数） ===== -->
+    <dimen name="olfact_space_xxs">2dp</dimen>
+    <dimen name="olfact_space_xs">4dp</dimen>
+    <dimen name="olfact_space_s">8dp</dimen>
+    <dimen name="olfact_space_m">12dp</dimen>
+    <dimen name="olfact_space_l">16dp</dimen>
+    <dimen name="olfact_space_xl">24dp</dimen>
+
+    <!-- ===== 列表项 ===== -->
+    <dimen name="olfact_list_item_height">48dp</dimen>
+    <dimen name="olfact_list_item_padding_h">16dp</dimen>
+    <dimen name="olfact_list_icon_size">24dp</dimen>
+    <dimen name="olfact_divider_height">0.5dp</dimen>
+
+    <!-- ===== 字号（原版主流：14sp / 16sp / 12sp） ===== -->
+    <dimen name="olfact_text_headline">22sp</dimen>
+    <dimen name="olfact_text_title">16sp</dimen>
+    <dimen name="olfact_text_body">14sp</dimen>
+    <dimen name="olfact_text_caption">12sp</dimen>
+
+    <!-- ===== 图标 ===== -->
+    <dimen name="olfact_icon_s">16dp</dimen>
+    <dimen name="olfact_icon_m">24dp</dimen>
+    <dimen name="olfact_icon_l">32dp</dimen>
+</resources>

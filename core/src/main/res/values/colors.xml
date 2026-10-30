@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  基础色板：取自原版 6.82 的 decode/res/values/colors.xml，
+  名字统一加 olfact_ 前缀；下面 "兼容别名" 是拷贝过来的原版 drawable 还在引用的旧名字，
+  不要删、也不要在别的模块重复定义。
+-->
+<resources>
+
+    <!-- ===== 品牌 ===== -->
+    <color name="olfact_green">#FF109D58</color>
+    <!-- greenAction / colorAccent：按钮、强调、选中态 -->
+    <color name="olfact_green_mint">#FF3DCF9E</color>
+    <!-- 启动图标底色 ic_launcher_background -->
+    <color name="olfact_green_dark">#FF0B7A44</color>
+    <!-- 按下态 / 深色背景上的绿 -->
+
+    <!-- ===== 浅色（默认） ===== -->
+    <color name="olfact_background">#FFFFFFFF</color>
+    <!-- windowBackground / colorPrimary -->
+    <color name="olfact_background_alt">#FFF2F2F2</color>
+    <!-- chapter_bottom：设置页底色 -->
+    <color name="olfact_surface">#FFF7F7F7</color>
+    <!-- 卡片、分组容器 -->
+    <color name="olfact_card">#FFEEF2F5</color>
+    <!-- card_bg -->
+    <color name="olfact_text_primary">#FF212121</color>
+    <!-- text_color_primary -->
+    <color name="olfact_text_secondary">#FF757575</color>
+    <!-- text_color_grey_600 -->
+    <color name="olfact_text_tertiary">#FF949CA8</color>
+    <!-- text_color -->
+    <color name="olfact_text_hint">#FF888888</color>
+    <!-- text_color_default -->
+    <color name="olfact_text_on_brand">#FFFFFFFF</color>
+    <color name="olfact_divider">#FFEEEEEE</color>
+    <!-- _xpopup_list_divider -->
+    <color name="olfact_line_border">#60999999</color>
+    <!-- line_border -->
+    <color name="olfact_ripple">#FFDFDFDF</color>
+    <!-- grey_black：涟漪 / 浅灰底 -->
+    <color name="olfact_webview_bg">#FFFFFFFF</color>
+
+    <!-- ===== 语义色 ===== -->
+    <color name="olfact_danger">#FFE53935</color>
+    <color name="olfact_warning">#FFFFA000</color>
+    <color name="olfact_success">#FF109D58</color>
+
+    <!-- ===== 兼容别名（被拷进来的原版 drawable 引用，勿删） ===== -->
+    <color name="white">#FFFFFFFF</color>
+    <color name="grey_black">#FFDFDFDF</color>
+    <color name="ic_launcher_background">#FF3DCF9E</color>
+</resources>

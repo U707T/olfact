@@ -128,3 +128,11 @@ git worktree add ../olfact-b5 -b feat/b5-ui
 - **不要本地出 release**，release 走 CI（签名材料在 `/workspace/olfact-keys`，仓库外）。
 - 构建必须**前台一次跑完**（后台任务会被杀）。
 - 不要改别人的模块；不要改 `docs/TECH-PLAN.md`（要改先在本批任务书里记"变更请求"）。
+
+## 8. B1 交付状态（m0）
+
+B1 已完成并通过 `./gradlew :app:assembleDebug --offline`，tag `m0`。
+接班前请读 `docs/tasks/B1-handoff.md`（构建纪律、R 类非传递、Core/Settings/Room 的用法、已知欠账）。
+
+- 四个 worktree 更新基线：`cd /workspace/olfact-bN && git rebase master`
+- 基线承诺：`core/api` 五个接口签名冻结；`core/src/main/res` 的 `olfact_*` 色值/尺寸/主题可直接用。
