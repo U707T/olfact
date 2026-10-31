@@ -57,7 +57,7 @@ object MainMenuSheet {
             Item(R.drawable.orig_m_box, "工具箱") { Nav.push(SettingsPageFragment.newInstance("more")) },
             Item(R.drawable.orig_m_incognito, "无痕模式") { openIncognito(it) },
             Item(R.drawable.orig_m_ai, "AI 总结", tint = false) { AiActions.summarize(it) },
-            Item(R.drawable.orig_m_ai_alt, "翻译", tint = false) { AiActions.translateSelection(it) },
+            Item(R.drawable.orig_s_fullscreen, "全屏") { toggleFullscreen(it) },
             Item(R.drawable.orig_m_night, "夜间模式") { toggleNight(it) },
             Item(R.drawable.orig_m_site, "网站配置") { Nav.push(SettingsPageFragment.newInstance("site")) }
         )
@@ -110,6 +110,8 @@ object MainMenuSheet {
         val tab = BrowserSession.open(null, "无痕标签页", incognito = true)
         Nav.push(BrowserFragment.newInstance(tab.id))
     }
+
+    private fun toggleFullscreen(activity: MainActivity) = activity.toggleFullscreen()
 
     private fun toggleNight(activity: MainActivity) {
         val next = !AppSettings.get(K.NIGHT_MODE).let { it == 1 }

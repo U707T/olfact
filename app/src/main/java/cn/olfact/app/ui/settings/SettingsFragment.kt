@@ -30,26 +30,26 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
 
         val groups = listOf(
             listOf(
-                Row("基本设置", R.drawable.ic_settings) { Nav.push(SettingsPageFragment.newInstance("basic")) },
-                Row("外观/手势", R.drawable.ic_eye) { Nav.push(SettingsPageFragment.newInstance("appearance")) },
-                Row("下载相关", R.drawable.ic_download) { Nav.push(SettingsPageFragment.newInstance("download")) },
-                Row("广告拦截", R.drawable.ic_shield) { Nav.push(AdBlockFragment()) },
-                Row("嗅探和播放器", R.drawable.ic_play) { Nav.push(SettingsPageFragment.newInstance("sniffer")) }
+                Row("基本设置", R.drawable.orig_s_basic) { Nav.push(SettingsPageFragment.newInstance("basic")) },
+                Row("外观/手势", R.drawable.orig_s_appearance) { Nav.push(SettingsPageFragment.newInstance("appearance")) },
+                Row("下载相关", R.drawable.orig_s_download) { Nav.push(SettingsPageFragment.newInstance("download")) },
+                Row("广告拦截", R.drawable.orig_s_shield) { Nav.push(AdBlockFragment()) },
+                Row("嗅探和播放器", R.drawable.orig_s_sniffer) { Nav.push(SettingsPageFragment.newInstance("sniffer")) }
             ),
             listOf(
-                Row("加密 DNS", R.drawable.ic_lock) { Nav.push(DohFragment()) },
-                Row("脚本管理", R.drawable.ic_code) { Nav.push(ScriptFragment()) },
-                Row("AI 供应商", R.drawable.ic_ai) { Nav.push(AiFragment()) },
-                Row("网站配置", R.drawable.ic_globe) { Nav.push(SettingsPageFragment.newInstance("site")) },
-                Row("UA 管理", R.drawable.ic_phone) { Nav.push(SettingsPageFragment.newInstance("ua")) }
+                Row("加密 DNS", R.drawable.orig_s_doh) { Nav.push(DohFragment()) },
+                Row("脚本管理", R.drawable.orig_m_plugin) { Nav.push(ScriptFragment()) },
+                Row("AI 供应商", R.drawable.orig_m_ai, rawIcon = true) { Nav.push(AiFragment()) },
+                Row("网站配置", R.drawable.orig_s_site) { Nav.push(SettingsPageFragment.newInstance("site")) },
+                Row("UA 管理", R.drawable.orig_s_ua) { Nav.push(SettingsPageFragment.newInstance("ua")) }
             ),
             listOf(
-                Row("数据备份", R.drawable.ic_cloud_up) { Nav.push(BackupFragment()) },
-                Row("隐私与安全", R.drawable.ic_key) { Nav.push(SettingsPageFragment.newInstance("privacy")) }
+                Row("数据备份", R.drawable.orig_s_backup) { Nav.push(BackupFragment()) },
+                Row("隐私与安全", R.drawable.orig_m_incognito) { Nav.push(SettingsPageFragment.newInstance("privacy")) }
             ),
             listOf(
-                Row("更多设置", R.drawable.ic_list) { Nav.push(SettingsPageFragment.newInstance("more")) },
-                Row("关于与帮助", R.drawable.ic_info) { Nav.push(AboutFragment()) }
+                Row("更多设置", R.drawable.orig_s_more) { Nav.push(SettingsPageFragment.newInstance("more")) },
+                Row("关于与帮助", R.drawable.orig_s_about) { Nav.push(AboutFragment()) }
             )
         )
 
@@ -59,7 +59,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
             rows.forEach { row ->
                 val item = SettingItem(requireContext()).apply {
                     title = row.title
-                    setIcon(row.icon)
+                    if (row.rawIcon) setIconOriginal(row.icon) else setIcon(row.icon)
                     mode = SettingItem.Mode.CHEVRON
                     onClickAction = row.action
                 }
@@ -72,7 +72,12 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         }
     }
 
-    private data class Row(val title: String, val icon: Int, val action: () -> Unit)
+    private data class Row(
+        val title: String,
+        val icon: Int,
+        val rawIcon: Boolean = false,
+        val action: () -> Unit
+    )
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 

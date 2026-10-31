@@ -153,6 +153,13 @@ class SettingItem @JvmOverloads constructor(
         iconView.visibility = View.VISIBLE
     }
 
+    /** 保留图标自带颜色（原版的彩色图标）。 */
+    fun setIconOriginal(resId: Int) {
+        iconView.setImageResource(resId)
+        iconView.imageTintList = null
+        iconView.visibility = View.VISIBLE
+    }
+
     fun setIconTint(colorRes: Int) {
         iconView.imageTintList = ContextCompat.getColorStateList(context, colorRes)
     }

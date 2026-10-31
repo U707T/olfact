@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import androidx.fragment.app.Fragment
@@ -86,6 +87,21 @@ class MainActivity : AppCompatActivity() {
             AppLog.i("privacy", "退出清数据：$cleared")
         }
         super.onDestroy()
+    }
+
+    private var fullscreen = false
+
+    /** 主菜单「全屏」：隐藏/恢复系统栏（上滑可临时唤出）。 */
+    fun toggleFullscreen() {
+        fullscreen = !fullscreen
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        if (fullscreen) {
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
+        AppLog.i("ui", "全屏：$fullscreen")
     }
 
     private fun applyInsets() {

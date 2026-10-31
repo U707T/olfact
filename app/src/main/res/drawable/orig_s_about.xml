@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 原版资源（APK: res/r51.xml），仅把尺寸标成 24dp，路径未改动 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="1024.000000" android:viewportHeight="1024.000000">
+    <path android:fillColor="#FF222222" android:pathData="m512,200.5c-171.8,0 -311.5,139.7 -311.5,311.5s139.7,311.5 311.5,311.5s311.5,-139.7 311.5,-311.5s-139.7,-311.5 -311.5,-311.5zM534.4,668.5c0,12.4 -10,22.4 -22.4,22.4s-22.4,-10 -22.4,-22.4l0,-201.2c0,-12.4 10,-22.4 22.4,-22.4c12.4,0 22.4,10 22.4,22.4l0,201.2zM512,400.2c-18.5,0 -33.5,-15 -33.5,-33.5c0,-18.5 15,-33.5 33.5,-33.5s33.5,15 33.5,33.5c0,18.5 -15,33.5 -33.5,33.5z" />
+</vector>
