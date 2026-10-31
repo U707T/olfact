@@ -65,6 +65,7 @@ class HistoryFragment : Fragment(R.layout.fragment_entry_list) {
         b.empty.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
         if (items.isEmpty()) {
             b.empty.text = getString(R.string.empty_history)
+            b.empty.setAction("去浏览") { Nav.openBrowser(null) }
             a.submit(emptyList())
             return
         }

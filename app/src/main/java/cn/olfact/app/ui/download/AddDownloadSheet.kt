@@ -4,54 +4,61 @@ import android.content.Context
 import android.text.InputType
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.TextView
-import androidx.core.content.ContextCompat
+import androidx.appcompat.app.AlertDialog
 import cn.olfact.app.R
-import cn.olfact.core.uikit.Sheet
 import cn.olfact.core.uikit.dpF
 
-/** 添加下载：粘链接 → 填名字（可空）→ 入队。 */
+/**
+ * 添加下载：居中对话框（对齐原版形态），三个字段：网址 / 文件名 / 后缀。
+ *
+ * 之前是底部弹层 + 两个输入框；原版是居中对话框，后缀单独一栏。
+ * 下载器选择（内置 / 系统）暂未暴露——当前策略是「能交给系统就交系统」。
+ */
 object AddDownloadSheet {
 
     fun show(context: Context, onConfirm: (url: String, name: String?) -> Unit) {
-        val sheet = Sheet(context).title("添加下载").subtitle("支持直链与 m3u8；分片合并由 download 模块负责")
-        val url = EditText(context).apply {
-            hint = "https://example.com/file.mp4"
-            inputType = InputType.TYPE_TEXT_VARIATION_URI
-            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
-            setBackgroundResource(R.drawable.bg_round_12)
-            setPadding(context.dpF(12f), context.dpF(10f), context.dpF(12f), context.dpF(10f))
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                leftMargin = context.dpF(20f); rightMargin = context.dpF(20f); topMargin = context.dpF(4f)
-            }
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(context.dpF(20f), context.dpF(8f), context.dpF(20f), context.dpF(4f))
         }
-        val name = EditText(context).apply {
-            hint = "文件名（可空）"
-            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
-            setBackgroundResource(R.drawable.bg_round_12)
-            setPadding(context.dpF(12f), context.dpF(10f), context.dpF(12f), context.dpF(10f))
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                leftMargin = context.dpF(20f); rightMargin = context.dpF(20f); topMargin = context.dpF(8f)
+
+        fun field(hint: String, type: Int = InputType.TYPE_CLASS_TEXT): EditText =
+            EditText(context).apply {
+                this.hint = hint
+                inputType = type
+                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
+                setBackgroundResource(R.drawable.bg_round_12)
+                setPadding(context.dpF(12f), context.dpF(10f), context.dpF(12f), context.dpF(10f))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = context.dpF(8f) }
             }
-        }
-        val confirm = TextView(context).apply {
-            text = "开始下载"
-            gravity = android.view.Gravity.CENTER
-            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f)
-            setTextColor(ContextCompat.getColor(context, R.color.white))
-            setBackgroundResource(R.drawable.bg_button_primary)
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, context.dpF(44f)).apply {
-                leftMargin = context.dpF(20f); rightMargin = context.dpF(20f); topMargin = context.dpF(14f); bottomMargin = context.dpF(8f)
+
+        val url = field("https://example.com/file.mp4", InputType.TYPE_TEXT_VARIATION_URI)
+        val name = field("文件名（可空）")
+        val ext = field("后缀（可空，如 mp4）")
+
+        container.addView(url)
+        container.addView(name)
+        container.addView(ext)
+
+        AlertDialog.Builder(context)
+            .setTitle("添加下载")
+            .setView(container)
+            .setPositiveButton("开始下载") { _, _ ->
+                val u = url.text.toString().trim()
+                if (u.isBlank()) return@setPositiveButton
+                val n = name.text.toString().trim().ifBlank { null }
+                val e = ext.text.toString().trim().removePrefix(".")
+                val fileName = when {
+                    n == null -> null
+                    e.isBlank() || n.endsWith(".$e", ignoreCase = true) -> n
+                    else -> "$n.$e"
+                }
+                onConfirm(u, fileName)
             }
-            setOnClickListener {
-                onConfirm(url.text.toString().trim(), name.text.toString().trim())
-                sheet.dismiss()
-            }
-        }
-        sheet.add(url)
-        sheet.add(name)
-        sheet.add(confirm)
-        sheet.show()
-        url.requestFocus()
+            .setNegativeButton("取消", null)
+            .show()
     }
 }
