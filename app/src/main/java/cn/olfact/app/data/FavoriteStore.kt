@@ -35,6 +35,13 @@ object FavoriteStore {
         persist(context)
     }
 
+    /** 撤销删除：原样放回。 */
+    fun restore(context: Context, favorite: Favorite) {
+        if (items.any { it.id == favorite.id }) return
+        items.add(0, favorite)
+        persist(context)
+    }
+
     private fun persist(context: Context) {
         val arr = org.json.JSONArray()
         items.forEach { f ->

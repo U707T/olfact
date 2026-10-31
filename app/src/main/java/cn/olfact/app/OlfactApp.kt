@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.appcompat.app.AppCompatDelegate
 import cn.olfact.app.data.AppSettings
 import cn.olfact.app.data.BookmarkStore
+import cn.olfact.app.data.FavoriteStore
 import cn.olfact.app.data.HistoryStore
 import cn.olfact.app.data.K
 import cn.olfact.app.data.ModuleBackends
@@ -17,6 +18,7 @@ class OlfactApp : Application() {
         cn.olfact.download.DownloadSettings.bind(AppSettings.repo)
         BookmarkStore.init(this)
         HistoryStore.init(this)
+        FavoriteStore.init(this)
         // 真实模块接到 core/api 契约上：轻的同步、读盘的后台（见 ModuleBackends.install），
         // 备份流水线在后台链路末尾自行安装
         ModuleBackends.install(this)
