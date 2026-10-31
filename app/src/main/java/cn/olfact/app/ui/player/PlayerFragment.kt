@@ -45,7 +45,8 @@ class PlayerFragment : Fragment(R.layout.fragment_player) {
         b.back.setOnClickListener { Nav.pop() }
         b.replayBox.setOnClickListener { startPlayback(url, title) }
         b.playPause.setOnClickListener { startPlayback(url, title) }
-        b.pip.setOnClickListener { enterPip() }
+        // 画中画由 player 模块的 VideoPlayerActivity 处理；这里不是 PiP 宿主，隐藏入口避免假动作。
+        b.pip.visibility = View.GONE
 
         // 这里不是真正的播放器（真正的控制条在 player 模块的 Activity 里）。
         // 隐藏假的进度条/全屏按钮，避免用户以为拖动或全屏应该在这里生效。
@@ -72,26 +73,13 @@ class PlayerFragment : Fragment(R.layout.fragment_player) {
         )
         val speed = AppSettings.get(K.PLAYER_SPEED).toFloatOrNull()?.coerceIn(0.5f, 2.0f) ?: 1f
         // rememberSpeed=false：让「默认倍速」每次都生效；播放器内的临时调速仍可用。
-        val options = PlaybackOptions(speed = speed, rememberSpeed = false)
+        val options = PlaybackOptions(
+            speed = speed,
+            rememberSpeed = false,
+            autoPipOnLeave = AppSettings.get(K.PLAYER_PIP)
+        )
         runCatching { PlaybackIntents.play(requireContext(), source, options) }
             .onFailure { Nav.toast("播放器启动失败：${it.message}") }
-    }
-
-    private fun enterPip() {
-        if (!AppSettings.get(K.PLAYER_PIP)) {
-            Nav.toast("已在设置里关闭画中画")
-            return
-        }
-        val activity = requireActivity()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            runCatching {
-                activity.enterPictureInPictureMode(
-                    PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build()
-                )
-            }.onFailure { Nav.toast("当前设备不支持画中画") }
-        } else {
-            Nav.toast("Android 8.0 起支持画中画")
-        }
     }
 
     private fun buildContent(container: LinearLayout, url: String, title: String) {
