@@ -21,8 +21,8 @@ android {
         applicationId = "cn.olfact.browser"
         minSdk = 24
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0.0-rc1"
+        versionCode = 2
+        versionName = "1.0.0-rc2"
         resourceConfigurations += listOf("zh", "en")
         vectorDrawables.useSupportLibrary = false
     }
@@ -89,6 +89,15 @@ kotlin {
     compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
 }
 
+// Robolectric 依赖 x86_64 的 native 组件：开发用的 aarch64 沙箱加载不了（UnsatisfiedLinkError），
+// 本地按架构跳过 UI 用例，CI（x86_64 runner）照常执行。
+tasks.withType<Test>().configureEach {
+    val arch = System.getProperty("os.arch").orEmpty()
+    if (!arch.contains("x86_64") && !arch.contains("amd64")) {
+        exclude("**/SettingItemClickTest*")
+    }
+}
+
 dependencies {
     implementation(project(":core"))
     implementation(project(":web"))
@@ -106,4 +115,6 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test:core:1.6.1")
 }

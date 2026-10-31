@@ -3,6 +3,41 @@
 本项目遵循「版本号 + CHANGELOG 顶部段落」的发版约定；`release` job 会把对应版本段落
 原样贴进 GitHub Release。
 
+## [1.0.0-rc2] - 2026-10-31
+
+设置项点不动、备份存空包、播放页只是壳——这一版把「合并后没接上的线」一次性接完，并把首页插画换成原版资源。
+
+### 修复
+
+- **设置里点不进去（阻断）**：`SettingItem` 只在 `SWITCH/CHECKBOX` 分支注册点击监听，
+  `CHEVRON/NONE`（跳转、单选、命令）整行没有 listener，`onClickAction` 永远不触发。
+  改为「单一注册点 + 行内交互与外部动作叠加」，并补 4 条 Robolectric 回归用例
+  （`SettingItemClickTest`，CI 跑）。
+- **备份存了个空包**：`BackupManager` 读的是已经没人写的 SharedPreferences，设置迁到
+  DataStore 后备份内容永远是空表。改为接 B4 的 `BackupPipeline`：
+  设置（带类型前缀）/书签/历史/脚本/订阅/白名单 → zip + manifest(SHA256) → 本地或 WebDAV；
+  恢复走整包校验 + 只增不减合并；WebDAV 密码改 Keystore 加密存储，旧明文自动迁移。
+- **定时备份不生效**：`AutoBackupScheduler` 从未被调用，「每天/每周」现在真的会排 WorkManager，
+  改了开关立即重排；新增 `BackupInterval.WEEK`。
+- **播放页是壳**：点播放只弹「player 模块接入后由此起播」。现在直接拉起 B3 的
+  `VideoPlayerActivity`（Media3 + PiP + 倍速 + 断点续播），进页面即起播。
+- **加密 DNS 开关不生效**：之前只在冷启动读一次设置，界面里开/关要重启才起作用；
+  现在切开关立即 start/stop 引擎。
+- **退出清数据没接**：`PrivacyCleaner` 从未调用，现在 `isFinishing` 且开关打开时清
+  缓存 / Cookie / WebStorage / 表单 / 历史（旋转等配置变更不会误清）。
+
+### 界面资源
+
+- 首页插画、新标签页插画改用**原版安装包里的海鸥图**（`res/kI.png`，裁掉透明留白后
+  按 2.1:1 输出 WebP，xxhdpi + mdpi 两档），删掉之前手绘的 `img_bird.xml` 与渐变占位
+  `bg_home_hero.xml`。
+- 首页右下风景卡继续用原版 `res/kM.webp`（与安装包字节一致）。
+
+### 审计
+
+- 新增 `docs/audit/2026-10-30-merge-audit.md` 的「第二轮：可达性审计」：
+  逐屏点检 30+ 入口、列出仍缺的接入（扫码解码、投屏已裁、下载速度字段）。
+
 ## [1.0.0-rc1] - 2026-10-30
 
 首个合并版：B1 地基、B2 浏览内核 + DoH、B3 播放/下载/AI、B4 拦截/脚本/备份、B5 界面复刻

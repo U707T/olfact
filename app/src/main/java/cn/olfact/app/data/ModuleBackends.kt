@@ -59,6 +59,14 @@ object ModuleBackends {
 
     private var doh: DohAdapter? = null
 
+    /** 备份/恢复要拿到**注入用的同一份**仓库实例，否则恢复出来的脚本不会立刻生效。 */
+    var scriptStore: cn.olfact.core.script.ScriptStore? = null
+        private set
+
+    /** 白名单/订阅的备份恢复后要 `reload()`，所以也留一个引用。 */
+    var adBlockManager: AdBlockManager? = null
+        private set
+
     fun install(context: Context) {
         val app = context.applicationContext
         installDoh(app)
@@ -91,6 +99,7 @@ object ModuleBackends {
     private fun installAdBlock(app: Context) {
         if (OlfactServices.adBlockController != null) return
         val manager = AdBlockManager.get(app)
+        adBlockManager = manager
         manager.setEnabled(AppSettings.get(K.AD_ENABLED))
         OlfactServices.adBlock = manager
         OlfactServices.adBlockController = AdBlockAdapter(manager)
@@ -101,6 +110,7 @@ object ModuleBackends {
     private fun installScripts(app: Context) {
         if (OlfactServices.scriptStore != null && OlfactServices.scripts != null) return
         val store = cn.olfact.core.script.ScriptStore(File(app.filesDir, "userscripts"))
+        scriptStore = store
         val bridge = GmBridge(
             values = GmValueStore(File(app.filesDir, "gm")),
             http = GmBridge.defaultClient(),

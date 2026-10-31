@@ -9,8 +9,11 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import cn.olfact.app.R
 import cn.olfact.app.data.AppSettings
+import cn.olfact.app.data.DohAdapter
 import cn.olfact.app.data.K
 import cn.olfact.app.databinding.FragmentPageBinding
 import cn.olfact.app.nav.Nav
@@ -65,6 +68,19 @@ class DohFragment : Fragment(R.layout.fragment_page) {
         b.content.addView(settingGroup(
             toggle("启用加密 DNS", status.enabled, "开启后按下面的分流策略走 DoH") { on ->
                 AppSettings.set(K.DOH_ENABLED, on)
+                // 引擎要真的跟着开关走，否则要重启应用才生效
+                val engine = OlfactServices.doh
+                if (engine is DohAdapter) {
+                    if (on) {
+                        viewLifecycleOwner.lifecycleScope.launch {
+                            runCatching { engine.startFromSettings() }
+                                .onFailure { Nav.toast("DoH 启动失败：${it.message}") }
+                            render()
+                        }
+                    } else {
+                        engine.stop()
+                    }
+                }
                 render()
             },
             setting("当前上游", status.upstream),

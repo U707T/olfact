@@ -71,7 +71,10 @@ enum class BackupInterval(val hours: Int, val label: String) {
     H1(1, "每 1 小时"),
     H6(6, "每 6 小时"),
     H12(12, "每 12 小时"),
-    H24(24, "每 24 小时");
+    H24(24, "每 24 小时"),
+
+    /** 设置页的「每周」；WorkManager 周期上限就是 15 分钟起步、没有上限。 */
+    WEEK(24 * 7, "每 7 天");
 
     companion object {
         fun fromHours(hours: Int): BackupInterval = entries.firstOrNull { it.hours == hours } ?: H24

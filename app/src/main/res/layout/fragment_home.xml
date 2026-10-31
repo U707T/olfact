@@ -17,18 +17,20 @@
         android:paddingEnd="16dp"
         android:paddingBottom="24dp">
 
+        <!-- 原版首页插画：直接取自安装包 res 里的海鸥图（去透明留白后按 2.1:1 输出） -->
         <FrameLayout
             android:id="@+id/hero"
             android:layout_width="match_parent"
-            android:layout_height="150dp"
-            android:background="@drawable/bg_home_hero">
+            android:layout_height="wrap_content"
+            android:paddingTop="28dp"
+            android:paddingBottom="10dp">
 
             <ImageView
-                android:layout_width="168dp"
-                android:layout_height="112dp"
+                android:layout_width="200dp"
+                android:layout_height="95dp"
                 android:layout_gravity="center"
                 android:contentDescription="@string/app_name"
-                android:src="@drawable/img_bird" />
+                android:src="@drawable/home_bird" />
         </FrameLayout>
 
         <cn.olfact.core.uikit.UrlBar

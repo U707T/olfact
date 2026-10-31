@@ -68,7 +68,21 @@ class SettingItem @JvmOverloads constructor(
         }
 
     var onCheckedChange: ((Boolean) -> Unit)? = null
+
+    /**
+     * 行被点击时执行的动作（跳转 / 弹单选 / 触发命令）。
+     *
+     * 注意：**不要**再通过 `setOnClickListener` 注册外部监听——行内交互（开关、勾选）
+     * 已经占用同一个点击入口，两者统一在这里串起来。
+     */
     var onClickAction: (() -> Unit)? = null
+        set(value) {
+            field = value
+            syncClickable()
+        }
+
+    /** 行内交互（开关翻转 / 勾选切换），由 [mode] 决定；与 [onClickAction] 叠加执行。 */
+    private var internalClick: (() -> Unit)? = null
 
     init {
         orientation = HORIZONTAL
@@ -98,6 +112,11 @@ class SettingItem @JvmOverloads constructor(
         })
         addView(chevronView)
 
+        // 唯一注册点：先跑行内交互，再跑外部动作
+        super.setOnClickListener {
+            internalClick?.invoke()
+            onClickAction?.invoke()
+        }
         applyMode()
     }
 
@@ -146,27 +165,24 @@ class SettingItem @JvmOverloads constructor(
         switchView.visibility = if (mode == Mode.SWITCH) View.VISIBLE else View.GONE
         checkView.visibility = if (mode == Mode.CHECKBOX) View.VISIBLE else View.GONE
         chevronView.visibility = if (mode == Mode.CHEVRON) View.VISIBLE else View.GONE
-        if (mode == Mode.SWITCH) {
-            switchView.onCheckedChange = { checked ->
-                onCheckedChange?.invoke(checked)
+        internalClick = when (mode) {
+            Mode.SWITCH -> {
+                switchView.onCheckedChange = { checked -> onCheckedChange?.invoke(checked) }
+                // 点整行也能切换，增大命中区域
+                ({ switchView.toggle() })
             }
-            // 点整行也能切换，增大命中区域
-            setOnClickListener { switchView.toggle() }
-        }
-        if (mode == Mode.CHECKBOX) {
-            // 行点击时 toggle，checkView 只负责显示
-            setOnClickListener {
-                checkView.isChecked = !checkView.isChecked
-                onCheckedChange?.invoke(checkView.isChecked)
+            Mode.CHECKBOX -> {
+                // 行点击时 toggle，checkView 只负责显示
+                ({ checkView.isChecked = !checkView.isChecked; onCheckedChange?.invoke(checkView.isChecked) })
             }
+            else -> null
         }
+        syncClickable()
     }
 
-    override fun setOnClickListener(l: OnClickListener?) {
-        super.setOnClickListener { v ->
-            l?.onClick(v)
-            onClickAction?.invoke()
-        }
+    /** 没有动作也没有行内交互时不要「假可点」：不点亮 ripple，也不吃点击。 */
+    private fun syncClickable() {
+        isClickable = internalClick != null || onClickAction != null
     }
 }
 

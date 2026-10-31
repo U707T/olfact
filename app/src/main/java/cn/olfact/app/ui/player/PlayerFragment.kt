@@ -14,6 +14,7 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import cn.olfact.app.R
 import cn.olfact.app.data.AppSettings
+import cn.olfact.app.data.BrowserSession
 import cn.olfact.app.data.FavoriteStore
 import cn.olfact.app.data.K
 import cn.olfact.app.databinding.FragmentPlayerBinding
@@ -21,6 +22,8 @@ import cn.olfact.app.nav.Nav
 import cn.olfact.app.ui.common.Dialogs
 import cn.olfact.core.api.OlfactServices
 import cn.olfact.core.uikit.dpF
+import cn.olfact.player.PlaybackIntents
+import cn.olfact.player.PlaybackSource
 
 /**
  * 播放页：黑色播放区 + 控制条 + 三张操作卡（对齐 docs/refs/04-播放页.jpg）。
@@ -39,8 +42,8 @@ class PlayerFragment : Fragment(R.layout.fragment_player) {
         val title = requireArguments().getString(ARG_TITLE).orEmpty().ifBlank { url.substringAfterLast('/') }
 
         b.back.setOnClickListener { Nav.pop() }
-        b.replayBox.setOnClickListener { togglePlay() }
-        b.playPause.setOnClickListener { togglePlay() }
+        b.replayBox.setOnClickListener { startPlayback(url, title) }
+        b.playPause.setOnClickListener { startPlayback(url, title) }
         b.pip.setOnClickListener { enterPip() }
         b.fullscreen.setOnClickListener { Nav.toast("横屏全屏由 player 模块的 PlayerView 接管") }
         b.seek.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
@@ -52,12 +55,26 @@ class PlayerFragment : Fragment(R.layout.fragment_player) {
         })
 
         buildContent(b.content, url, title)
+
+        // 原版行为：点嗅探结果直接进播放器，这里进页面即起播
+        startPlayback(url, title)
     }
 
-    private fun togglePlay() {
-        playing = !playing
-        binding?.playPause?.setImageResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play)
-        Nav.toast(if (playing) "player 模块接入后由此起播" else "已暂停")
+    /** 起播交给 B3 的 Media3 播放器（独立 Activity，支持 PiP / 倍速 / 断点续播）。 */
+    private fun startPlayback(url: String, title: String) {
+        if (url.isBlank()) return
+        val page = BrowserSession.current()
+        val source = PlaybackSource(
+            url = url,
+            title = title.ifBlank { null },
+            pageUrl = page?.url,
+            pageTitle = page?.title,
+            referer = page?.url,
+            headers = page?.url?.let { mapOf("Referer" to it) }.orEmpty(),
+            live = url.substringBefore('?').endsWith(".m3u8")
+        )
+        runCatching { PlaybackIntents.play(requireContext(), source) }
+            .onFailure { Nav.toast("播放器启动失败：${it.message}") }
     }
 
     private fun enterPip() {

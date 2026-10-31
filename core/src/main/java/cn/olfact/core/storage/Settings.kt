@@ -92,12 +92,65 @@ class DataStoreSettingsRepository(
         }
     }
 
+    /**
+     * 备份导出：把内存快照编码成 `类型:值` 的字符串表（备份格式是 Map<String,String>）。
+     *
+     * 类型是必须的——DataStore 的 key 不带类型信息，直接塞字符串会在恢复时写错类型。
+     */
+    fun exportMap(): Map<String, String> = snapshot.mapValues { (_, v) -> encodeValue(v) }
+
+    /**
+     * 备份导入。默认只补缺（`overwrite = false`），避免恢复旧备份把当前设置冲掉。
+     *
+     * @return 实际写入的项数
+     */
+    fun importMap(values: Map<String, String>, overwrite: Boolean = false): Int {
+        var written = 0
+        for ((name, raw) in values) {
+            val sep = raw.indexOf(':')
+            if (sep <= 0) continue
+            if (!overwrite && snapshot.containsKey(name)) continue
+            val type = raw.substring(0, sep)
+            val body = raw.substring(sep + 1)
+            val ok = runCatching {
+                when (type) {
+                    "b" -> set(SettingsKey(name, false), body.toBoolean())
+                    "i" -> set(SettingsKey(name, 0), body.toInt())
+                    "l" -> set(SettingsKey(name, 0L), body.toLong())
+                    "f" -> set(SettingsKey(name, 0f), body.toFloat())
+                    "ss" -> set(
+                        SettingsKey(name, emptySet<String>()),
+                        body.split(VALUE_SEP).filter { it.isNotEmpty() }.toSet()
+                    )
+                    else -> set(SettingsKey(name, ""), body)
+                }
+                true
+            }.getOrDefault(false)
+            if (ok) written++
+        }
+        return written
+    }
+
+    private fun encodeValue(v: Any): String = when (v) {
+        is Boolean -> "b:$v"
+        is Int -> "i:$v"
+        is Long -> "l:$v"
+        is Float -> "f:$v"
+        is Set<*> -> "ss:" + v.joinToString(VALUE_SEP)
+        else -> "s:$v"
+    }
+
     /** 冷启动需要"读到真值再渲染"的地方，先 await 一下（最多 [timeoutMs]）。 */
     suspend fun awaitLoaded(timeoutMs: Long = 3_000): Boolean =
         withTimeoutOrNull(timeoutMs) {
             while (!_loaded.value) kotlinx.coroutines.delay(8)
             true
         } ?: false
+
+    private companion object {
+        /** 集合成员分隔符（U+001F，正常设置值里不会出现）。 */
+        const val VALUE_SEP = "\u001F"
+    }
 
     private fun MutablePreferences.writeValue(name: String, value: Any?) {
         when (value) {

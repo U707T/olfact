@@ -16,6 +16,7 @@ import androidx.fragment.app.FragmentManager
 import cn.olfact.app.data.AppSettings
 import cn.olfact.app.data.AppLog
 import cn.olfact.app.data.BrowserSession
+import cn.olfact.app.data.HistoryStore
 import cn.olfact.app.data.K
 import cn.olfact.app.databinding.ActivityMainBinding
 import cn.olfact.app.link.LinkExtractor
@@ -23,6 +24,7 @@ import cn.olfact.app.link.SearchEngines
 import cn.olfact.app.menu.MainMenuSheet
 import cn.olfact.app.nav.ChromeAware
 import cn.olfact.app.nav.Nav
+import cn.olfact.core.backup.PrivacyCleaner
 import cn.olfact.core.uikit.BottomBar
 
 /**
@@ -65,6 +67,25 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         BrowserSession.save(this)
+    }
+
+    override fun onDestroy() {
+        // 「退出时清除数据」：只在本 Activity 真被销毁（返回键/划掉）时清，
+        // 配置变更（旋转、切深色）不能误清。
+        if (isFinishing && ::binding.isInitialized && AppSettings.get(K.PRIVACY_CLEAR_ON_EXIT)) {
+            val cleared = runCatching {
+                PrivacyCleaner(this).clearAll(
+                    listOf(
+                        PrivacyCleaner.Cleanable {
+                            HistoryStore.clear(this)
+                            HistoryStore.items.size
+                        }
+                    )
+                )
+            }
+            AppLog.i("privacy", "退出清数据：$cleared")
+        }
+        super.onDestroy()
     }
 
     private fun applyInsets() {

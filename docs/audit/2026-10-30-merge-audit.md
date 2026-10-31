@@ -72,3 +72,73 @@
 - **无技术债标记**：全仓 `TODO/FIXME/XXX/HACK` 为 0；最大文件 `ModuleBackends.kt` 465 行，其余 ≤417 行。
 - **故障降级明确**：模块缺失时 `LocalBackends` 只在槽位为 `null` 时装兜底，且 debug 才塞示例下载（界面有「示例数据」角标）。
 - **DoH 边界写清楚**：QUIC/SNI/ECH 不做、L2 只覆盖约 90% 流量，设置页有原文说明，不吹能力。
+
+---
+
+## 6. 第二轮：可达性审计（2026-10-31，rc2）
+
+用户反馈「设置里面的功能点不进去」。顺着这条线把**每个入口是否真的接到实现**过了一遍，
+又挖出三处「界面在、功能是壳」的问题。
+
+### 6.1 逐屏点检
+
+| 界面 | 入口 | 结论 | 备注 |
+|---|---|---|---|
+| 设置首页 | 14 个图标行 | ❌→✅ | `SettingItem` 只在 SWITCH/CHECKBOX 注册监听，CHEVRON 行没有 listener |
+| 设置子页 ×9 | 开关 / 单选 / 动作 / 跳转 | ❌→✅ | 同上，全部走 `onClickAction` |
+| 加密 DNS | 开关、三档策略、上游、重测、清缓存 | ⚠️→✅ | 开关过去只在冷启动生效，现在即时 start/stop |
+| 广告拦截 | 开关、订阅、白名单、立即更新 | ✅ | 走 B4 `AdBlockManager` 适配层 |
+| 脚本管理 | 列表、开关、编辑保存 | ✅ | 走 B4 `ScriptStore`（新增 `save(meta, code)`） |
+| AI 供应商 | 增删改、设为当前 | ✅ | Key 走 Keystore，面板只显示掩码 |
+| 数据备份 | 备份、恢复、WebDAV、定时 | ❌→✅ | 见 6.3，之前备份出来是空包 |
+| 关于与帮助 | 默认浏览器、模块状态、协议 | ✅ | |
+| 首页 | 5 个快捷入口 / 3 条统计 / 最近访问 / 语录 | ✅ | |
+| 播放页 | 播放、收藏、下载、嗅探 | ⚠️→✅ | 之前只弹「player 模块接入后由此起播」，现在拉起 Media3 |
+| 嗅探弹层 | 播放 / 下载 | ✅ | 播放走上面的真播放器 |
+| 下载列表 / 详情 | 暂停、继续、删除、清空 | ✅ | 暂停系统下载按取消处理（DownloadManager 无暂停语义） |
+| 浏览器 | 地址栏、建议、长按菜单、页内查找 | ✅ | |
+| 标签页 / 书签 / 历史 / 收藏 | 点击进入 | ✅ | |
+| 扫码 | 相机、手输 | ⚠️ | 解码组件未接，见 §7 |
+
+### 6.2 根因：`SettingItem` 的点击入口只有一个
+
+```kotlin
+// 旧：只有 SWITCH/CHECKBOX 分支注册 listener
+if (mode == Mode.SWITCH) setOnClickListener { switchView.toggle() }
+// onClickAction 只在被重写的 setOnClickListener 里调用 → CHEVRON 行永远不触发
+```
+
+修法：`init` 里注册**唯一**监听，内部按 `internalClick`（开关/勾选）+ `onClickAction`（跳转）
+叠加执行；`onClickAction` 的 setter 同步 `isClickable`，没有动作的行既不吃点击也不点亮 ripple。
+
+回归用例 `app/src/test/java/cn/olfact/app/ui/settings/SettingItemClickTest.kt`（4 条）。
+注意：Robolectric 在本沙箱（aarch64 proot）起不来（`UnsatisfiedLinkError`），
+所以这 4 条只在 GitHub Actions 的 x86_64 runner 上执行。
+
+### 6.3 另外三处「界面在、功能是壳」
+
+| 问题 | 实际后果 | 处理 |
+|---|---|---|
+| 备份读的是没人写的 SharedPreferences | 「立即备份」成功，但设置段永远是空表；WebDAV、定时备份完全没接 | 接 `BackupPipeline`：6 个数据段 + zip/manifest + 本地/WebDAV + 保留 5 份；恢复整包校验后合并且 `manager.reload()` |
+| 播放页只是控制条 UI | 点播放只弹 toast，视频永远不播 | `PlayerFragment` 进页面即 `PlaybackIntents.play()`，播放交给 `VideoPlayerActivity` |
+| 「退出时清除数据」没有调用方 | 开关是装饰 | `MainActivity.onDestroy()` 且 `isFinishing` 时走 `PrivacyCleaner`（清缓存/Cookie/WebStorage/表单/历史） |
+
+### 6.4 资源：能用原版就别手绘
+
+| 资源 | 之前 | 现在 |
+|---|---|---|
+| 首页插画 | `img_bird.xml` 手绘 vector（形状差得远） | 安装包 `res/kI.png`（2000×500，裁掉透明留白成 684×324），WebP 两档 |
+| 首页插画底色 | `bg_home_hero.xml` 渐变卡片（原版没有） | 删除，直接浮在白底上，与原版一致 |
+| 首页风景卡 | 已是原版 `res/kM.webp` | 保持不变（与安装包 MD5 一致） |
+
+> 安装包里另外两张成图 `res/uY.png`（绿底树林，729×1018）与 `res/Iy.jpg`（沙丘，1000×1500）
+> 没有明确的归属界面（APK 资源名被混淆，资源表取不到名字），暂不接入，避免瞎猜乱用。
+
+### 6.5 本轮未做
+
+| 事项 | 原因 |
+|---|---|
+| 扫码解码（ZXing decode / MLKit） | 需要额外解码依赖与真机相机验证，留到下一版 |
+| 下载瞬时速度 | B3 的 `DownloadRecord` 不记录速度，面板显示 0 B/s |
+| 真机跑 `B5-SMOKE` 20 条 | 沙箱无 KVM/adb |
+| 两份 `LinkExtractor` 合并 | 行为已一致，纯结构债 |

@@ -2,6 +2,7 @@ package cn.olfact.app
 
 import android.app.Application
 import androidx.appcompat.app.AppCompatDelegate
+import cn.olfact.app.data.AppBackup
 import cn.olfact.app.data.AppSettings
 import cn.olfact.app.data.BookmarkStore
 import cn.olfact.app.data.HistoryStore
@@ -20,6 +21,8 @@ class OlfactApp : Application() {
         // 再由 LocalBackends 给仍然为空的槽位装兜底（它只在 null 时注册）
         ModuleBackends.install(this)
         LocalBackends.install(this)
+        // 备份流水线（B4）接上各模块的数据段，并恢复「自动备份」的排程
+        AppBackup.install(this)
         applyNightMode()
     }
 
