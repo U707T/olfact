@@ -9,6 +9,7 @@ import cn.olfact.core.uikit.ListRow
 /** 下载列表：ViewHolder 复用，进度更新只重绑可见行。 */
 class DownloadAdapter(
     private val onOpen: (DownloadTask) -> Unit,
+    private val onDelete: (DownloadTask) -> Unit,
     private val subtitleOf: (DownloadTask) -> String,
     private val trailingOf: (DownloadTask) -> String
 ) : RecyclerView.Adapter<DownloadAdapter.VH>() {
@@ -33,6 +34,10 @@ class DownloadAdapter(
         holder.row.trailing = trailingOf(task)
         holder.row.setIcon(R.drawable.ic_file)
         holder.row.onRowClick = { onOpen(task) }
+        holder.row.setOnLongClickListener {
+            onDelete(task)
+            true
+        }
     }
 
     class VH(val row: ListRow) : RecyclerView.ViewHolder(row)

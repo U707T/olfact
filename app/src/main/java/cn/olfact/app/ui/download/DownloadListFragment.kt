@@ -55,6 +55,17 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
 
         val a = DownloadAdapter(
             onOpen = { Nav.push(DownloadDetailFragment.newInstance(it.id)) },
+            onDelete = { task ->
+                Dialogs.confirm(
+                    requireContext(),
+                    "删除任务",
+                    "只删除任务记录，不删除已下载文件。",
+                    danger = true
+                ) {
+                    OlfactServices.downloads?.remove(task.id, false)
+                    render()
+                }
+            },
             subtitleOf = { subtitleOf(it) },
             trailingOf = { trailingOf(it) }
         )
