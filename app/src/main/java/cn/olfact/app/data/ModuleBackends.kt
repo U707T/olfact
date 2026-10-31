@@ -160,7 +160,10 @@ object ModuleBackends {
 
     private fun installDownloads(app: Context) {
         if (OlfactServices.downloads != null) return
-        OlfactServices.downloads = DownloadAdapter(DownloadFacade.get(app), scope)
+        val facade = DownloadFacade.get(app)
+        // 通知点击要能回到应用里的下载详情
+        facade.contentActivity = cn.olfact.app.MainActivity::class.java
+        OlfactServices.downloads = DownloadAdapter(facade, scope)
     }
 
     // ------------------------------------------------------------ 浏览 (B2)

@@ -42,6 +42,10 @@ class MainActivity : AppCompatActivity() {
         toast(if (result.resultCode == RESULT_OK) "已设为默认浏览器" else "未授予默认浏览器角色")
     }
 
+    private val notifyPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        AppLog.i("notify", "通知权限：$granted")
+    }
+
     /** 字体缩放：设置页改完 recreate 后由这里生效（1.0 = 100%）。 */
     override fun attachBaseContext(newBase: Context) {
         val scale = runCatching { AppSettings.get(K.FONT_SCALE) / 100f }.getOrDefault(1f)
@@ -65,6 +69,7 @@ class MainActivity : AppCompatActivity() {
         setupBottomBar()
         observeChrome()
         applyEyeCare()
+        requestNotifyPermissionOnce()
 
         if (savedInstanceState == null) {
             BrowserSession.restoreIfNeeded(this)
@@ -198,6 +203,18 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** Android 13+ 通知权限：只主动问一次，拒绝后不再骚扰（可去系统设置里改）。 */
+    private fun requestNotifyPermissionOnce() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) return
+        val prefs = getSharedPreferences("olfact_ui", MODE_PRIVATE)
+        if (prefs.getBoolean("notify_asked", false)) return
+        prefs.edit().putBoolean("notify_asked", true).apply()
+        notifyPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+    }
+
     /** 设置页改「底部栏样式」后立即重建底栏，不重启 Activity。 */
     fun applyBottomBarStyle() {
         if (!::binding.isInitialized) return
@@ -248,6 +265,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleIntent(intent: Intent?): Boolean {
         intent ?: return false
+        // 下载通知：带 EXTRA_ID 直接进详情（PendingIntent 没有 action）
+        val downloadId = intent.getStringExtra("cn.olfact.download.EXTRA_ID")
+        if (!downloadId.isNullOrBlank()) {
+            AppLog.i("intent", "打开下载详情 $downloadId")
+            Nav.push(cn.olfact.app.ui.download.DownloadDetailFragment.newInstance(downloadId))
+            return true
+        }
         when (intent.action) {
             Intent.ACTION_VIEW -> {
                 val url = intent.dataString ?: return false
