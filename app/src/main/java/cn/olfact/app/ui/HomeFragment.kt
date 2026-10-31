@@ -125,6 +125,7 @@ class HomeFragment : Fragment(R.layout.fragment_home), ChromeAware {
         val ctx = requireContext()
         val stats = listOf(
             Stat("收藏书签", { BookmarkStore.all().size }) { Nav.push(BookmarksFragment()) },
+            Stat("媒体收藏", { cn.olfact.app.data.FavoriteStore.items.size }) { Nav.push(cn.olfact.app.ui.player.FavoritesFragment()) },
             Stat("文件下载", { OlfactServices.downloads?.tasks()?.size ?: 0 }) { Nav.push(DownloadListFragment()) },
             Stat("网页插件", { OlfactServices.scriptStore?.all()?.size ?: 0 }) { Nav.push(ScriptFragment()) }
         )
