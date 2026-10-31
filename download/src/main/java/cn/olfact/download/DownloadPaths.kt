@@ -22,8 +22,13 @@ object DownloadPaths {
         val root = if (spec.subDir.isBlank()) downloadsRoot(context) else File(downloadsRoot(context), spec.subDir)
         val extension = Files.extensionOf(spec.url, spec.mimeType)
         val base = Files.sanitizeFileName(spec.fileName.ifBlank { "video" }, "video")
-        if (spec.allowDuplicate) return Files.uniqueFile(root, base, extension)
-        return File(root, if (extension.isBlank()) base else "$base.$extension")
+        val plain = File(root, if (extension.isBlank()) base else "$base.$extension")
+        // 文件名已存在时也走 uniqueFile：不能因为 allowDuplicate=false 就覆盖旧文件。
+        // allowDuplicate=false 只用于「同 URL 活跃任务去重」，不代表允许覆盖磁盘文件。
+        if (spec.allowDuplicate || plain.exists()) {
+            return Files.uniqueFile(root, base, extension)
+        }
+        return plain
     }
 
     fun workDir(context: Context, recordId: String): File = File(tempRoot(context), recordId)
