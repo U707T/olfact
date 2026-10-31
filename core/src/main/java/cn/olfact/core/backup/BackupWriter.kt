@@ -31,6 +31,7 @@ class BackupWriter(
                 "settings" to data.settings.size,
                 "bookmarks" to data.bookmarks.size,
                 "history" to data.history.size,
+                "favorites" to data.favorites.size,
                 "scripts" to data.scripts.size,
                 "subscriptions" to data.subscriptions.size,
                 "whitelist" to data.adblockWhitelist.size

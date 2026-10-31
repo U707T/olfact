@@ -31,6 +31,7 @@ class BackupProviders(
     val settings: SettingsSection? = null,
     val bookmarks: ListSection<BookmarkRecord>? = null,
     val history: ListSection<HistoryRecord>? = null,
+    val favorites: ListSection<FavoriteRecord>? = null,
     val scripts: ListSection<ScriptRecord>? = null,
     val subscriptions: ListSection<SubscriptionRecord>? = null,
     val whitelist: WhitelistSection? = null

@@ -62,7 +62,7 @@ class BackupFragment : Fragment(R.layout.fragment_page) {
                 viewLifecycleOwner.lifecycleScope.launch {
                     val summary = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         AppBackup.preview(file)?.let {
-                            "书签 ${it.bookmarks.size} / 历史 ${it.history.size} / 脚本 ${it.scripts.size} 项"
+                            "书签 ${it.bookmarks.size} / 历史 ${it.history.size} / 收藏 ${it.favorites.size} / 脚本 ${it.scripts.size} 项"
                         } ?: "无法读取备份内容"
                     }
                     if (!isAdded) return@launch

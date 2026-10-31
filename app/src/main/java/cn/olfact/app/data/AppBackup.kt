@@ -16,6 +16,7 @@ import cn.olfact.core.backup.BackupState
 import cn.olfact.core.backup.BackupStateStore
 import cn.olfact.core.backup.BackupTarget
 import cn.olfact.core.backup.BookmarkRecord
+import cn.olfact.core.backup.FavoriteRecord
 import cn.olfact.core.backup.HistoryRecord
 import cn.olfact.core.backup.ImportResult
 import cn.olfact.core.backup.ListSection
@@ -74,6 +75,7 @@ object AppBackup {
                 settings = settings?.let { SettingsSectionImpl(it) },
                 bookmarks = BookmarkSection(app),
                 history = HistorySection(app),
+                favorites = FavoriteSection(app),
                 scripts = scriptStore?.let { ScriptBackupSection(it) },
                 subscriptions = SubscriptionBackupSection(SubscriptionStore(adblockDir)),
                 whitelist = WhitelistBackupSection(WhitelistStore(File(adblockDir, "whitelist.json")))
@@ -201,6 +203,27 @@ object AppBackup {
                 added++
             }
             return MergeReport("history", added, 0, skipped)
+        }
+    }
+
+    private class FavoriteSection(private val context: Context) : ListSection<FavoriteRecord> {
+        override fun exportItems(): List<FavoriteRecord> = FavoriteStore.items.map {
+            FavoriteRecord(id = it.id.toString(), title = it.title, url = it.url, createdAt = it.at)
+        }
+
+        override fun importItems(items: List<FavoriteRecord>, options: MergeOptions): MergeReport {
+            var added = 0
+            var skipped = 0
+            val known = FavoriteStore.items.mapTo(mutableSetOf()) { it.url }
+            for (record in items) {
+                if (record.url.isBlank() || !known.add(record.url)) {
+                    skipped++
+                    continue
+                }
+                FavoriteStore.add(context, record.title, record.url)
+                added++
+            }
+            return MergeReport("favorites", added, 0, skipped)
         }
     }
 

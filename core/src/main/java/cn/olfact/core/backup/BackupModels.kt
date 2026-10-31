@@ -22,6 +22,15 @@ data class HistoryRecord(
     val visitCount: Int = 1
 )
 
+/** 播放页收藏的媒体。 */
+@Serializable
+data class FavoriteRecord(
+    val id: String,
+    val title: String,
+    val url: String,
+    val createdAt: Long = 0L
+)
+
 @Serializable
 data class ScriptRecord(
     val meta: UserScript,
@@ -47,13 +56,14 @@ data class BackupData(
     val settings: Map<String, String> = emptyMap(),
     val bookmarks: List<BookmarkRecord> = emptyList(),
     val history: List<HistoryRecord> = emptyList(),
+    val favorites: List<FavoriteRecord> = emptyList(),
     val scripts: List<ScriptRecord> = emptyList(),
     val subscriptions: List<SubscriptionRecord> = emptyList(),
     val adblockWhitelist: List<String> = emptyList()
 ) {
     val isEmpty: Boolean
         get() = settings.isEmpty() && bookmarks.isEmpty() && history.isEmpty() &&
-            scripts.isEmpty() && subscriptions.isEmpty() && adblockWhitelist.isEmpty()
+            favorites.isEmpty() && scripts.isEmpty() && subscriptions.isEmpty() && adblockWhitelist.isEmpty()
 }
 
 @Serializable
@@ -67,7 +77,10 @@ data class BackupManifest(
 ) {
     companion object {
         const val FORMAT = "olfact-backup"
-        const val VERSION = 1
+        /** v2：新增 favorites（收藏）。旧版读取时会因 version > VERSION 被拒绝，属预期。 */
+        const val VERSION = 2
+
+        /** 仍能读取的最旧版本。v1 没有 favorites，按空列表处理。 */
         const val MIN_SUPPORTED = 1
     }
 }

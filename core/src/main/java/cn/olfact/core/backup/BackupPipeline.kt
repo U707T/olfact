@@ -98,6 +98,7 @@ class BackupPipeline(
         settings = providers.settings?.exportSettings() ?: emptyMap(),
         bookmarks = providers.bookmarks?.exportItems() ?: emptyList(),
         history = providers.history?.exportItems() ?: emptyList(),
+        favorites = providers.favorites?.exportItems() ?: emptyList(),
         scripts = providers.scripts?.exportItems() ?: emptyList(),
         subscriptions = providers.subscriptions?.exportItems() ?: emptyList(),
         adblockWhitelist = providers.whitelist?.exportWhitelist() ?: emptyList()
@@ -129,6 +130,9 @@ class BackupPipeline(
             }
             providers.history?.let {
                 reports.add(it.importItems(data.history, options))
+            }
+            providers.favorites?.let {
+                reports.add(it.importItems(data.favorites, options))
             }
             providers.scripts?.let {
                 reports.add(it.importItems(data.scripts, options))
