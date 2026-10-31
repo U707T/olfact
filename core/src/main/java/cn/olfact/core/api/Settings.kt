@@ -17,6 +17,9 @@ interface SettingsRepository {
 
     /** key 名变化流，例如 "doh.mode"。首次订阅不会收到历史值。 */
     val changes: Flow<String>
+
+    /** 清空所有设置回到默认值（书签/历史/脚本等业务数据不受影响）。 */
+    fun reset() {}
 }
 
 /**

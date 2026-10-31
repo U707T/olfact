@@ -2,6 +2,7 @@ package cn.olfact.app.ui.settings
 
 import android.os.Bundle
 import android.view.View
+import androidx.core.widget.doOnTextChanged
 import androidx.fragment.app.Fragment
 import cn.olfact.app.R
 import cn.olfact.app.databinding.FragmentSettingsBinding
@@ -17,6 +18,7 @@ import cn.olfact.core.uikit.SettingItem
 
 /**
  * 设置首页：分组卡片 + 图标行，结构与 docs/refs/08-设置页分区.jpg 一致。
+ * 顶部搜索框只过滤入口标题（不索引子页里的具体开关）。
  */
 class SettingsFragment : Fragment(R.layout.fragment_settings) {
 
@@ -27,36 +29,19 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         binding = b
         b.header.title = "设置"
         b.header.onBack = { Nav.pop() }
+        b.search.doOnTextChanged { text, _, _, _ -> render(text?.toString().orEmpty()) }
+        render("")
+    }
 
-        val groups = listOf(
-            listOf(
-                Row("基本设置", R.drawable.orig_s_basic) { Nav.push(SettingsPageFragment.newInstance("basic")) },
-                Row("外观/手势", R.drawable.orig_s_appearance) { Nav.push(SettingsPageFragment.newInstance("appearance")) },
-                Row("下载相关", R.drawable.orig_s_download) { Nav.push(SettingsPageFragment.newInstance("download")) },
-                Row("广告拦截", R.drawable.orig_s_shield) { Nav.push(AdBlockFragment()) },
-                Row("嗅探和播放器", R.drawable.orig_s_sniffer) { Nav.push(SettingsPageFragment.newInstance("sniffer")) }
-            ),
-            listOf(
-                Row("加密 DNS", R.drawable.orig_s_doh) { Nav.push(DohFragment()) },
-                Row("脚本管理", R.drawable.orig_m_plugin) { Nav.push(ScriptFragment()) },
-                Row("AI 供应商", R.drawable.orig_m_ai, rawIcon = true) { Nav.push(AiFragment()) },
-                Row("网站配置", R.drawable.orig_s_site) { Nav.push(SettingsPageFragment.newInstance("site")) },
-                Row("UA 管理", R.drawable.orig_s_ua) { Nav.push(SettingsPageFragment.newInstance("ua")) }
-            ),
-            listOf(
-                Row("数据备份", R.drawable.orig_s_backup) { Nav.push(BackupFragment()) },
-                Row("隐私与安全", R.drawable.orig_m_incognito) { Nav.push(SettingsPageFragment.newInstance("privacy")) }
-            ),
-            listOf(
-                Row("更多设置", R.drawable.orig_s_more) { Nav.push(SettingsPageFragment.newInstance("more")) },
-                Row("关于与帮助", R.drawable.orig_s_about) { Nav.push(AboutFragment()) }
-            )
-        )
-
+    private fun render(query: String) {
+        val b = binding ?: return
         b.sections.removeAllViews()
-        groups.forEachIndexed { index, rows ->
+        var first = true
+        groups().forEach { rows ->
+            val filtered = if (query.isBlank()) rows else rows.filter { it.title.contains(query, ignoreCase = true) }
+            if (filtered.isEmpty()) return@forEach
             val group = SettingGroup(requireContext())
-            rows.forEach { row ->
+            filtered.forEach { row ->
                 val item = SettingItem(requireContext()).apply {
                     title = row.title
                     if (row.rawIcon) setIconOriginal(row.icon) else setIcon(row.icon)
@@ -68,9 +53,35 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
             b.sections.addView(group, android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = if (index == 0) 0 else dp(12) })
+            ).apply { topMargin = if (first) 0 else dp(12) })
+            first = false
         }
     }
+
+    private fun groups() = listOf(
+        listOf(
+            Row("基本设置", R.drawable.orig_s_basic) { Nav.push(SettingsPageFragment.newInstance("basic")) },
+            Row("外观/手势", R.drawable.orig_s_appearance) { Nav.push(SettingsPageFragment.newInstance("appearance")) },
+            Row("下载相关", R.drawable.orig_s_download) { Nav.push(SettingsPageFragment.newInstance("download")) },
+            Row("广告拦截", R.drawable.orig_s_shield) { Nav.push(AdBlockFragment()) },
+            Row("嗅探和播放器", R.drawable.orig_s_sniffer) { Nav.push(SettingsPageFragment.newInstance("sniffer")) }
+        ),
+        listOf(
+            Row("加密 DNS", R.drawable.orig_s_doh) { Nav.push(DohFragment()) },
+            Row("脚本管理", R.drawable.orig_m_plugin) { Nav.push(ScriptFragment()) },
+            Row("AI 供应商", R.drawable.orig_m_ai, rawIcon = true) { Nav.push(AiFragment()) },
+            Row("网站配置", R.drawable.orig_s_site) { Nav.push(SettingsPageFragment.newInstance("site")) },
+            Row("UA 管理", R.drawable.orig_s_ua) { Nav.push(SettingsPageFragment.newInstance("ua")) }
+        ),
+        listOf(
+            Row("数据备份", R.drawable.orig_s_backup) { Nav.push(BackupFragment()) },
+            Row("隐私与安全", R.drawable.orig_m_incognito) { Nav.push(SettingsPageFragment.newInstance("privacy")) }
+        ),
+        listOf(
+            Row("更多设置", R.drawable.orig_s_more) { Nav.push(SettingsPageFragment.newInstance("more")) },
+            Row("关于与帮助", R.drawable.orig_s_about) { Nav.push(AboutFragment()) }
+        )
+    )
 
     private data class Row(
         val title: String,

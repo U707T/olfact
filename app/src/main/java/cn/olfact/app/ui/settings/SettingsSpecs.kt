@@ -60,7 +60,21 @@ object SettingsSpecs {
                     Row.Choice(K.HISTORY_LIMIT, "历史记录限制", listOf(
                         "100" to "100 条", "1000" to "1000 条", "5000" to "5000 条",
                         "100000" to "不限"
-                    ))
+                    )),
+                    Row.Action("恢复默认设置", summary = "所有设置回到初始值；书签/历史/脚本不受影响") {
+                        val ctx = Nav.context()
+                        if (ctx != null) {
+                            Dialogs.confirm(
+                                ctx,
+                                "恢复默认设置",
+                                "所有设置项将回到初始值，书签、历史、脚本与下载不受影响。继续？",
+                                danger = true
+                            ) {
+                                AppSettings.reset()
+                                (ctx as? android.app.Activity)?.recreate()
+                            }
+                        }
+                    }
                 )
             )
         )

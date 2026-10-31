@@ -92,6 +92,14 @@ class DataStoreSettingsRepository(
         }
     }
 
+    override fun reset() {
+        snapshot = emptyMap()
+        scope.launch {
+            runCatching { store.edit { it.clear() } }
+                .onFailure { Log.e(it, "设置重置失败") }
+        }
+    }
+
     /**
      * 备份导出：把内存快照编码成 `类型:值` 的字符串表（备份格式是 Map<String,String>）。
      *

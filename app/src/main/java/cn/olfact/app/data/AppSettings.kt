@@ -134,5 +134,8 @@ object AppSettings {
 
     fun <T> set(key: SettingsKey<T>, value: T) = repo.set(key, value)
 
+    /** 清空设置回到默认值；书签/历史/脚本不动。 */
+    fun reset() = repo.reset()
+
     val changes: Flow<String> get() = repo.changes
 }
