@@ -96,7 +96,15 @@ object LongPressSheet {
         val scroller = ScrollView(context).apply { addView(list) }
         val metrics = context.resources.displayMetrics
         val width = context.dpF(208f).toInt()
-        val height = (metrics.heightPixels * 0.62f).toInt()
+
+        // 先量内容高度：PopupWindow 不能用 WRAP_CONTENT，固定 62% 屏高会在内容少时
+        // 留一大片透明区域拦截点击。取「内容高度」和「最大 62% 屏高」的较小值。
+        list.measure(
+            View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        val maxHeight = (metrics.heightPixels * 0.62f).toInt()
+        val height = list.measuredHeight.coerceIn(1, maxHeight)
 
         popup = PopupWindow(scroller, width, height, true).apply {
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
