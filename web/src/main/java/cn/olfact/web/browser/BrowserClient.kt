@@ -32,7 +32,9 @@ class BrowserClient(
     private val onPageStarted: (String) -> Unit = {},
     private val onPageFinished: (String) -> Unit = {},
     private val onError: (Int, String, String) -> Unit = { _, _, _ -> },
-    private val onExternalScheme: (String) -> Boolean = { false }
+    private val onExternalScheme: (String) -> Boolean = { false },
+    /** 渲染进程被杀（OOM/崩溃）：返回 true 表示我们处理了，避免整个应用被带走。 */
+    private val onRenderProcessGone: (WebView) -> Unit = {}
 ) : WebViewClient() {
 
     private val seenMedia = ConcurrentHashMap<String, Long>()
@@ -111,6 +113,13 @@ class BrowserClient(
             null -> false
             else -> onExternalScheme(uri.toString())
         }
+    }
+
+    override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
+        // 不处理的话进程会被直接干掉；这里销毁这个 WebView，让界面自己决定后续（重建/提示）
+        runCatching { onRenderProcessGone(view) }
+        runCatching { view.destroy() }
+        return true
     }
 
     override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {

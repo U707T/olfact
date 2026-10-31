@@ -38,6 +38,15 @@ class DefaultBrowserSurface(private val context: Context) : BrowserSurface {
             userAgentString = if (AppSettings.get(K.DESKTOP_MODE)) DESKTOP_UA else MOBILE_UA
         }
         wv.webViewClient = object : WebViewClient() {
+            override fun onRenderProcessGone(
+                view: android.webkit.WebView,
+                detail: android.webkit.RenderProcessGoneDetail?
+            ): Boolean {
+                runCatching { view.destroy() }
+                web = null
+                return true
+            }
+
             override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                 url?.let { host.onPageStarted(it) }
             }

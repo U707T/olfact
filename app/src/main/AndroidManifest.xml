@@ -11,6 +11,7 @@
     <application
         android:name=".OlfactApp"
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:enableOnBackInvokedCallback="true"
         android:hardwareAccelerated="true"
         android:icon="@mipmap/ic_launcher"
@@ -20,6 +21,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Olfact"
         android:usesCleartextTraffic="true"
+        tools:ignore="PictureInPictureIssue"
         tools:targetApi="34">
 
         <activity
@@ -28,7 +30,6 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:resizeableActivity="true"
-            android:supportsPictureInPicture="true"
             android:windowSoftInputMode="adjustResize">
 
             <intent-filter>
@@ -76,7 +77,6 @@
         <activity
             android:name=".ui.tools.ScanActivity"
             android:exported="false"
-            android:screenOrientation="portrait"
             android:theme="@style/ThemeOlfactPlayer" />
     </application>
 </manifest>

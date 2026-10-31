@@ -1,9 +1,9 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
-    id("com.android.library")
-    id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.serialization")
+    alias(libs.plugins.android.library)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -30,11 +30,11 @@ kotlin {
 
 dependencies {
     api(project(":core"))
-    implementation("androidx.core:core-ktx:1.13.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-    implementation("com.squareup.okhttp3:okhttp:5.5.1")
-    implementation("com.squareup.okhttp3:okhttp-sse:5.5.1")
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.okhttp)
+    implementation(libs.okhttp.sse)
     // 与 core 对齐，避免同一类库在 APK 里出现版本漂移
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
-    testImplementation("junit:junit:4.13.2")
+    implementation(libs.kotlinx.serialization.json)
+    testImplementation(libs.junit)
 }

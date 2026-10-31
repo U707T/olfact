@@ -1,6 +1,6 @@
 plugins {
-    id("com.android.library")
-    id("org.jetbrains.kotlin.android")
+    alias(libs.plugins.android.library)
+    alias(libs.plugins.kotlin.android)
 }
 android {
     namespace = "cn.olfact.web"
@@ -19,13 +19,13 @@ android {
 dependencies {
     implementation(project(":core"))
 
-    implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.webkit:webkit:1.18.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-    implementation("com.squareup.okhttp3:okhttp:5.5.1")
-    implementation("androidx.datastore:datastore-preferences:1.1.1")
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.webkit)
+    implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.okhttp)
+    implementation(libs.androidx.datastore.preferences)
 
-    testImplementation("junit:junit:4.13.2")
+    testImplementation(libs.junit)
 }
 
 // 真联网的 DoH 验证默认关闭：./gradlew :web:testDebugUnitTest -Polfact.liveDoh=1 --tests '*LiveDohTest*'

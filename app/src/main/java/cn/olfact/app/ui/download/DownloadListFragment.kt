@@ -6,7 +6,6 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import cn.olfact.app.R
-import cn.olfact.app.data.LocalBackends
 import cn.olfact.app.databinding.FragmentDownloadListBinding
 import cn.olfact.app.nav.ChromeAware
 import cn.olfact.app.nav.Nav
@@ -87,14 +86,6 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
             if (index > 0) b.list.addView(divider())
             b.list.addView(row(task))
         }
-        if (LocalBackends.usingDemoDownloads) {
-            b.list.addView(android.widget.TextView(ctx).apply {
-                text = getString(R.string.demo_badge) + "：download 模块接入后自动替换"
-                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f)
-                setTextColor(ContextCompat.getColor(ctx, R.color.text_hint))
-                setPadding(48, 16, 48, 8)
-            })
-        }
     }
 
     private fun row(task: DownloadTask): View {
@@ -156,7 +147,7 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
             var v = bytes.toDouble()
             var i = 0
             while (v >= 1024 && i < units.lastIndex) { v /= 1024; i++ }
-            return String.format("%.1f %s", v, units[i])
+            return String.format(java.util.Locale.getDefault(), "%.1f %s", v, units[i])
         }
     }
 

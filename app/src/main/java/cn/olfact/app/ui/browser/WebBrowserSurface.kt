@@ -72,7 +72,14 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
                 host.onPageFinished(url)
                 injectLateScripts(view, url)
             },
-            onExternalScheme = { url -> cn.olfact.app.data.openExternal(context, url) }
+            onExternalScheme = { url -> cn.olfact.app.data.openExternal(context, url) },
+            onRenderProcessGone = { dead ->
+                // 渲染进程被系统杀掉：拆掉这个 WebView，提示用户重新加载，别让整个应用跟着崩
+                (dead.parent as? android.view.ViewGroup)?.removeView(dead)
+                web = null
+                android.widget.Toast.makeText(context, "页面进程已重启，请重新加载", android.widget.Toast.LENGTH_SHORT).show()
+                host.onPageFinished("")
+            }
         )
         view.webChromeClient = BrowserChromeClient(tabId, events)
 

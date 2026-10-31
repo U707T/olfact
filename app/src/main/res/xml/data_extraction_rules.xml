@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  备份/迁移规则：本应用不参与系统云备份与设备迁移（allowBackup=false 的双保险）。
+  用户要迁移数据请用应用内的「数据备份」（zip + WebDAV）。
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" path="." />
+    </device-transfer>
+</data-extraction-rules>

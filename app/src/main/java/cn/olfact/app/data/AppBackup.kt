@@ -28,6 +28,7 @@ import cn.olfact.core.backup.WebDavClient
 import cn.olfact.core.backup.WhitelistBackupSection
 import cn.olfact.core.crypto.KeystoreCrypto
 import cn.olfact.core.storage.DataStoreSettingsRepository
+import kotlinx.coroutines.launch
 import java.io.File
 
 /**
@@ -40,6 +41,10 @@ object AppBackup {
 
     private const val DIR_NAME = "backups"
     private const val WEBDAV_SUBDIR = "olfact"
+
+    private val scope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
+    )
 
     @Volatile
     private var pipeline: BackupPipeline? = null
@@ -81,7 +86,8 @@ object AppBackup {
         // AutoBackupWorker 通过这个全局点拿执行器
         BackupRuntime.runner = built
 
-        syncSchedule(app)
+        // WorkManager 首次 getInstance 要建库，别放在 Application.onCreate 里等它
+        scope.launch { syncSchedule(app) }
     }
 
     /** 「自动备份」三个档位 → WorkManager 周期任务。 */

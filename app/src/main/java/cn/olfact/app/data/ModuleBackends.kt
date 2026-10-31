@@ -51,7 +51,10 @@ import java.util.UUID
  * B4 的 `cn.olfact.core.script.UserScript` vs 面板的轻量 `UserScript`）。
  * 适配集中在本文件，界面代码（38 屏）无需改动，模块内部实现也不用迁就 UI。
  *
- * 注册顺序：先真实现，再由 [LocalBackends] 补空缺（它只在 null 时安装兜底）。
+ * 冷启动策略：只有「首帧就要用」的（嗅探回调、渲染器工厂）同步注册；
+ * DoH / 拦截 / 脚本 / AI / 下载 都要读盘（订阅 JSON、脚本索引、队列文件），统一放到
+ * 后台线程，Application.onCreate 不再等它们。界面读的是 `OlfactServices`，晚几百毫秒
+ * 注册也能正常工作（面板在未注册时会显示「未接入」，下此进入即正常）。
  */
 object ModuleBackends {
 
@@ -67,14 +70,35 @@ object ModuleBackends {
     var adBlockManager: AdBlockManager? = null
         private set
 
+    /** 后台初始化是否已完成（诊断页/日志用）。 */
+    @Volatile
+    var ready: Boolean = false
+        private set
+
     fun install(context: Context) {
         val app = context.applicationContext
-        installDoh(app)
-        installAdBlock(app)
-        installScripts(app)
-        installAi(app)
-        installDownloads(app)
+        // 纯对象，无 IO：浏览器壳第一帧就要
         installBrowser(app)
+
+        // 其余模块要读盘，挪到后台；失败也不该让进程起不来
+        scope.launch {
+            val began = System.currentTimeMillis()
+            runCatching {
+                installDoh(app)
+                installAdBlock(app)
+                installScripts(app)
+                installAi(app)
+                installDownloads(app)
+            }.onFailure {
+                android.util.Log.w("olfact", "模块初始化失败", it)
+            }
+            ready = true
+            android.util.Log.i("olfact", "模块初始化完成，用时 ${System.currentTimeMillis() - began} ms")
+
+            // 备份的数据段依赖脚本仓库与拦截管理器，必须排在它们之后
+            runCatching { AppBackup.install(app) }
+                .onFailure { android.util.Log.w("olfact", "备份初始化失败", it) }
+        }
     }
 
     // ------------------------------------------------------------------ DoH (B2)

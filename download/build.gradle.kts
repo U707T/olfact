@@ -1,8 +1,8 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
-    id("com.android.library")
-    id("org.jetbrains.kotlin.android")
+    alias(libs.plugins.android.library)
+    alias(libs.plugins.kotlin.android)
 }
 
 android {
@@ -29,20 +29,20 @@ kotlin {
 
 dependencies {
     api(project(":core"))
-    implementation("androidx.core:core-ktx:1.13.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.kotlinx.coroutines.android)
 
     // 队列
-    implementation("androidx.work:work-runtime-ktx:2.12.0")
+    implementation(libs.androidx.work.runtime.ktx)
 
     // TS → MP4 remux（不引 ffmpeg）
-    implementation("androidx.media3:media3-muxer:1.9.0")
-    implementation("androidx.media3:media3-extractor:1.9.0")
-    implementation("androidx.media3:media3-common:1.9.0")
+    implementation(libs.androidx.media3.muxer)
+    implementation(libs.androidx.media3.extractor)
+    implementation(libs.androidx.media3.common)
 
-    implementation("com.squareup.okhttp3:okhttp:5.5.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+    implementation(libs.okhttp)
+    implementation(libs.kotlinx.serialization.json)
 
-    testImplementation("junit:junit:4.13.2")
-    testImplementation("com.squareup.okhttp3:mockwebserver:5.5.1")
+    testImplementation(libs.junit)
+    testImplementation(libs.okhttp.mockwebserver)
 }

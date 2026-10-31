@@ -3,6 +3,35 @@
 本项目遵循「版本号 + CHANGELOG 顶部段落」的发版约定；`release` job 会把对应版本段落
 原样贴进 GitHub Release。
 
+## [1.0.0-rc4] - 2026-10-31
+
+扫码能真扫了；冷启动不再等读盘；CI 加 lint；依赖版本收进 version catalog。
+
+### 新增
+
+- **扫一扫**：CameraX 预览 + ZXing 解码（QR / DataMatrix / Aztec / PDF-417 / 一维码）。
+  只取 Y 平面转灰度、按帧 `rotationDegrees` 摆正；命中一次即停，非网址给「搜索 / 复制」出口。
+- 自适应图标补 `monochrome`（Android 13+ 主题图标）。
+
+### 变更
+
+- **冷启动**：`Application` 只同步注册「首帧要用」的嗅探回调与渲染器工厂；
+  DoH / 拦截 / 脚本 / AI / 下载改到后台初始化，备份链路挂在其后。
+  下载队列首帧不再读队列文件，WorkManager 的自动备份排程也移出主线程。
+- **依赖版本目录**：新增 `gradle/libs.versions.toml`，六个模块的插件与依赖全部改成 `libs.xxx`。
+- **CI**：新增 `lint` job（0 error 才放行，报告作为 artifact 存档）。
+
+### 修复
+
+- WebView 渲染进程被系统回收时不再带崩整个应用：`onRenderProcessGone` 拆掉死掉的 WebView 并提示重新加载。
+- 扫码页不再锁竖屏（Android 16 起系统本来也会忽略固定方向）。
+- Lint 收口：`DefaultLocale`、`dataExtractionRules`、PiP 误报（代码在 player 模块，app 模块看不到）。
+
+### 体积
+
+- release **3.11 MB/ABI**：CameraX 带来 +260 KB，其余与 rc3 持平（删掉的 recyclerview /
+  viewmodel-ktx / media3-datasource 在 R8 后本来就没占多少）。
+
 ## [1.0.0-rc3] - 2026-10-31
 
 DoH 上游可以自己填了，并且「选中哪个就用哪个」终于真的生效；顺手做了一轮全功能审计。

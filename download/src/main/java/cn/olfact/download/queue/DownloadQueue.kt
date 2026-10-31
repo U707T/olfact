@@ -45,7 +45,8 @@ class DownloadQueue(
     private val client: OkHttpClient = Http.defaultClient(),
 ) {
 
-    private val _items = MutableStateFlow(store.all())
+    // 首帧不等队列文件：先给空表，读盘在后台补一次（几百条记录时这一步能省几十毫秒）
+    private val _items = MutableStateFlow<List<DownloadRecord>>(emptyList())
     val items: StateFlow<List<DownloadRecord>> = _items.asStateFlow()
 
     private val jobs = ConcurrentHashMap<String, Job>()
@@ -53,6 +54,10 @@ class DownloadQueue(
     private val activeIds = ConcurrentHashMap.newKeySet<String>()
     private val lastProgressPush = ConcurrentHashMap<String, Long>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    init {
+        scope.launch { runCatching { publish() } }
+    }
 
     // ---------- 对外操作 ----------
 

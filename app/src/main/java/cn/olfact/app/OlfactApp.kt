@@ -2,12 +2,10 @@ package cn.olfact.app
 
 import android.app.Application
 import androidx.appcompat.app.AppCompatDelegate
-import cn.olfact.app.data.AppBackup
 import cn.olfact.app.data.AppSettings
 import cn.olfact.app.data.BookmarkStore
 import cn.olfact.app.data.HistoryStore
 import cn.olfact.app.data.K
-import cn.olfact.app.data.LocalBackends
 import cn.olfact.app.data.ModuleBackends
 
 class OlfactApp : Application() {
@@ -17,12 +15,9 @@ class OlfactApp : Application() {
         AppSettings.init(this)
         BookmarkStore.init(this)
         HistoryStore.init(this)
-        // 先把 B2/B3/B4 的真实实现接到 core/api 契约上，
-        // 再由 LocalBackends 给仍然为空的槽位装兜底（它只在 null 时注册）
+        // 真实模块接到 core/api 契约上：轻的同步、读盘的后台（见 ModuleBackends.install），
+        // 备份流水线在后台链路末尾自行安装
         ModuleBackends.install(this)
-        LocalBackends.install(this)
-        // 备份流水线（B4）接上各模块的数据段，并恢复「自动备份」的排程
-        AppBackup.install(this)
         applyNightMode()
     }
 
