@@ -30,6 +30,16 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         b.header.title = "设置"
         b.header.onBack = { Nav.pop() }
         b.search.doOnTextChanged { text, _, _, _ -> render(text?.toString().orEmpty()) }
+        b.search.setOnEditorActionListener { v, actionId, _ ->
+            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) {
+                val imm = requireContext().getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+                imm?.hideSoftInputFromWindow(v.windowToken, 0)
+                v.clearFocus()
+                true
+            } else {
+                false
+            }
+        }
         render("")
     }
 
