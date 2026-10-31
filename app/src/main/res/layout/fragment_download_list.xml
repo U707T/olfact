@@ -90,21 +90,15 @@
         android:layout_height="2dp"
         android:layout_marginTop="6dp" />
 
-    <ScrollView
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/list"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:clipToPadding="false"
         android:paddingTop="8dp"
         android:paddingBottom="16dp"
-        android:scrollbars="none">
-
-        <LinearLayout
-            android:id="@+id/list"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical" />
-    </ScrollView>
+        android:scrollbars="none" />
 
     <cn.olfact.core.uikit.EmptyView
         android:id="@+id/empty"

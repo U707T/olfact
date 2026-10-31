@@ -29,6 +29,7 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
     override val barId: String = "downloads"
 
     private var binding: FragmentDownloadListBinding? = null
+    private var adapter: DownloadAdapter? = null
     private var showRunning = false
     private var sortMode = SortMode.TIME
     private var showTime = true
@@ -51,6 +52,15 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
         b.clearAll.setOnClickListener { clearCurrent() }
 
         b.empty.setAction("新增下载") { AddDownloadSheet.show(requireContext()) { url, name -> enqueue(url, name) } }
+
+        val a = DownloadAdapter(
+            onOpen = { Nav.push(DownloadDetailFragment.newInstance(it.id)) },
+            subtitleOf = { subtitleOf(it) },
+            trailingOf = { trailingOf(it) }
+        )
+        adapter = a
+        b.list.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(requireContext())
+        b.list.adapter = a
 
         OlfactServices.downloads?.changes?.let { flow ->
             viewLifecycleOwner.lifecycleScope.launch {
@@ -90,32 +100,18 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
             SortMode.SIZE -> filtered.sortedByDescending { it.totalBytes }
         }
 
+        val a = adapter ?: return
         b.tabDone.setTextColor(ContextCompat.getColor(ctx, if (showRunning) R.color.text_secondary else R.color.text_accent))
         b.tabRunning.setTextColor(ContextCompat.getColor(ctx, if (showRunning) R.color.text_accent else R.color.text_secondary))
 
-        b.list.removeAllViews()
         b.empty.visibility = if (list.isEmpty()) View.VISIBLE else View.GONE
         if (list.isEmpty()) {
             b.empty.text = if (showRunning) "没有正在下载的任务" else getString(R.string.empty_downloads)
+            a.submit(emptyList())
             return
         }
 
-        list.forEachIndexed { index, task ->
-            if (index > 0) b.list.addView(divider())
-            b.list.addView(row(task))
-        }
-    }
-
-    private fun row(task: DownloadTask): View {
-        val ctx = requireContext()
-        val row = ListRow(ctx).apply {
-            title = task.name
-            subtitle = subtitleOf(task)
-            trailing = trailingOf(task)
-            setIcon(R.drawable.ic_file)
-            onRowClick = { Nav.push(DownloadDetailFragment.newInstance(task.id)) }
-        }
-        return row
+        a.submit(list)
     }
 
     private fun subtitleOf(task: DownloadTask): String {
@@ -136,13 +132,6 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
         DownloadState.DONE -> ""
         DownloadState.FAILED -> "重试"
         else -> "${task.progress}%"
-    }
-
-    private fun divider() = View(requireContext()).apply {
-        layoutParams = android.widget.LinearLayout.LayoutParams(
-            android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 1
-        ).apply { marginStart = 52 }
-        setBackgroundColor(ContextCompat.getColor(requireContext(), R.color.divider))
     }
 
     private fun showMenu() {

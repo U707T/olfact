@@ -3,20 +3,20 @@ package cn.olfact.app.ui.bookmark
 import android.os.Bundle
 import android.view.View
 import androidx.fragment.app.Fragment
-import androidx.core.content.ContextCompat
+import androidx.recyclerview.widget.LinearLayoutManager
 import cn.olfact.app.R
+import cn.olfact.app.data.Bookmark
 import cn.olfact.app.data.BookmarkStore
 import cn.olfact.app.databinding.FragmentEntryListBinding
 import cn.olfact.app.nav.Nav
 import cn.olfact.app.ui.common.Dialogs
-import cn.olfact.core.uikit.ListRow
-import cn.olfact.core.uikit.SettingGroup
 import com.google.android.material.snackbar.Snackbar
 
-/** 书签列表：点开、长按删、右上角新增。 */
+/** 书签列表：点开、行尾删除（长按也可）、删除后可撤销。 */
 class BookmarksFragment : Fragment(R.layout.fragment_entry_list) {
 
     private var binding: FragmentEntryListBinding? = null
+    private var adapter: BookmarkAdapter? = null
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val b = FragmentEntryListBinding.bind(view)
@@ -24,6 +24,14 @@ class BookmarksFragment : Fragment(R.layout.fragment_entry_list) {
         b.header.title = "书签"
         b.header.onBack = { Nav.pop() }
         b.header.addAction(R.drawable.ic_bookmark_add, "新增书签") { add() }
+
+        val a = BookmarkAdapter(
+            onOpen = { Nav.openBrowser(it.url) },
+            onDelete = { confirmDelete(it) }
+        )
+        adapter = a
+        b.list.layoutManager = LinearLayoutManager(requireContext())
+        b.list.adapter = a
         render()
     }
 
@@ -35,44 +43,7 @@ class BookmarksFragment : Fragment(R.layout.fragment_entry_list) {
         }
     }
 
-    private fun render() {
-        val b = binding ?: return
-        val ctx = requireContext()
-        val items = BookmarkStore.all()
-        b.list.removeAllViews()
-        b.empty.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
-        if (items.isEmpty()) {
-            b.empty.text = getString(R.string.empty_bookmarks)
-            b.empty.setAction("新增书签") { add() }
-            return
-        }
-
-        val group = SettingGroup(ctx)
-        items.forEach { bookmark ->
-            val row = ListRow(ctx).apply {
-                title = bookmark.title
-                subtitle = bookmark.url
-                setIcon(R.drawable.ic_bookmark)
-                showChevron(false)
-                onRowClick = { Nav.openBrowser(bookmark.url) }
-                setOnLongClickListener { confirmDelete(bookmark); true }
-            }
-            // 可见的删除入口：不再只能靠长按猜。
-            val del = android.widget.ImageView(ctx).apply {
-                setImageResource(R.drawable.ic_trash)
-                imageTintList = ContextCompat.getColorStateList(ctx, R.color.text_hint)
-                contentDescription = "删除书签"
-                val pad = (10 * resources.displayMetrics.density).toInt()
-                setPadding(pad, pad, pad, pad)
-                setOnClickListener { confirmDelete(bookmark) }
-            }
-            row.addTrailing(del)
-            group.addRow(row, dividerInsetDp = 52)
-        }
-        b.list.addView(group)
-    }
-
-    private fun confirmDelete(bookmark: cn.olfact.app.data.Bookmark) {
+    private fun confirmDelete(bookmark: Bookmark) {
         val ctx = requireContext()
         Dialogs.confirm(ctx, "删除书签", bookmark.title, danger = true) {
             BookmarkStore.remove(ctx, bookmark.id)
@@ -86,8 +57,23 @@ class BookmarksFragment : Fragment(R.layout.fragment_entry_list) {
         }
     }
 
+    private fun render() {
+        val b = binding ?: return
+        val a = adapter ?: return
+        val items = BookmarkStore.all()
+        b.empty.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
+        if (items.isEmpty()) {
+            b.empty.text = getString(R.string.empty_bookmarks)
+            b.empty.setAction("新增书签") { add() }
+            a.submit(emptyList())
+            return
+        }
+        a.submit(items)
+    }
+
     override fun onDestroyView() {
         binding = null
+        adapter = null
         super.onDestroyView()
     }
 }

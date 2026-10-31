@@ -90,7 +90,10 @@ class SettingsPageFragment : Fragment(R.layout.fragment_settings_page) {
                 Dialogs.choose(requireContext(), row.title, row.options.map { it.second }, index) { picked ->
                     val pickedValue = row.options[picked].first
                     AppSettings.set(row.key, pickedValue)
-                    if (!onSettingChanged(row.key.name, pickedValue)) refresh()
+                    if (!onSettingChanged(row.key.name, pickedValue)) {
+                        // 只更新这一行的值，不再整页 removeAllViews。
+                        value = row.options.firstOrNull { it.first == pickedValue }?.second ?: "未设置"
+                    }
                 }
             }
         }
@@ -106,7 +109,10 @@ class SettingsPageFragment : Fragment(R.layout.fragment_settings_page) {
                 Dialogs.choose(requireContext(), row.title, row.options.map { it.second }, index) { picked ->
                     val pickedValue = row.options[picked].first
                     AppSettings.set(row.key, pickedValue)
-                    if (!onSettingChanged(row.key.name, pickedValue)) refresh()
+                    if (!onSettingChanged(row.key.name, pickedValue)) {
+                        // 只更新这一行的值，不再整页 removeAllViews。
+                        value = row.options.firstOrNull { it.first == pickedValue }?.second ?: "未设置"
+                    }
                 }
             }
         }
