@@ -57,6 +57,13 @@ class DownloadWorker(
                 )
             }
         }
+        val launch = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)
+        val pending = launch?.let {
+            android.app.PendingIntent.getActivity(
+                ctx, 0, it,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+        }
         val notification = NotificationCompat.Builder(ctx, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle("正在下载")
@@ -64,6 +71,7 @@ class DownloadWorker(
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .apply { pending?.let { setContentIntent(it) } }
             .build()
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ForegroundInfo(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
