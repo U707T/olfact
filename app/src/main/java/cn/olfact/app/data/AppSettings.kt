@@ -40,6 +40,8 @@ object K {
     val NIGHT_WEB = SettingsKey("web.night", "auto")
     val NO_IMAGE = SettingsKey("web.no_image", false)
     val DESKTOP_MODE = SettingsKey("web.desktop", false)
+    /** 自定义 UA；非空时优先于桌面/移动默认值。 */
+    val WEB_CUSTOM_UA = SettingsKey("web.custom_ua", "")
     val PAGE_ZOOM = SettingsKey("web.page_zoom", 100)
     val JS_ENABLED = SettingsKey("web.js", true)
 

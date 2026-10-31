@@ -128,8 +128,14 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
                 android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
                 android.content.res.Configuration.UI_MODE_NIGHT_YES
         }
+        val customUa = AppSettings.get(K.WEB_CUSTOM_UA).trim().ifBlank { null }
         return BrowserConfig(
-            uaMode = if (AppSettings.get(K.DESKTOP_MODE)) UaMode.DESKTOP else UaMode.MOBILE,
+            uaMode = when {
+                customUa != null -> UaMode.CUSTOM
+                AppSettings.get(K.DESKTOP_MODE) -> UaMode.DESKTOP
+                else -> UaMode.MOBILE
+            },
+            customUa = customUa,
             imagesEnabled = !AppSettings.get(K.NO_IMAGE),
             javaScriptEnabled = AppSettings.get(K.JS_ENABLED),
             nightMode = night,

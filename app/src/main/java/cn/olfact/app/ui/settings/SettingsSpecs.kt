@@ -2,6 +2,7 @@ package cn.olfact.app.ui.settings
 
 import cn.olfact.app.data.AppSettings
 import cn.olfact.app.data.K
+import cn.olfact.app.data.RuntimeFlags
 import cn.olfact.app.nav.Nav
 import cn.olfact.app.ui.common.Dialogs
 import cn.olfact.app.ui.settings.pages.AdBlockFragment
@@ -121,7 +122,11 @@ object SettingsSpecs {
             ),
             Section(
                 listOf(
-                    Row.Value("下载目录", value = { "/Download/olfact" }),
+                    Row.Value(
+                        "下载目录",
+                        value = { "应用专属目录" },
+                        summary = "Android/data/${Core.context.packageName}/files/Download/olfact"
+                    ),
                     Row.Action("清除已完成任务", summary = "只删记录，不删文件") {
                         OlfactServices.downloads?.clearFinished()
                         Nav.toast("已清除")
@@ -164,14 +169,23 @@ object SettingsSpecs {
             Section(
                 listOf(
                     Row.Value("当前 UA", value = {
-                        if (AppSettings.get(K.DESKTOP_MODE)) DESKTOP_UA else MOBILE_UA
+                        AppSettings.get(K.WEB_CUSTOM_UA).ifBlank {
+                            if (AppSettings.get(K.DESKTOP_MODE)) DESKTOP_UA else MOBILE_UA
+                        }
                     })
                 )
             ),
             Section(
                 listOf(
-                    Row.Action("自定义 UA", summary = "按站点覆盖，留空则用全局默认") {
-                        Dialogs.input(Nav.context()!!, "自定义 UA", MOBILE_UA) { _ -> Nav.toast("站点级 UA 由 web 模块持久化") }
+                    Row.Action("自定义 UA", summary = "留空则用全局默认；保存后刷新页面生效") {
+                        val ctx = Nav.context()
+                        if (ctx != null) {
+                            Dialogs.input(ctx, "自定义 UA", AppSettings.get(K.WEB_CUSTOM_UA), "留空恢复默认") { ua ->
+                                AppSettings.set(K.WEB_CUSTOM_UA, ua.trim())
+                                RuntimeFlags.reloadPagesOnResume = true
+                                Nav.toast(if (ua.isBlank()) "已恢复默认 UA" else "已保存，刷新页面后生效")
+                            }
+                        }
                     }
                 )
             )
