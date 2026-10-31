@@ -1,16 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  夜间只覆盖 app 独有、core 没有对应语义的项。
+  页面/文字/品牌色都通过 values/colors.xml 的别名指向 core 的 uikit_*，
+  这里不要再重复定义，否则又会出现两套色板。
+-->
 <resources>
-    <color name="page_bg">#FF111111</color>
-    <color name="card">#FF1C1C1E</color>
-    <color name="text_primary">#FFEDEDED</color>
-    <color name="text_secondary">#FFA0A0A0</color>
-    <color name="text_hint">#FF8A8A8A</color>
-    <color name="divider">#FF2A2A2C</color>
-    <color name="brand">#FF2FB877</color>
-    <color name="brand_dark">#FF109D58</color>
-    <color name="text_accent">#FF2FB877</color>
-    <color name="soft">#FF232529</color>
-    <color name="danger">#FFFF6B6E</color>
-    <color name="check">#FF9C8FD0</color>
     <color name="scrim">#99000000</color>
 </resources>

@@ -1,27 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 应用级色板：数值取自原版 decode/res/values/colors.xml -->
+<!--
+  应用级颜色全部是 core `uikit_colors.xml` 的别名：
+  日/夜值只维护一份，避免 app 与 core 两套色板漂移。
+-->
 <resources>
-    <color name="page_bg">#FFF2F2F2</color>
-    <color name="card">#FFFFFFFF</color>
-    <color name="text_primary">#FF212121</color>
-    <color name="text_secondary">#FF616161</color>
-    <color name="text_hint">#FF6E6E6E</color>
-    <color name="divider">#FFEEEEEE</color>
-    <color name="brand">#FF109D58</color>
-    <color name="brand_dark">#FF0C7A44</color>
-    <!-- 绿色文字的专用色：白底 5.4:1，达到 WCAG AA（brand 作正文只有 3.5:1） -->
-    <color name="text_accent">#FF0C7A44</color>
-    <color name="soft">#FFF1F4F8</color>
-    <color name="danger">#FFE5484D</color>
-    <color name="check">#FFB39DDB</color>
-    <color name="black">#FF000000</color>
-    <color name="white">#FFFFFFFF</color>
+    <color name="page_bg">@color/uikit_page_bg</color>
+    <color name="card">@color/uikit_card</color>
+    <color name="text_primary">@color/uikit_text_primary</color>
+    <color name="text_secondary">@color/uikit_text_secondary</color>
+    <color name="text_hint">@color/uikit_text_hint</color>
+    <color name="divider">@color/uikit_divider</color>
+    <color name="brand">@color/uikit_accent</color>
+    <color name="brand_dark">@color/uikit_accent_dark</color>
+    <color name="text_accent">@color/uikit_text_accent</color>
+    <color name="soft">@color/uikit_soft</color>
+    <color name="danger">@color/uikit_danger</color>
+    <color name="check">@color/uikit_check</color>
+    <color name="black">@color/uikit_black</color>
+    <color name="white">@color/uikit_white</color>
     <color name="scrim">#66000000</color>
 
     <color name="ic_launcher_background">#FF3DCF9E</color>
-    <color name="pastel_blue">#FF62A6FB</color>
-    <color name="pastel_green">#FF2FC99D</color>
-    <color name="pastel_purple">#FFB7ACF8</color>
-    <color name="pastel_red">#FFFFA19C</color>
-    <color name="pastel_orange">#FFF5B57E</color>
+    <color name="pastel_blue">@color/uikit_pastel_blue</color>
+    <color name="pastel_green">@color/uikit_pastel_green</color>
+    <color name="pastel_purple">@color/uikit_pastel_purple</color>
+    <color name="pastel_red">@color/uikit_pastel_red</color>
+    <color name="pastel_orange">@color/uikit_pastel_orange</color>
 </resources>
