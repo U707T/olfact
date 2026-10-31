@@ -116,6 +116,8 @@ class ScanActivity : AppCompatActivity() {
             val analysis = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+                // 1080p 整帧每帧约 2 MB；二维码识别 720p 足够，降下来省 CPU/内存。
+                .setTargetResolution(android.util.Size(1280, 720))
                 .build()
                 .also { it.setAnalyzer(executor, ::analyze) }
 
@@ -140,6 +142,11 @@ class ScanActivity : AppCompatActivity() {
         runOnUiThread { onDecoded(text) }
     }
 
+    /** 分析线程专用缓冲：每帧复用，避免 1080p 下每帧分配两份整帧数组。 */
+    private var dataBuffer = ByteArray(0)
+    private var rowBuffer = ByteArray(0)
+    private var rotatedBuffer = ByteArray(0)
+
     /** YUV_420_888 只取 Y 平面 → 灰度图 → 按旋转角摆正 → ZXing。 */
     private fun decode(image: ImageProxy): String? {
         val plane = image.planes[0]
@@ -149,8 +156,11 @@ class ScanActivity : AppCompatActivity() {
         val rowStride = plane.rowStride
         val pixelStride = plane.pixelStride
 
-        val data = ByteArray(width * height)
-        val row = ByteArray(rowStride)
+        val size = width * height
+        if (dataBuffer.size < size) dataBuffer = ByteArray(size)
+        val data = dataBuffer
+        if (rowBuffer.size < rowStride) rowBuffer = ByteArray(rowStride)
+        val row = rowBuffer
         buffer.rewind()
         var out = 0
         for (y in 0 until height) {
@@ -177,23 +187,22 @@ class ScanActivity : AppCompatActivity() {
     private fun rotate(data: ByteArray, width: Int, height: Int, degrees: Int): Frame {
         val normalized = ((degrees % 360) + 360) % 360
         if (normalized == 0) return Frame(data, width, height)
+        if (rotatedBuffer.size < data.size) rotatedBuffer = ByteArray(data.size)
+        val out = rotatedBuffer
         return when (normalized) {
             90 -> {
-                val out = ByteArray(data.size)
                 for (y in 0 until height) for (x in 0 until width) {
                     out[x * height + (height - 1 - y)] = data[y * width + x]
                 }
                 Frame(out, height, width)
             }
             180 -> {
-                val out = ByteArray(data.size)
                 for (y in 0 until height) for (x in 0 until width) {
                     out[(height - 1 - y) * width + (width - 1 - x)] = data[y * width + x]
                 }
                 Frame(out, width, height)
             }
             else -> { // 270
-                val out = ByteArray(data.size)
                 for (y in 0 until height) for (x in 0 until width) {
                     out[(width - 1 - x) * height + y] = data[y * width + x]
                 }

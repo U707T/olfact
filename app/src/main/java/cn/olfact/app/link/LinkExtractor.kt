@@ -33,6 +33,12 @@ object LinkExtractor {
         """(?i)(?<![\w@.\-])(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}(?![\w.])(?::\d{2,5})?(?:/[^\s<>"'，。；：！？、（）【】「」《》]*)?"""
     )
 
+    /** 只判断「整段就是一个 http(s) URL」，与 [FULL_URL] 的「从文本里找」不同。 */
+    private val HTTP_URL_ONLY = Regex("""(?i)^https?://\S+$""")
+
+    /** `scheme://` 前缀，用于 [normalize] 判断是否要补 https。 */
+    private val SCHEME = Regex("(?i)^[a-z][a-z0-9+.-]*://")
+
     /** 从任意文本里抽取链接，按出现顺序去重，最多 [max] 条。 */
     fun extract(text: String, max: Int = 5): List<LinkCandidate> {
         if (text.isBlank()) return emptyList()
@@ -71,7 +77,7 @@ object LinkExtractor {
     fun looksLikeUrl(input: String): Boolean {
         val s = input.trim()
         if (s.isEmpty() || s.contains(' ')) return false
-        if (Regex("""(?i)^https?://\S+$""").matches(s)) return true
+        if (HTTP_URL_ONLY.matches(s)) return true
         return BARE_DOMAIN.matches(s) &&
             s.substringAfterLast('.').substringBefore('/').substringBefore(':').lowercase() !in FILE_EXT
     }
@@ -79,7 +85,7 @@ object LinkExtractor {
     /** 补 scheme；`www.x.com` → `https://www.x.com`。 */
     fun normalize(raw: String): String {
         val s = trimTrailing(raw.trim())
-        return if (Regex("(?i)^[a-z][a-z0-9+.-]*://").containsMatchIn(s)) s else "https://$s"
+        return if (SCHEME.containsMatchIn(s)) s else "https://$s"
     }
 
     fun hostOf(url: String): String = runCatching {

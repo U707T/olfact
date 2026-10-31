@@ -80,7 +80,13 @@ class DohFragment : Fragment(R.layout.fragment_page) {
                             render()
                         }
                     } else {
-                        engine.stop()
+                        // 关 socket / shutdownNow 不能放主线程
+                        viewLifecycleOwner.lifecycleScope.launch {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                runCatching { engine.stop() }
+                            }
+                            render()
+                        }
                     }
                 }
                 render()

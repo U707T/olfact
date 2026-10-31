@@ -68,7 +68,8 @@ class TunnelProxy(
         serverSocket.reuseAddress = true
         serverSocket.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), preferredPort), 64)
         server = serverSocket
-        pool = Executors.newCachedThreadPool { runnable ->
+        // 固定池：cached 每连接一线程，资源多的页面会把线程数拉爆。
+        pool = Executors.newFixedThreadPool(32) { runnable ->
             Thread(runnable, "olfact-tunnel").apply { isDaemon = true }
         }
         running.set(true)
