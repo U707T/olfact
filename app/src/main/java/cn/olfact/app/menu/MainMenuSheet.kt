@@ -56,7 +56,7 @@ object MainMenuSheet {
                 add(Item(R.drawable.orig_m_log, "网络日志") { Nav.push(LogFragment()) })
             }
             add(Item(R.drawable.orig_m_refresh, "刷新") { reload() })
-            add(Item(R.drawable.orig_m_box, "工具箱") { Nav.push(SettingsPageFragment.newInstance("more")) })
+            add(Item(R.drawable.orig_m_box, "工具箱") { Nav.push(cn.olfact.app.ui.tools.ToolsFragment()) })
             add(Item(R.drawable.orig_m_incognito, "无痕模式") { openIncognito(it) })
             if (AppSettings.get(K.AI_SUMMARY)) {
                 add(Item(R.drawable.orig_m_ai, "AI 总结", tint = false) { AiActions.summarize(it) })
