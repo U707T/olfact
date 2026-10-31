@@ -33,6 +33,14 @@ class DownloadDetailFragment : Fragment(R.layout.fragment_download_detail) {
 
         b.name.text = task.name
         b.state.text = stateText(task)
+        b.actionPrimary.text = when (task.state) {
+            DownloadState.RUNNING -> "暂停"
+            DownloadState.PAUSED, DownloadState.FAILED -> "继续"
+            DownloadState.DONE -> "打开文件"
+            else -> "等待调度"
+        }
+        // 已完成时主按钮就是「打开文件」，不再重复显示第二个打开按钮
+        b.actionOpen.visibility = if (task.state == DownloadState.DONE) View.GONE else View.VISIBLE
         b.progress.progress = task.progress
         b.size.text = "${DownloadListFragment.formatSize(task.doneBytes)} / ${DownloadListFragment.formatSize(task.totalBytes)}"
         b.url.text = task.url
