@@ -16,6 +16,8 @@ import cn.olfact.core.api.OlfactServices
 import cn.olfact.core.uikit.EmptyView
 import cn.olfact.core.uikit.ListRow
 import cn.olfact.core.uikit.Sheet
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.launch
 
 /**
@@ -37,6 +39,7 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
         SIZE("按大小")
     }
 
+    @OptIn(FlowPreview::class)
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val b = FragmentDownloadListBinding.bind(view)
         binding = b
@@ -51,7 +54,8 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
 
         OlfactServices.downloads?.changes?.let { flow ->
             viewLifecycleOwner.lifecycleScope.launch {
-                flow.collect { render() }
+                // 下载进度每秒可能推很多次；250ms 采样一次，避免整页 removeAllViews。
+                flow.sample(250).collect { render() }
             }
         }
         render()
