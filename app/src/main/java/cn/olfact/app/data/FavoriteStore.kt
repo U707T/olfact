@@ -42,6 +42,9 @@ object FavoriteStore {
         persist(context)
     }
 
+    /** 进程退到后台时补一次落盘。 */
+    fun flush(context: Context) = persist(context)
+
     private fun persist(context: Context) {
         val arr = org.json.JSONArray()
         items.forEach { f ->
