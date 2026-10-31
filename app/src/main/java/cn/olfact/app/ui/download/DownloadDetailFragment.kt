@@ -40,12 +40,23 @@ class DownloadDetailFragment : Fragment(R.layout.fragment_download_detail) {
 
         b.actionPrimary.setOnClickListener {
             when (task.state) {
-                DownloadState.RUNNING -> { center?.pause(task.id); Nav.toast("已暂停") }
-                DownloadState.PAUSED, DownloadState.FAILED -> { center?.resume(task.id); Nav.toast("继续下载") }
-                DownloadState.DONE -> Nav.toast("已下载完成")
-                else -> Nav.toast("等待调度")
+                DownloadState.RUNNING -> {
+                    center?.pause(task.id)
+                    Nav.toast("已暂停")
+                    Nav.pop()
+                }
+                DownloadState.PAUSED, DownloadState.FAILED -> {
+                    center?.resume(task.id)
+                    Nav.toast("继续下载")
+                    Nav.pop()
+                }
+                // 已完成时主按钮直接打开文件，不再只弹「已下载完成」
+                DownloadState.DONE -> openFile(task.savePath)
+                else -> {
+                    Nav.toast("等待调度")
+                    Nav.pop()
+                }
             }
-            Nav.pop()
         }
         b.actionOpen.setOnClickListener {
             if (task.state != DownloadState.DONE) {
