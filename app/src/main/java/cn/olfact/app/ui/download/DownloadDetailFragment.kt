@@ -55,9 +55,17 @@ class DownloadDetailFragment : Fragment(R.layout.fragment_download_detail) {
             openFile(task.savePath)
         }
         b.actionDelete.setOnClickListener {
-            center?.remove(task.id, true)
-            Nav.toast("已删除")
-            Nav.pop()
+            // 删除任务会连带删文件，必须先确认
+            cn.olfact.app.ui.common.Dialogs.confirm(
+                requireContext(),
+                "删除下载",
+                "将删除任务记录和已下载的文件，不可恢复。继续？",
+                danger = true
+            ) {
+                center?.remove(task.id, true)
+                Nav.toast("已删除")
+                Nav.pop()
+            }
         }
     }
 

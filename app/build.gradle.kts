@@ -23,7 +23,7 @@ android {
         targetSdk = 37
         versionCode = 6
         versionName = "1.0.0-rc6"
-        resourceConfigurations += listOf("zh", "en")
+        resourceConfigurations += listOf("zh")
         vectorDrawables.useSupportLibrary = false
     }
 
