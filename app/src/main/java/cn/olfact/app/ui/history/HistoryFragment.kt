@@ -75,6 +75,7 @@ class HistoryFragment : Fragment(R.layout.fragment_entry_list) {
         }
         b.empty.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
         if (items.isEmpty()) {
+            b.empty.setIcon(R.drawable.ic_history)
             b.empty.text = if (query.isBlank()) getString(R.string.empty_history) else "没有匹配「$query」的记录"
             b.empty.setAction(if (query.isBlank()) "去浏览" else "清除搜索") {
                 if (query.isBlank()) Nav.openBrowser(null) else { query = ""; render() }

@@ -75,7 +75,14 @@ object LongPressSheet {
             setPadding(0, context.dpF(4f), 0, context.dpF(4f))
         }
         var popup: PopupWindow? = null
-        items.forEach { item ->
+        items.forEachIndexed { index, item ->
+            if (index > 0) {
+                list.addView(android.view.View(context).apply {
+                    setBackgroundColor(ContextCompat.getColor(context, R.color.divider))
+                }, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, 1
+                ).apply { marginStart = context.dpF(20f) })
+            }
             list.addView(TextView(context).apply {
                 text = item.label
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)

@@ -74,6 +74,7 @@ class BookmarksFragment : Fragment(R.layout.fragment_entry_list) {
         }
         b.empty.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
         if (items.isEmpty()) {
+            b.empty.setIcon(R.drawable.ic_bookmark)
             b.empty.text = if (query.isBlank()) getString(R.string.empty_bookmarks) else "没有匹配「$query」的书签"
             b.empty.setAction(if (query.isBlank()) "新增书签" else "清除搜索") {
                 if (query.isBlank()) add() else { query = ""; render() }

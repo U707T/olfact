@@ -55,6 +55,7 @@ class FavoritesFragment : Fragment(R.layout.fragment_entry_list) {
         val items = FavoriteStore.items.toList()
         b.empty.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
         if (items.isEmpty()) {
+            b.empty.setIcon(R.drawable.ic_star)
             b.empty.text = "还没有收藏的媒体"
             a.submit(emptyList())
             return

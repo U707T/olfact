@@ -40,10 +40,17 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
         SIZE("按大小")
     }
 
+    private val uiPrefs by lazy {
+        requireContext().getSharedPreferences("olfact_ui", android.content.Context.MODE_PRIVATE)
+    }
+
     @OptIn(FlowPreview::class)
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val b = FragmentDownloadListBinding.bind(view)
         binding = b
+        // 排序与「显示时间」记在本地，下次进页面不重置
+        sortMode = SortMode.entries.getOrElse(uiPrefs.getInt("dl_sort", 0)) { SortMode.TIME }
+        showTime = uiPrefs.getBoolean("dl_show_time", true)
 
         b.tabDone.setOnClickListener { showRunning = false; render() }
         b.tabRunning.setOnClickListener { showRunning = true; render() }
@@ -52,6 +59,7 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
         b.clearAll.setOnClickListener { clearCurrent() }
 
         b.empty.setAction("新增下载") { AddDownloadSheet.show(requireContext()) { url, name -> enqueue(url, name) } }
+        b.empty.setIcon(R.drawable.ic_download)
 
         val a = DownloadAdapter(
             onOpen = { Nav.push(DownloadDetailFragment.newInstance(it.id)) },
@@ -171,10 +179,12 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
                             sortMode.ordinal
                         ) { picked ->
                             sortMode = SortMode.entries[picked]
+                            uiPrefs.edit().putInt("dl_sort", sortMode.ordinal).apply()
                             render()
                         }
                         "显示时间" -> {
                             showTime = !showTime
+                            uiPrefs.edit().putBoolean("dl_show_time", showTime).apply()
                             render()
                         }
                         "全部暂停" -> {
