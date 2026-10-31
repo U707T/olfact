@@ -57,6 +57,11 @@ class FavoritesFragment : Fragment(R.layout.fragment_entry_list) {
         if (items.isEmpty()) {
             b.empty.setIcon(R.drawable.ic_star)
             b.empty.text = "还没有收藏的媒体"
+            b.empty.setAction("去嗅探") {
+                (activity as? cn.olfact.app.MainActivity)?.let {
+                    cn.olfact.app.ui.player.SnifferSheet.show(it)
+                }
+            }
             a.submit(emptyList())
             return
         }
