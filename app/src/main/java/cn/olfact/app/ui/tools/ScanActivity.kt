@@ -214,15 +214,22 @@ class ScanActivity : AppCompatActivity() {
             open(url)
             return
         }
-        // 非网址：给「搜索 / 复制」两个出口，不硬当成链接
-        Dialogs.confirm(
-            this,
-            "扫到内容",
-            trimmed.take(300),
-            danger = false
-        ) {
-            open(SearchEngines.urlFor(trimmed))
-        }
+        // 非网址：给「搜索 / 复制 / 取消」三个出口，不硬当成链接
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("扫到内容")
+            .setMessage(trimmed.take(300))
+            .setPositiveButton("搜索") { _, _ -> open(SearchEngines.urlFor(trimmed)) }
+            .setNeutralButton("复制") { _, _ ->
+                val cm = getSystemService(android.content.ClipboardManager::class.java)
+                cm?.setPrimaryClip(android.content.ClipData.newPlainText("scan", trimmed))
+                Toast.makeText(this, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("取消", null)
+            .setOnDismissListener {
+                // 没跳走就继续扫，别让用户卡在「已处理」状态
+                if (!isFinishing) handled = false
+            }
+            .show()
     }
 
     private fun open(url: String) {
