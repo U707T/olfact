@@ -19,6 +19,9 @@ data class Tab(
 object BrowserSession {
 
     private const val KEY = "tabs"
+
+    /** 与原版 web 内核的 TabManager 对齐：最多 24 个，超出淘汰最早的标签。 */
+    private const val MAX_TABS = 24
     private var nextId = 1L
 
     val tabs = mutableListOf<Tab>()
@@ -26,6 +29,11 @@ object BrowserSession {
         private set
 
     fun open(url: String?, title: String = "", incognito: Boolean = false): Tab {
+        while (tabs.size >= MAX_TABS) {
+            // 先淘汰最早的、且不是当前正在看的标签
+            val victim = tabs.firstOrNull { it.id != currentId } ?: tabs.first()
+            tabs.remove(victim)
+        }
         val tab = Tab(nextId++, url.orEmpty(), title, incognito)
         tabs.add(tab)
         currentId = tab.id
@@ -78,6 +86,7 @@ object BrowserSession {
         if (tabs.isNotEmpty()) return
         val arr = JsonStore.readArray(context, KEY)
         for (i in 0 until arr.length()) {
+            if (tabs.size >= MAX_TABS) break
             val o: JSONObject = arr.optJSONObject(i) ?: continue
             val id = o.optLong("id", nextId)
             val tab = Tab(id, o.optString("url"), o.optString("title"), o.optBoolean("incognito"))

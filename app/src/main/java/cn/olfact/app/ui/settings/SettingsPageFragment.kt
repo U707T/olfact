@@ -11,6 +11,7 @@ import androidx.fragment.app.Fragment
 import cn.olfact.app.MainActivity
 import cn.olfact.app.R
 import cn.olfact.app.data.AppSettings
+import cn.olfact.app.data.HistoryStore
 import cn.olfact.app.data.K
 import cn.olfact.app.databinding.FragmentSettingsPageBinding
 import cn.olfact.app.nav.Nav
@@ -160,6 +161,10 @@ class SettingsPageFragment : Fragment(R.layout.fragment_settings_page) {
 
             K.EYE_CARE.name -> {
                 (requireActivity() as? MainActivity)?.applyEyeCare()
+            }
+
+            K.HISTORY_LIMIT.name -> {
+                HistoryStore.trim(requireContext())
             }
         }
         return false

@@ -118,6 +118,15 @@ object HistoryStore {
         persist(context, delayMs = 0)
     }
 
+    /** 设置里把「历史记录限制」调小后立即裁剪一次，不用等下一次记录。 */
+    fun trim(context: Context) {
+        val limit = runCatching { AppSettings.get(K.HISTORY_LIMIT).toInt() }.getOrDefault(1000)
+        synchronized(lock) {
+            while (data.size > limit) data.removeAt(data.size - 1)
+        }
+        persist(context, delayMs = 150)
+    }
+
     /** 首页「最近访问」用：按 host 去重，最多 n 条。 */
     fun recent(n: Int): List<HistoryEntry> {
         val seen = HashSet<String>()
