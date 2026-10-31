@@ -38,6 +38,10 @@ import cn.olfact.core.uikit.dpF
  */
 class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
 
+    /** 原版浏览器页有底栏：首页 / 刷新 / 标题胶囊 / 标签数 / 菜单。 */
+    override val showsBottomBar: Boolean = true
+    override val barId: String = "main"
+
     private var binding: FragmentBrowserBinding? = null
     private var surface: BrowserSurface? = null
     private var suggest: UrlSuggestPopup? = null
@@ -117,6 +121,7 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
             override fun onTitle(title: String?) {
                 tab?.title = title.orEmpty()
                 b.urlBar.setText(s.url())
+                syncBottomBar()
             }
 
             override fun onUrl(url: String) {
@@ -133,6 +138,7 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
             override fun onPageFinished(url: String) {
                 tab?.title = s.title().orEmpty()
                 updateTabCount()
+                syncBottomBar()
             }
 
             override fun onLongPress(url: String?, title: String?) {
@@ -228,10 +234,19 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
         tab?.url = url
         HistoryStore.record(requireContext(), url, url)
         binding?.urlBar?.setText(url)
+        syncBottomBar()
     }
 
     fun reload() {
         surface?.reload()
+    }
+
+    /** 底栏胶囊要显示的标题（当前标签页）。 */
+    fun currentTitle(): String? =
+        tab?.title?.takeIf { it.isNotBlank() } ?: surface?.title()
+
+    private fun syncBottomBar() {
+        (activity as? cn.olfact.app.MainActivity)?.refreshBottomBar()
     }
 
     private fun dp(v: Int) = requireContext().dpF(v.toFloat())

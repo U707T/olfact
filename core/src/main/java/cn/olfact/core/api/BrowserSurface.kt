@@ -21,6 +21,16 @@ interface BrowserSurface {
     fun url(): String?
     fun destroy()
 
+    /**
+     * 在页面里执行一段 JS 并把结果回传（AI 总结抓正文、划词翻译取选区用）。
+     *
+     * 默认空实现：兜底渲染器可以不支持；实现方返回的是 `evaluateJavascript` 的原始串
+     * （JSON 字符串字面量，调用方负责去引号）。
+     */
+    fun evaluateJavascript(script: String, callback: (String) -> Unit) {
+        callback("")
+    }
+
     // 页内查找（UI 层只画工具栏，匹配逻辑留在渲染器里）
     fun findAll(text: String)
     fun findNext(forward: Boolean)

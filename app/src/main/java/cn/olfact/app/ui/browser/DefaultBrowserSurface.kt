@@ -100,6 +100,12 @@ class DefaultBrowserSurface(private val context: Context) : BrowserSurface {
 
     override fun url(): String? = web?.url
 
+    override fun evaluateJavascript(script: String, callback: (String) -> Unit) {
+        val view = web ?: run { callback(""); return }
+        runCatching { view.evaluateJavascript(script) { value -> callback(value.orEmpty()) } }
+            .onFailure { callback("") }
+    }
+
     override fun findAll(text: String) {
         web?.findAllAsync(text)
     }

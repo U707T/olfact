@@ -3,6 +3,7 @@ package cn.olfact.app.ui.browser
 import android.content.Context
 import android.view.View
 import android.webkit.WebView
+import cn.olfact.app.data.ActiveSurface
 import cn.olfact.app.data.AppSettings
 import cn.olfact.app.data.BrowserSession
 import cn.olfact.app.data.HistoryStore
@@ -93,6 +94,7 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
         InjectionBus.attach(sink)
 
         web = view
+        ActiveSurface.attach(this)
         return view
     }
 
@@ -156,6 +158,12 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
 
     override fun url(): String? = web?.url
 
+    override fun evaluateJavascript(script: String, callback: (String) -> Unit) {
+        val view = web ?: run { callback(""); return }
+        runCatching { view.evaluateJavascript(script) { value -> callback(value.orEmpty()) } }
+            .onFailure { callback("") }
+    }
+
     override fun findAll(text: String) {
         web?.findAllAsync(text)
     }
@@ -169,6 +177,7 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
     }
 
     override fun destroy() {
+        ActiveSurface.clear(this)
         detectSink?.let { InjectionBus.detach(it) }
         detectSink = null
         web?.destroy()

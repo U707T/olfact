@@ -19,7 +19,7 @@
 | 播放（Media3、倍速、跳片头、PiP、断点续播） | ✅ | 播放页已改为拉起 `VideoPlayerActivity` |
 | 下载（系统委派 / 分块 / M3U8 + remux） | ⚠️ | 队列与解析有单测；**面板速度字段恒 0**（B3 未上报瞬时速度） |
 | 嗅探 → 播放 → 下载 链路 | ✅ | `MediaItem` 契约 + `PlaybackSource` 映射 |
-| AI（供应商 / 总结 / 划词翻译） | ⚠️ | 供应商与 SSE 有单测；总结 / 翻译的界面入口仍未接（能力在库里） |
+| AI（供应商 / 总结 / 划词翻译） | ✅ | 主菜单「AI 总结」「翻译」已接：抽正文 → 流式摘要 / 选区翻译，结果面板可复制 |
 | 备份（本地 / WebDAV / 定时） | ✅ | 已接 B4 `BackupPipeline`；含 SHA256 校验与合并 |
 | 隐私（退出清数据 / 无痕） | ✅ | `PrivacyCleaner` 已接 `MainActivity.onDestroy` |
 | 默认浏览器（ROLE_BROWSER + 外链分发） | ✅ | manifest 四组 filter；`requestDefaultBrowser()` |
@@ -41,7 +41,7 @@
 | 密钥 | Android Keystore AES-GCM（AI Key、WebDAV 密码） | ✅ 不落明文 |
 | 网络 | OkHttp 5 + 自研 DoH（RFC 8484 编解码、竞速、隧道） | ✅ 无第三方 DoH 库，行为可控 |
 | 播放 | Media3 1.9（不含 session） | ✅ 官方推荐路线 |
-| 界面 | 纯 View + ViewBinding，无 Compose | ✅ 与「轻量」目标一致（Compose 会带 ~3 MB） |
+| 界面 | 纯 View + ViewBinding，无 Compose；图标用原版矢量资源，不重绘 | ✅ 与「轻量」目标一致（Compose 会带 ~3 MB） |
 | 返回与沉浸 | `enableOnBackInvokedCallback` + `OnBackPressedDispatcher`、`WindowCompat` edge-to-edge | ✅ 适配预测性返回 |
 | 主题 | `Theme.Olfact`（MaterialComponents DayNight）+ `values-night` | ✅ 深色模式可用 |
 | 混淆与瘦身 | R8 + 资源压缩 + 资源名混淆 + ABI split | ✅ 见第三节 |
@@ -102,12 +102,21 @@ dex 占比前三：`androidx` 966 KB（其中 CameraX 774 KB）、`com.google.zx
 - WebView 侧：8 个活动实例 + LRU 回收；release 不带调试校验库。
 - 未引 LeakCanary（只在 debug 用也仍是一个依赖），按「轻量」暂不引。
 
-## 四、结论与下一步
+## 四、界面一致性（rc5 补充）
 
-- **正常**：主干可用（浏览 / DoH / 拦截 / 脚本 / 播放 / 下载 / 备份 / 设置 / **扫码**）；
-  剩 AI 总结与翻译的界面入口、下载面板速度字段两处。
+| 项 | 处理 |
+|---|---|
+| 菜单图标 | 换成安装包里的原版矢量（`orig_m_*`，15 个），逐条按 path 在 APK 里核对过 |
+| 底栏 | 浏览器页此前没有底栏（`ChromeAware.showsBottomBar` 默认 false）；现按原版五槽显示，尺寸对齐（图标 30dp / 胶囊 16sp / 标签数 26dp） |
+| AI 入口 | 九宫格「AI 总结」「翻译」+ 长按菜单「AI 总结本页」「AI 翻译本页」 |
+| 仍待办 | 原版设置页那套线性图标（板手/衬衫/机器人等）与我们自绘的形状不同，需逐个从 APK 比对后再替换 |
+
+## 五、结论与下一步
+
+- **正常**：主干可用（浏览 / DoH / 拦截 / 脚本 / 播放 / 下载 / 备份 / 设置 / 扫码 / **AI 总结与翻译**）；
+  只剩下载面板速度字段一处。
 - **主流**：技术栈与做法对齐 2026 年 Android 工程实践；lint 已进 CI，依赖版本已收进 catalog。
 - **轻量**：单 ABI 3.11 MB（原版 41.7 MB ≈ 7.5%）；CameraX 占 260 KB，是这轮唯一的体积增长。
 
-下一步：① AI 总结/翻译接界面；② 下载瞬时速度；③ instrumented 冒烟（真机）；
-④ 资源里 49 个未使用项与 31 处硬编码文案（lint warning，可批量清）。
+下一步：① 下载瞬时速度；② instrumented 冒烟（真机）；③ 资源里未使用项与硬编码文案
+（lint warning，可批量清）；④ 剩余手绘 chrome 图标（地址栏返回/菜单）也可换成原版资源。

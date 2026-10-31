@@ -100,6 +100,13 @@ class ListRow @JvmOverloads constructor(
         iconView.visibility = View.VISIBLE
     }
 
+    /** 保留图标自带颜色（原版的彩色图标，例如 AI 的绿色）。 */
+    fun setIconOriginal(resId: Int) {
+        iconView.setImageResource(resId)
+        iconView.imageTintList = null
+        iconView.visibility = View.VISIBLE
+    }
+
     fun setIconTint(color: Int) {
         iconView.imageTintList = android.content.res.ColorStateList.valueOf(color)
     }

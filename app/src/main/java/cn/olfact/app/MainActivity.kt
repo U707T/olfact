@@ -99,25 +99,39 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupBottomBar() {
         val style = if (AppSettings.get(K.BOTTOM_STYLE) == "pill") BottomBar.Style.PILL else BottomBar.Style.ICON_ONLY
+        // 五槽对齐原版 view_stub_browser_bottom：首页 / 刷新 / 标题胶囊 / 标签数 / 菜单
         binding.bottomBar.configure(
             listOf(
-                BottomBar.Item("home", R.drawable.ic_home),
-                BottomBar.Item("tabs", R.drawable.ic_tabs),
-                BottomBar.Item("main", 0, "主页", pill = true),
-                BottomBar.Item("downloads", R.drawable.ic_download),
-                BottomBar.Item("menu", R.drawable.ic_grid)
+                BottomBar.Item("home", R.drawable.orig_b_home),
+                BottomBar.Item("action", R.drawable.orig_b_tabs),
+                BottomBar.Item("main", label = "主页", kind = BottomBar.Kind.PILL),
+                BottomBar.Item("tabs", R.drawable.orig_b_tabs, kind = BottomBar.Kind.COUNT),
+                BottomBar.Item("menu", R.drawable.orig_b_menu)
             ),
             style
         )
         binding.bottomBar.onSelect = { id ->
             when (id) {
                 "home" -> Nav.root(cn.olfact.app.ui.HomeFragment())
-                "tabs" -> Nav.push(cn.olfact.app.ui.TabsFragment())
-                "main" -> Nav.openHome()
-                "downloads" -> Nav.push(cn.olfact.app.ui.download.DownloadListFragment())
+                // 浏览器里是「刷新」，其它页面是「标签页」
+                "action" -> {
+                    val browser = Nav.current() as? cn.olfact.app.ui.browser.BrowserFragment
+                    if (browser != null) browser.reload() else Nav.push(cn.olfact.app.ui.TabsFragment())
+                }
+                "main", "tabs" -> Nav.push(cn.olfact.app.ui.TabsFragment())
                 "menu" -> MainMenuSheet.show(this)
             }
         }
+        refreshBottomBar()
+    }
+
+    /** 底栏随当前页面更新：胶囊显示页面标题，第四格显示标签数，第二格切换刷新/标签。 */
+    fun refreshBottomBar() {
+        if (!::binding.isInitialized) return
+        val browser = Nav.current() as? cn.olfact.app.ui.browser.BrowserFragment
+        binding.bottomBar.setIcon("action", if (browser != null) R.drawable.orig_b_refresh else R.drawable.orig_b_tabs)
+        binding.bottomBar.setPillText("main", browser?.currentTitle() ?: "主页")
+        binding.bottomBar.setBadge("tabs", BrowserSession.tabs.size.coerceAtLeast(1))
     }
 
     private fun observeChrome() {
@@ -125,6 +139,7 @@ class MainActivity : AppCompatActivity() {
             override fun onFragmentResumed(fm: FragmentManager, f: Fragment) {
                 val chrome = f as? ChromeAware
                 setChrome(chrome?.showsBottomBar ?: false, chrome?.barId)
+                refreshBottomBar()
             }
         }, false)
     }

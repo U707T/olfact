@@ -20,7 +20,8 @@ class NineGrid @JvmOverloads constructor(
     attrs: AttributeSet? = null
 ) : GridLayout(context, attrs) {
 
-    data class Item(val icon: Int, val label: String)
+    /** [tint] = false 时保留图标原色（例如原版的绿色 AI 图标）。 */
+    data class Item(val icon: Int, val label: String, val tint: Boolean = true)
 
     init {
         columnCount = 5
@@ -47,7 +48,9 @@ class NineGrid @JvmOverloads constructor(
             setBackgroundResource(R.drawable.uikit_ripple_row)
             addView(ImageView(context).apply {
                 setImageResource(item.icon)
-                imageTintList = ContextCompat.getColorStateList(context, R.color.uikit_text_primary)
+                if (item.tint) {
+                    imageTintList = ContextCompat.getColorStateList(context, R.color.uikit_text_primary)
+                }
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 layoutParams = LinearLayout.LayoutParams(context.dpF(26f), context.dpF(26f)).apply {
                     gravity = Gravity.CENTER_HORIZONTAL

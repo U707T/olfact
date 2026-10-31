@@ -1,10 +1,8 @@
 package cn.olfact.app.menu
 
 import android.view.Gravity
-import android.view.View
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.TextView
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.ContextCompat
 import cn.olfact.app.MainActivity
@@ -14,47 +12,56 @@ import cn.olfact.app.data.BookmarkStore
 import cn.olfact.app.data.BrowserSession
 import cn.olfact.app.data.K
 import cn.olfact.app.nav.Nav
+import cn.olfact.app.ui.ai.AiActions
 import cn.olfact.app.ui.bookmark.BookmarksFragment
 import cn.olfact.app.ui.browser.BrowserFragment
 import cn.olfact.app.ui.download.DownloadListFragment
 import cn.olfact.app.ui.history.HistoryFragment
 import cn.olfact.app.ui.player.SnifferSheet
-import cn.olfact.app.ui.settings.pages.ScriptFragment
 import cn.olfact.app.ui.settings.SettingsFragment
 import cn.olfact.app.ui.settings.SettingsPageFragment
 import cn.olfact.app.ui.settings.pages.LogFragment
+import cn.olfact.app.ui.settings.pages.ScriptFragment
 import cn.olfact.core.uikit.NineGrid
 import cn.olfact.core.uikit.Sheet
 import cn.olfact.core.uikit.dpF
 
 /**
- * 主菜单：5×3 九宫格 + 底部三个动作（原版 docs/refs/09-主菜单九宫格.jpg）。
+ * 主菜单：5 列 × 3 行 + 底部三个动作，图标全部用原版矢量资源（`orig_m_*`）。
+ *
+ * 与原版 `view_browser_menu_popup.xml` 的差异只在功能取舍：
+ * 「阅读模式」按方案裁掉，换成 **AI 总结** 与 **翻译** 两个入口；其余标签保持原版文案。
  */
 object MainMenuSheet {
 
-    private data class Item(val icon: Int, val label: String, val action: (MainActivity) -> Unit)
+    private data class Item(
+        val icon: Int,
+        val label: String,
+        val tint: Boolean = true,
+        val action: (MainActivity) -> Unit
+    )
 
     fun show(activity: MainActivity) {
         val sheet = Sheet(activity)
         val grid = NineGrid(activity)
         val items = listOf(
-            Item(R.drawable.ic_bookmark_add, "加书签") { addBookmark(it) },
-            Item(R.drawable.ic_bookmark, "书签") { Nav.push(BookmarksFragment()) },
-            Item(R.drawable.ic_history, "历史") { Nav.push(HistoryFragment()) },
-            Item(R.drawable.ic_download, "下载") { Nav.push(DownloadListFragment()) },
-            Item(R.drawable.ic_code, "脚本") { Nav.push(ScriptFragment()) },
-            Item(R.drawable.ic_play, "嗅探") { SnifferSheet.show(it) },
-            Item(R.drawable.ic_phone, "UA标识") { Nav.push(SettingsPageFragment.newInstance("ua")) },
-            Item(R.drawable.ic_list, "网络日志") { Nav.push(LogFragment()) },
-            Item(R.drawable.ic_refresh, "刷新") { reload() },
-            Item(R.drawable.ic_incognito, "无痕模式") { openIncognito(it) },
-            Item(R.drawable.ic_star, "收藏") { Nav.push(cn.olfact.app.ui.player.FavoritesFragment()) },
-            Item(R.drawable.ic_qr, "二维码") { Nav.push(cn.olfact.app.ui.tools.QrShareFragment.newInstance("")) },
-            Item(R.drawable.ic_moon, "夜间模式") { toggleNight(it) },
-            Item(R.drawable.ic_globe, "网站配置") { Nav.push(SettingsPageFragment.newInstance("site")) },
-            Item(R.drawable.ic_settings, "设置") { Nav.push(SettingsFragment()) }
+            Item(R.drawable.orig_m_bookmark_add, "加书签") { addBookmark(it) },
+            Item(R.drawable.orig_m_bookmark, "书签") { Nav.push(BookmarksFragment()) },
+            Item(R.drawable.orig_m_history, "历史") { Nav.push(HistoryFragment()) },
+            Item(R.drawable.orig_m_download, "下载") { Nav.push(DownloadListFragment()) },
+            Item(R.drawable.orig_m_plugin, "插件") { Nav.push(ScriptFragment()) },
+            Item(R.drawable.orig_m_sniff, "悬浮嗅探") { SnifferSheet.show(it) },
+            Item(R.drawable.orig_m_ua, "UA标识") { Nav.push(SettingsPageFragment.newInstance("ua")) },
+            Item(R.drawable.orig_m_log, "网络日志") { Nav.push(LogFragment()) },
+            Item(R.drawable.orig_m_refresh, "刷新") { reload() },
+            Item(R.drawable.orig_m_box, "工具箱") { Nav.push(SettingsPageFragment.newInstance("more")) },
+            Item(R.drawable.orig_m_incognito, "无痕模式") { openIncognito(it) },
+            Item(R.drawable.orig_m_ai, "AI 总结", tint = false) { AiActions.summarize(it) },
+            Item(R.drawable.orig_m_ai_alt, "翻译", tint = false) { AiActions.translateSelection(it) },
+            Item(R.drawable.orig_m_night, "夜间模式") { toggleNight(it) },
+            Item(R.drawable.orig_m_site, "网站配置") { Nav.push(SettingsPageFragment.newInstance("site")) }
         )
-        grid.setItems(items.map { NineGrid.Item(it.icon, it.label) }) { index ->
+        grid.setItems(items.map { NineGrid.Item(it.icon, it.label, it.tint) }) { index ->
             sheet.dismiss()
             items[index].action(activity)
         }
@@ -66,9 +73,16 @@ object MainMenuSheet {
             setPadding(activity.dpF(28f), activity.dpF(6f), activity.dpF(28f), activity.dpF(20f))
         }
         listOf(
-            R.drawable.ic_moon to { toggleNight(activity) },
-            R.drawable.ic_arrow_right to { sheet.dismiss() },
-            R.drawable.ic_settings to { sheet.dismiss(); Nav.push(SettingsFragment()) }
+            R.drawable.orig_m_power to {
+                activity.finishAffinity()
+            },
+            R.drawable.orig_m_collapse to {
+                sheet.dismiss()
+            },
+            R.drawable.orig_m_settings to {
+                sheet.dismiss()
+                Nav.push(SettingsFragment())
+            }
         ).forEach { (icon, action) ->
             footer.addView(ImageView(activity).apply {
                 setImageResource(icon)
@@ -83,7 +97,7 @@ object MainMenuSheet {
 
     private fun addBookmark(activity: MainActivity) {
         val tab = BrowserSession.current()
-        val url = tab?.url?.ifBlank { null } ?: return Nav.toast("当前没有可收藏的页面")
+        val url = tab?.url?.ifBlank { null } ?: run { Nav.toast("当前没有可收藏的页面"); return }
         BookmarkStore.add(activity, tab.title.ifBlank { url }, url)
         Nav.toast("已加入书签")
     }
