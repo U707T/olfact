@@ -72,8 +72,11 @@ object BookmarkStore {
 
     fun all(): List<Bookmark> = items
 
-    private fun persist(context: Context) {
-        JsonPersist.schedule(context, KEY, delayMs = 150) {
+    /** 进程退到后台时立即落盘，避免 debounce 窗口内被杀丢最后一次改动。 */
+    fun flush(context: Context) = persist(context, delayMs = 0)
+
+    private fun persist(context: Context, delayMs: Long = 150) {
+        JsonPersist.schedule(context, KEY, delayMs) {
             val snapshot = synchronized(lock) { data.toList() }
             org.json.JSONArray().apply {
                 snapshot.forEach { b ->
@@ -157,6 +160,9 @@ object HistoryStore {
 
     fun search(query: String, limit: Int = 5): List<HistoryEntry> =
         items.filter { it.title.contains(query, true) || it.url.contains(query, true) }.take(limit)
+
+    /** 进程退到后台时立即落盘，避免 debounce 窗口内被杀丢最后一次记录。 */
+    fun flush(context: Context) = persist(context, delayMs = 0)
 
     private fun persist(context: Context, delayMs: Long = 800) {
         JsonPersist.schedule(context, KEY, delayMs) {

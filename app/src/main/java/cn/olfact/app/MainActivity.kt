@@ -18,6 +18,7 @@ import androidx.fragment.app.FragmentManager
 import cn.olfact.app.data.AppSettings
 import cn.olfact.app.data.AppLog
 import cn.olfact.app.data.BrowserSession
+import cn.olfact.app.data.BookmarkStore
 import cn.olfact.app.data.HistoryStore
 import cn.olfact.app.data.K
 import cn.olfact.app.databinding.ActivityMainBinding
@@ -94,6 +95,9 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         BrowserSession.save(this)
+        // 历史/书签是 debounce 落盘；退到后台时补一次，降低被杀丢数据的概率。
+        HistoryStore.flush(this)
+        BookmarkStore.flush(this)
     }
 
     override fun onDestroy() {
