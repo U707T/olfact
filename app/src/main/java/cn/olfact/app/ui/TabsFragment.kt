@@ -129,10 +129,10 @@ class TabsFragment : Fragment(R.layout.fragment_tabs), ChromeAware {
             setPadding(0, ctx.dpF(6f), 0, 0)
         })
         card.setOnClickListener {
-            val sameTab = BrowserSession.currentId == tab.id
+            // 目前仍是 push 新页面；真正的「复用同一个 surface」需要 per-tab WebView 池，
+            // 单独一条高风险改动，等真机回归时再做。
             BrowserSession.select(tab.id)
-            // 点当前标签 = 回到浏览器，不再 push 一个重复的 BrowserFragment
-            if (sameTab) Nav.pop() else Nav.push(BrowserFragment.newInstance(tab.id))
+            Nav.push(BrowserFragment.newInstance(tab.id))
         }
         return card
     }
