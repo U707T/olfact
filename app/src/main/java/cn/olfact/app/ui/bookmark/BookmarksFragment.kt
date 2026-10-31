@@ -17,6 +17,7 @@ class BookmarksFragment : Fragment(R.layout.fragment_entry_list) {
 
     private var binding: FragmentEntryListBinding? = null
     private var adapter: BookmarkAdapter? = null
+    private var query = ""
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val b = FragmentEntryListBinding.bind(view)
@@ -24,6 +25,12 @@ class BookmarksFragment : Fragment(R.layout.fragment_entry_list) {
         b.header.title = "书签"
         b.header.onBack = { Nav.pop() }
         b.header.addAction(R.drawable.ic_bookmark_add, "新增书签") { add() }
+        b.header.addAction(R.drawable.ic_search, "搜索书签") {
+            Dialogs.input(requireContext(), "搜索书签", query, "标题或网址；留空显示全部") { text ->
+                query = text.trim()
+                render()
+            }
+        }
 
         val a = BookmarkAdapter(
             onOpen = { Nav.openBrowser(it.url) },
@@ -61,11 +68,16 @@ class BookmarksFragment : Fragment(R.layout.fragment_entry_list) {
     private fun render() {
         val b = binding ?: return
         val a = adapter ?: return
-        val items = BookmarkStore.all()
+        val all = BookmarkStore.all()
+        val items = if (query.isBlank()) all else all.filter {
+            it.title.contains(query, ignoreCase = true) || it.url.contains(query, ignoreCase = true)
+        }
         b.empty.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
         if (items.isEmpty()) {
-            b.empty.text = getString(R.string.empty_bookmarks)
-            b.empty.setAction("新增书签") { add() }
+            b.empty.text = if (query.isBlank()) getString(R.string.empty_bookmarks) else "没有匹配「$query」的书签"
+            b.empty.setAction(if (query.isBlank()) "新增书签" else "清除搜索") {
+                if (query.isBlank()) add() else { query = ""; render() }
+            }
             a.submit(emptyList())
             return
         }
