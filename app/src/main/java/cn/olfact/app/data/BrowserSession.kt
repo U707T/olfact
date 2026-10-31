@@ -21,7 +21,7 @@ object BrowserSession {
     private const val KEY = "tabs"
 
     /** 与原版 web 内核的 TabManager 对齐：最多 24 个，超出淘汰最早的标签。 */
-    private const val MAX_TABS = 24
+    const val MAX_TABS = 24
     private var nextId = 1L
 
     val tabs = mutableListOf<Tab>()

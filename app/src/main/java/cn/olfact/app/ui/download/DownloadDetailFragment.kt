@@ -40,7 +40,7 @@ class DownloadDetailFragment : Fragment(R.layout.fragment_download_detail) {
             else -> "等待调度"
         }
         // 已完成时主按钮就是「打开文件」，不再重复显示第二个打开按钮
-        b.actionOpen.visibility = if (task.state == DownloadState.DONE) View.GONE else View.VISIBLE
+        b.actionOpen.visibility = View.GONE
         b.progress.progress = task.progress
         b.size.text = "${DownloadListFragment.formatSize(task.doneBytes)} / ${DownloadListFragment.formatSize(task.totalBytes)}"
         b.url.text = task.url

@@ -65,6 +65,9 @@ object Nav {
     fun openSettings() = push(SettingsFragment())
 
     fun openBrowser(url: String?) {
+        if (cn.olfact.app.data.BrowserSession.tabs.size >= cn.olfact.app.data.BrowserSession.MAX_TABS) {
+            toast("标签已达上限（${cn.olfact.app.data.BrowserSession.MAX_TABS}），最早的标签会被关闭")
+        }
         val tab = cn.olfact.app.data.BrowserSession.open(url)
         push(BrowserFragment.newInstance(tab.id))
     }
