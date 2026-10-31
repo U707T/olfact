@@ -102,6 +102,10 @@ object MainMenuSheet {
     private fun addBookmark(activity: MainActivity) {
         val tab = BrowserSession.current()
         val url = tab?.url?.ifBlank { null } ?: run { Nav.toast("当前没有可收藏的页面"); return }
+        if (BookmarkStore.contains(url)) {
+            Nav.toast("已经在书签里了")
+            return
+        }
         BookmarkStore.add(activity, tab.title.ifBlank { url }, url)
         Nav.toast("已加入书签")
     }

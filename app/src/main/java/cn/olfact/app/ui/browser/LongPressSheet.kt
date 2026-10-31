@@ -140,8 +140,12 @@ object LongPressSheet {
                 }
             })
             out.add(Action("加入书签") {
-                BookmarkStore.add(context, title ?: target, target)
-                Nav.toast("已加入书签")
+                if (BookmarkStore.contains(target)) {
+                    Nav.toast("已经在书签里了")
+                } else {
+                    BookmarkStore.add(context, title ?: target, target)
+                    Nav.toast("已加入书签")
+                }
             })
             out.add(Action("分享") {
                 val send = Intent(Intent.ACTION_SEND).apply {

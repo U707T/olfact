@@ -72,6 +72,8 @@ object BookmarkStore {
 
     fun all(): List<Bookmark> = items
 
+    fun contains(url: String): Boolean = synchronized(lock) { data.any { it.url == url } }
+
     /** 进程退到后台时立即落盘，避免 debounce 窗口内被杀丢最后一次改动。 */
     fun flush(context: Context) = persist(context, delayMs = 0)
 
