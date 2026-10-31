@@ -112,12 +112,13 @@ class TabsFragment : Fragment(R.layout.fragment_tabs), ChromeAware {
         top.addView(ImageView(ctx).apply {
             setImageResource(R.drawable.ic_close)
             imageTintList = ContextCompat.getColorStateList(ctx, R.color.text_hint)
-            setPadding(ctx.dpF(6f), ctx.dpF(6f), ctx.dpF(6f), ctx.dpF(6f))
+            // 40dp 热区（原来 26dp，低于 48dp 建议值的一半）
+            setPadding(ctx.dpF(12f), ctx.dpF(12f), ctx.dpF(12f), ctx.dpF(12f))
             setOnClickListener {
                 BrowserSession.close(tab.id)
                 render()
             }
-        }, LinearLayout.LayoutParams(ctx.dpF(26f), ctx.dpF(26f)))
+        }, LinearLayout.LayoutParams(ctx.dpF(40f), ctx.dpF(40f)))
         card.addView(top)
         card.addView(TextView(ctx).apply {
             text = tab.url.ifBlank { "about:blank" }

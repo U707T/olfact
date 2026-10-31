@@ -103,6 +103,12 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
         val a = adapter ?: return
         b.tabDone.setTextColor(ContextCompat.getColor(ctx, if (showRunning) R.color.text_secondary else R.color.text_accent))
         b.tabRunning.setTextColor(ContextCompat.getColor(ctx, if (showRunning) R.color.text_accent else R.color.text_secondary))
+        // 选中项下方 2dp 绿色指示条（原版有，之前只有文字变色）
+        val underline = ContextCompat.getDrawable(ctx, R.drawable.bg_tab_underline)
+        b.tabDone.background = if (showRunning) null else underline
+        b.tabRunning.background = if (showRunning) underline else null
+        b.tabDone.setPadding(0, 0, dp(20), dp(5))
+        b.tabRunning.setPadding(0, 0, 0, dp(5))
 
         b.empty.visibility = if (list.isEmpty()) View.VISIBLE else View.GONE
         if (list.isEmpty()) {
@@ -179,6 +185,8 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
             return String.format(java.util.Locale.getDefault(), "%.1f %s", v, units[i])
         }
     }
+
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     override fun onDestroyView() {
         binding = null

@@ -76,7 +76,7 @@ class LogFragment : Fragment(R.layout.fragment_page) {
         list.forEach { e ->
             b.content.addView(TextView(ctx).apply {
                 text = "${e.time()}  ${e.level.name.first()}  [${e.tag}]  ${e.message}"
-                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 11.5f)
+                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f)
                 setTextColor(ContextCompat.getColor(ctx, when (e.level) {
                     AppLog.Level.ERROR -> R.color.danger
                     AppLog.Level.WARN -> R.color.text_primary

@@ -274,7 +274,7 @@ class DohFragment : Fragment(R.layout.fragment_page) {
 
     private fun banner(text: String) = android.widget.TextView(requireContext()).apply {
         this.text = text
-        setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12.5f)
+        setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f)
         setTextColor(ContextCompat.getColor(context, R.color.text_primary))
         setBackgroundResource(R.drawable.bg_round_12)
         setPadding(24, 16, 24, 16)

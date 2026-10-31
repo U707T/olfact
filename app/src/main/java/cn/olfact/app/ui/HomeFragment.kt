@@ -104,7 +104,7 @@ class HomeFragment : Fragment(R.layout.fragment_home), ChromeAware {
                 setOnClickListener { item.action() }
                 addView(ImageView(ctx).apply {
                     setImageResource(item.icon)
-                    layoutParams = LinearLayout.LayoutParams(dp(54), dp(54))
+                    layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
                 })
                 addView(TextView(ctx).apply {
                     text = item.label

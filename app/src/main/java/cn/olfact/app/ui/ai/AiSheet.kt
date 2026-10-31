@@ -28,7 +28,7 @@ class AiSheet(private val activity: Activity, title: String) {
     private val sheet = Sheet(activity).title(title)
 
     private val statusView = TextView(activity).apply {
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
         setTextColor(ContextCompat.getColor(activity, R.color.text_secondary))
         setPadding(activity.dpF(20f), 0, activity.dpF(20f), activity.dpF(8f))
         text = "准备中…"
