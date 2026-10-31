@@ -61,7 +61,7 @@ class TabsFragment : Fragment(R.layout.fragment_tabs), ChromeAware {
                     text = "恢复上次的 $saved 个标签"
                     gravity = Gravity.CENTER
                     setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
-                    setTextColor(ContextCompat.getColor(ctx, R.color.brand))
+                    setTextColor(ContextCompat.getColor(ctx, R.color.text_accent))
                     setPadding(0, ctx.dpF(8f), 0, ctx.dpF(8f))
                     setOnClickListener {
                         BrowserSession.restore(ctx)
@@ -105,7 +105,7 @@ class TabsFragment : Fragment(R.layout.fragment_tabs), ChromeAware {
         top.addView(TextView(ctx).apply {
             text = tab.title.ifBlank { "新标签页" }
             setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f)
-            setTextColor(ContextCompat.getColor(ctx, if (selected) R.color.brand else R.color.text_primary))
+            setTextColor(ContextCompat.getColor(ctx, if (selected) R.color.text_accent else R.color.text_primary))
             maxLines = 2
             ellipsize = android.text.TextUtils.TruncateAt.END
         }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))

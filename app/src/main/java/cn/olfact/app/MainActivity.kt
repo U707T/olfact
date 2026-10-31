@@ -1,6 +1,7 @@
 package cn.olfact.app
 
 import android.app.role.RoleManager
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -41,6 +42,18 @@ class MainActivity : AppCompatActivity() {
         toast(if (result.resultCode == RESULT_OK) "已设为默认浏览器" else "未授予默认浏览器角色")
     }
 
+    /** 字体缩放：设置页改完 recreate 后由这里生效（1.0 = 100%）。 */
+    override fun attachBaseContext(newBase: Context) {
+        val scale = runCatching { AppSettings.get(K.FONT_SCALE) / 100f }.getOrDefault(1f)
+        if (scale != 1f) {
+            val config = android.content.res.Configuration(newBase.resources.configuration)
+            config.fontScale = scale
+            super.attachBaseContext(newBase.createConfigurationContext(config))
+        } else {
+            super.attachBaseContext(newBase)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -51,6 +64,7 @@ class MainActivity : AppCompatActivity() {
         Nav.attach(this, R.id.container)
         setupBottomBar()
         observeChrome()
+        applyEyeCare()
 
         if (savedInstanceState == null) {
             BrowserSession.restoreIfNeeded(this)
@@ -63,6 +77,13 @@ class MainActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleIntent(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // 设置页改「底部栏样式」后回到主界面立即生效，不必重启。
+        val style = if (AppSettings.get(K.BOTTOM_STYLE) == "pill") BottomBar.Style.PILL else BottomBar.Style.ICON_ONLY
+        if (currentBottomStyle != null && currentBottomStyle != style) setupBottomBar()
     }
 
     override fun onPause() {
@@ -90,6 +111,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private var fullscreen = false
+    private var bottomInset = 0
+    private var currentBottomStyle: BottomBar.Style? = null
+    private var eyeCareOverlay: android.view.View? = null
 
     /** 主菜单「全屏」：隐藏/恢复系统栏（上滑可临时唤出）。 */
     fun toggleFullscreen() {
@@ -107,20 +131,30 @@ class MainActivity : AppCompatActivity() {
     private fun applyInsets() {
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            bottomInset = bars.bottom
             binding.container.updatePadding(top = bars.top)
             binding.bottomBar.updatePadding(bottom = bars.bottom)
+            // 底栏隐藏时（设置/列表页）内容区要自己让出导航栏/手势条，否则最后一行被挡住。
+            updateContainerBottomInset()
             insets
         }
     }
 
+    private fun updateContainerBottomInset() {
+        if (!::binding.isInitialized) return
+        val visible = binding.bottomBar.visibility == android.view.View.VISIBLE
+        binding.container.updatePadding(bottom = if (visible) 0 else bottomInset)
+    }
+
     private fun setupBottomBar() {
         val style = if (AppSettings.get(K.BOTTOM_STYLE) == "pill") BottomBar.Style.PILL else BottomBar.Style.ICON_ONLY
+        currentBottomStyle = style
         // 五槽对齐原版 view_stub_browser_bottom：首页 / 刷新 / 标题胶囊 / 标签数 / 菜单
         binding.bottomBar.configure(
             listOf(
                 BottomBar.Item("home", R.drawable.orig_b_home),
                 BottomBar.Item("action", R.drawable.orig_b_tabs),
-                BottomBar.Item("main", label = "主页", kind = BottomBar.Kind.PILL),
+                BottomBar.Item("main", icon = R.drawable.orig_b_home, label = "主页", kind = BottomBar.Kind.PILL),
                 BottomBar.Item("tabs", R.drawable.orig_b_tabs, kind = BottomBar.Kind.COUNT),
                 BottomBar.Item("menu", R.drawable.orig_b_menu)
             ),
@@ -138,6 +172,36 @@ class MainActivity : AppCompatActivity() {
                 "menu" -> MainMenuSheet.show(this)
             }
         }
+        refreshBottomBar()
+    }
+
+    /** 护眼模式：全屏叠一层 10% 暖色，不拦截触摸。 */
+    fun applyEyeCare(enabled: Boolean = AppSettings.get(K.EYE_CARE)) {
+        if (!::binding.isInitialized) return
+        if (enabled && eyeCareOverlay == null) {
+            val overlay = android.view.View(this).apply {
+                setBackgroundColor(0x1AFFB74D)
+                isClickable = false
+                isFocusable = false
+            }
+            binding.root.addView(
+                overlay,
+                android.widget.FrameLayout.LayoutParams(
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            )
+            eyeCareOverlay = overlay
+        } else if (!enabled) {
+            eyeCareOverlay?.let { binding.root.removeView(it) }
+            eyeCareOverlay = null
+        }
+    }
+
+    /** 设置页改「底部栏样式」后立即重建底栏，不重启 Activity。 */
+    fun applyBottomBarStyle() {
+        if (!::binding.isInitialized) return
+        setupBottomBar()
         refreshBottomBar()
     }
 
@@ -168,11 +232,15 @@ class MainActivity : AppCompatActivity() {
                 bar.visibility = android.view.View.VISIBLE
                 bar.translationY = bar.height.toFloat()
                 bar.animate().translationY(0f).setDuration(180).start()
+                updateContainerBottomInset()
             }
             if (barId != null) bar.select(barId, notify = false)
         } else if (bar.visibility == android.view.View.VISIBLE) {
             bar.animate().translationY(bar.height.toFloat()).setDuration(140)
-                .withEndAction { bar.visibility = android.view.View.GONE }.start()
+                .withEndAction {
+                    bar.visibility = android.view.View.GONE
+                    updateContainerBottomInset()
+                }.start()
         }
     }
 

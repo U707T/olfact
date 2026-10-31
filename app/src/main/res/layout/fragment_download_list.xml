@@ -71,7 +71,7 @@
             android:layout_height="wrap_content"
             android:paddingEnd="20dp"
             android:text="已下载"
-            android:textColor="@color/brand"
+            android:textColor="@color/text_accent"
             android:textSize="17sp"
             android:textStyle="bold" />
 

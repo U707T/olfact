@@ -53,7 +53,7 @@ class AiSheet(private val activity: Activity, title: String) {
     private val footer = TextView(activity).apply {
         text = "复制结果"
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-        setTextColor(ContextCompat.getColor(activity, R.color.brand))
+        setTextColor(ContextCompat.getColor(activity, R.color.text_accent))
         gravity = android.view.Gravity.CENTER
         setPadding(activity.dpF(16f), activity.dpF(14f), activity.dpF(16f), activity.dpF(18f))
         setOnClickListener {

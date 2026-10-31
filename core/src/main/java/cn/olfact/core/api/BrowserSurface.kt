@@ -50,4 +50,7 @@ interface BrowserSurfaceHost {
     fun onPageStarted(url: String)
     fun onPageFinished(url: String)
     fun onLongPress(url: String?, title: String?)
+
+    /** 主文档加载失败（DNS/超时/HTTP 错误）。默认空实现，兜底渲染器可以不支持。 */
+    fun onError(code: Int, description: String, url: String) {}
 }

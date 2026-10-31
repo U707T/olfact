@@ -23,6 +23,7 @@ import cn.olfact.app.ui.common.Dialogs
 import cn.olfact.core.api.OlfactServices
 import cn.olfact.core.uikit.dpF
 import cn.olfact.player.PlaybackIntents
+import cn.olfact.player.PlaybackOptions
 import cn.olfact.player.PlaybackSource
 
 /**
@@ -73,11 +74,18 @@ class PlayerFragment : Fragment(R.layout.fragment_player) {
             headers = page?.url?.let { mapOf("Referer" to it) }.orEmpty(),
             live = url.substringBefore('?').endsWith(".m3u8")
         )
-        runCatching { PlaybackIntents.play(requireContext(), source) }
+        val speed = AppSettings.get(K.PLAYER_SPEED).toFloatOrNull()?.coerceIn(0.5f, 2.0f) ?: 1f
+        // rememberSpeed=false：让「默认倍速」每次都生效；播放器内的临时调速仍可用。
+        val options = PlaybackOptions(speed = speed, rememberSpeed = false)
+        runCatching { PlaybackIntents.play(requireContext(), source, options) }
             .onFailure { Nav.toast("播放器启动失败：${it.message}") }
     }
 
     private fun enterPip() {
+        if (!AppSettings.get(K.PLAYER_PIP)) {
+            Nav.toast("已在设置里关闭画中画")
+            return
+        }
         val activity = requireActivity()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             runCatching {

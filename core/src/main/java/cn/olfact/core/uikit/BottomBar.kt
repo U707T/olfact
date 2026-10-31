@@ -79,12 +79,15 @@ class BottomBar @JvmOverloads constructor(
         slots.clear(); icons.clear(); badges.clear(); pills.clear()
 
         items.forEach { item ->
-            val slot = when (item.kind) {
-                Kind.PILL -> buildPill(item)
-                Kind.COUNT -> buildCountSlot(item)
-                Kind.ICON -> buildIconSlot(item)
+            // 「纯图标」模式下中间的标题胶囊退化为图标槽（由调用方给 Item.icon）；
+            // 旧实现只把 style 存成字段，两种样式渲染完全一样。
+            val slot = when {
+                item.kind == Kind.PILL && style == Style.ICON_ONLY -> buildIconSlot(item)
+                item.kind == Kind.PILL -> buildPill(item)
+                item.kind == Kind.COUNT -> buildCountSlot(item)
+                else -> buildIconSlot(item)
             }
-            val weight = if (item.kind == Kind.PILL) 3.4f else 1f
+            val weight = if (item.kind == Kind.PILL && style == Style.PILL) 3.4f else 1f
             slotContainer.addView(slot, LayoutParams(0, LayoutParams.MATCH_PARENT, weight))
             slots[item.id] = slot
             slot.setOnClickListener { select(item.id, notify = true) }

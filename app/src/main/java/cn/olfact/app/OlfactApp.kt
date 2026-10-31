@@ -13,6 +13,8 @@ class OlfactApp : Application() {
     override fun onCreate() {
         super.onCreate()
         AppSettings.init(this)
+        // 下载设置与设置页共用 DataStore；不绑定的话队列会回退到模块私有 prefs（两套配置源）。
+        cn.olfact.download.DownloadSettings.bind(AppSettings.repo)
         BookmarkStore.init(this)
         HistoryStore.init(this)
         // 真实模块接到 core/api 契约上：轻的同步、读盘的后台（见 ModuleBackends.install），

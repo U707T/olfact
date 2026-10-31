@@ -33,7 +33,7 @@ class EmptyView @JvmOverloads constructor(
     }
     private val actionView = TextView(context).apply {
         setTextSize(TypedValue.COMPLEX_UNIT_PX, resources.getDimension(R.dimen.uikit_text_value))
-        setTextColor(ContextCompat.getColor(context, R.color.uikit_accent))
+        setTextColor(ContextCompat.getColor(context, R.color.uikit_text_accent))
         setTypeface(typeface, android.graphics.Typeface.BOLD)
         setPadding(context.dpF(12f), context.dpF(12f), context.dpF(12f), context.dpF(12f))
         visibility = View.GONE

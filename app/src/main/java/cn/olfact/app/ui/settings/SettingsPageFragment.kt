@@ -5,10 +5,13 @@ import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
+import cn.olfact.app.MainActivity
 import cn.olfact.app.R
 import cn.olfact.app.data.AppSettings
+import cn.olfact.app.data.K
 import cn.olfact.app.databinding.FragmentSettingsPageBinding
 import cn.olfact.app.nav.Nav
 import cn.olfact.app.ui.common.Dialogs
@@ -68,7 +71,10 @@ class SettingsPageFragment : Fragment(R.layout.fragment_settings_page) {
             summary = row.summary
             mode = SettingItem.Mode.SWITCH
             isCheckedItem = AppSettings.get(row.key)
-            onCheckedChange = { AppSettings.set(row.key, it) }
+            onCheckedChange = {
+                AppSettings.set(row.key, it)
+                onSettingChanged(row.key.name, it)
+            }
         }
 
         is Row.Choice -> SettingItem(requireContext()).apply {
@@ -80,8 +86,9 @@ class SettingsPageFragment : Fragment(R.layout.fragment_settings_page) {
                 val current = AppSettings.get(row.key)
                 val index = row.options.indexOfFirst { it.first == current }.coerceAtLeast(0)
                 Dialogs.choose(requireContext(), row.title, row.options.map { it.second }, index) { picked ->
-                    AppSettings.set(row.key, row.options[picked].first)
-                    refresh()
+                    val pickedValue = row.options[picked].first
+                    AppSettings.set(row.key, pickedValue)
+                    if (!onSettingChanged(row.key.name, pickedValue)) refresh()
                 }
             }
         }
@@ -95,8 +102,9 @@ class SettingsPageFragment : Fragment(R.layout.fragment_settings_page) {
                 val current = AppSettings.get(row.key)
                 val index = row.options.indexOfFirst { it.first == current }.coerceAtLeast(0)
                 Dialogs.choose(requireContext(), row.title, row.options.map { it.second }, index) { picked ->
-                    AppSettings.set(row.key, row.options[picked].first)
-                    refresh()
+                    val pickedValue = row.options[picked].first
+                    AppSettings.set(row.key, pickedValue)
+                    if (!onSettingChanged(row.key.name, pickedValue)) refresh()
                 }
             }
         }
@@ -122,6 +130,39 @@ class SettingsPageFragment : Fragment(R.layout.fragment_settings_page) {
             mode = SettingItem.Mode.CHEVRON
             onClickAction = { Nav.push(row.target()) }
         }
+    }
+
+    /**
+     * 设置项改变后的即时生效逻辑。
+     * @return true 表示已经触发 Activity 重建，调用方不要再 refresh 旧 View。
+     */
+    private fun onSettingChanged(key: String, value: Any?): Boolean {
+        when (key) {
+            K.NIGHT_MODE.name -> {
+                val mode = when (value as? Int) {
+                    1 -> AppCompatDelegate.MODE_NIGHT_YES
+                    2 -> AppCompatDelegate.MODE_NIGHT_NO
+                    else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+                }
+                // AppCompat 会重建 Activity；同菜单里的夜间开关走同一条路，行为保持一致。
+                AppCompatDelegate.setDefaultNightMode(mode)
+                return true
+            }
+
+            K.FONT_SCALE.name -> {
+                requireActivity().recreate()
+                return true
+            }
+
+            K.BOTTOM_STYLE.name -> {
+                (requireActivity() as? MainActivity)?.applyBottomBarStyle()
+            }
+
+            K.EYE_CARE.name -> {
+                (requireActivity() as? MainActivity)?.applyEyeCare()
+            }
+        }
+        return false
     }
 
     private fun refresh() {

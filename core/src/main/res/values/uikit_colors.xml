@@ -10,9 +10,11 @@
     <color name="uikit_soft">#FFF1F4F8</color>
 
     <color name="uikit_text_primary">#FF212121</color>
-    <color name="uikit_text_secondary">#FF757575</color>
-    <color name="uikit_text_hint">#FF9E9E9E</color>
+    <color name="uikit_text_secondary">#FF616161</color>
+    <color name="uikit_text_hint">#FF6E6E6E</color>
     <color name="uikit_text_inverse">#FFFFFFFF</color>
+    <!-- 绿色文字：与 uikit_accent 区分，后者只用于背景/进度/图形 -->
+    <color name="uikit_text_accent">#FF0C7A44</color>
 
     <color name="uikit_divider">#FFEEEEEE</color>
     <color name="uikit_stroke">#FF1F1F1F</color>

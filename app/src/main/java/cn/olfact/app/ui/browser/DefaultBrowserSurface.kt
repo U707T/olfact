@@ -2,6 +2,8 @@ package cn.olfact.app.ui.browser
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.webkit.WebChromeClient
 import android.webkit.WebView
@@ -20,6 +22,7 @@ import cn.olfact.core.api.BrowserSurfaceHost
  */
 class DefaultBrowserSurface(private val context: Context) : BrowserSurface {
 
+    private val main = Handler(Looper.getMainLooper())
     private var web: WebView? = null
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -101,9 +104,12 @@ class DefaultBrowserSurface(private val context: Context) : BrowserSurface {
     override fun url(): String? = web?.url
 
     override fun evaluateJavascript(script: String, callback: (String) -> Unit) {
-        val view = web ?: run { callback(""); return }
-        runCatching { view.evaluateJavascript(script) { value -> callback(value.orEmpty()) } }
-            .onFailure { callback("") }
+        val run = Runnable {
+            val view = web ?: run { callback(""); return@Runnable }
+            runCatching { view.evaluateJavascript(script) { value -> callback(value.orEmpty()) } }
+                .onFailure { callback("") }
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) run.run() else main.post(run)
     }
 
     override fun findAll(text: String) {

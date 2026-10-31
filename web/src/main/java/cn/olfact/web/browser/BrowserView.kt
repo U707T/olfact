@@ -88,6 +88,11 @@ class BrowserView @JvmOverloads constructor(
             blockNetworkImage = !newConfig.imagesEnabled
             textZoom = newConfig.textZoom.coerceIn(50, 200)
         }
+        // 第三方 Cookie 是 WebView 级开关；无痕模式默认也禁。
+        runCatching {
+            android.webkit.CookieManager.getInstance()
+                .setAcceptThirdPartyCookies(this, !newConfig.blockThirdPartyCookies && !newConfig.incognito)
+        }
         applyUserAgent(url)
         setNightMode(newConfig.nightMode)
     }

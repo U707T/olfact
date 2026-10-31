@@ -9,6 +9,7 @@ import cn.olfact.app.R
 import cn.olfact.app.databinding.FragmentDownloadListBinding
 import cn.olfact.app.nav.ChromeAware
 import cn.olfact.app.nav.Nav
+import cn.olfact.app.ui.common.Dialogs
 import cn.olfact.core.api.DownloadState
 import cn.olfact.core.api.DownloadTask
 import cn.olfact.core.api.OlfactServices
@@ -27,6 +28,14 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
 
     private var binding: FragmentDownloadListBinding? = null
     private var showRunning = false
+    private var sortMode = SortMode.TIME
+    private var showTime = true
+
+    private enum class SortMode(val label: String) {
+        TIME("按时间"),
+        NAME("按名称"),
+        SIZE("按大小")
+    }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val b = FragmentDownloadListBinding.bind(view)
@@ -70,10 +79,15 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
         val b = binding ?: return
         val ctx = requireContext()
         val all = OlfactServices.downloads?.tasks().orEmpty()
-        val list = if (showRunning) all.filter { it.state != DownloadState.DONE } else all.filter { it.state == DownloadState.DONE }
+        val filtered = if (showRunning) all.filter { it.state != DownloadState.DONE } else all.filter { it.state == DownloadState.DONE }
+        val list = when (sortMode) {
+            SortMode.TIME -> filtered.sortedByDescending { it.createdAt }
+            SortMode.NAME -> filtered.sortedBy { it.name.lowercase() }
+            SortMode.SIZE -> filtered.sortedByDescending { it.totalBytes }
+        }
 
-        b.tabDone.setTextColor(ContextCompat.getColor(ctx, if (showRunning) R.color.text_secondary else R.color.brand))
-        b.tabRunning.setTextColor(ContextCompat.getColor(ctx, if (showRunning) R.color.brand else R.color.text_secondary))
+        b.tabDone.setTextColor(ContextCompat.getColor(ctx, if (showRunning) R.color.text_secondary else R.color.text_accent))
+        b.tabRunning.setTextColor(ContextCompat.getColor(ctx, if (showRunning) R.color.text_accent else R.color.text_secondary))
 
         b.list.removeAllViews()
         b.empty.visibility = if (list.isEmpty()) View.VISIBLE else View.GONE
@@ -100,13 +114,18 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
         return row
     }
 
-    private fun subtitleOf(task: DownloadTask): String = when (task.state) {
-        DownloadState.DONE -> "已完成 · ${formatSize(task.totalBytes)}"
-        DownloadState.RUNNING -> "${formatSize(task.doneBytes)} / ${formatSize(task.totalBytes)} · ${formatSize(task.speedBytesPerSec)}/s"
-        DownloadState.PAUSED -> "已暂停 · ${task.progress}%"
-        DownloadState.QUEUED -> "排队中"
-        DownloadState.MERGING -> "合并分片中…"
-        DownloadState.FAILED -> task.error ?: "失败"
+    private fun subtitleOf(task: DownloadTask): String {
+        val base = when (task.state) {
+            DownloadState.DONE -> "已完成 · ${formatSize(task.totalBytes)}"
+            DownloadState.RUNNING -> "${formatSize(task.doneBytes)} / ${formatSize(task.totalBytes)} · ${formatSize(task.speedBytesPerSec)}/s"
+            DownloadState.PAUSED -> "已暂停 · ${task.progress}%"
+            DownloadState.QUEUED -> "排队中"
+            DownloadState.MERGING -> "合并分片中…"
+            DownloadState.FAILED -> task.error ?: "失败"
+        }
+        if (!showTime) return base
+        val at = if (task.finishedAt > 0) task.finishedAt else task.createdAt
+        return "$base · ${timeFormat.format(java.util.Date(at))}"
     }
 
     private fun trailingOf(task: DownloadTask): String = when (task.state) {
@@ -124,15 +143,30 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
 
     private fun showMenu() {
         val sheet = Sheet(requireContext()).title("下载列表")
-        listOf("排序方式", "批量删除", "文件管理", "显示时间", "分类显示", "更多设置").forEach { label ->
+        listOf("排序方式", "显示时间", "更多设置").forEach { label ->
             sheet.addRow(ListRow(requireContext()).apply {
                 title = label
+                when (label) {
+                    "排序方式" -> trailing = sortMode.label
+                    "显示时间" -> trailing = if (showTime) "开" else "关"
+                }
                 onRowClick = {
                     sheet.dismiss()
                     when (label) {
+                        "排序方式" -> Dialogs.choose(
+                            requireContext(),
+                            "排序方式",
+                            SortMode.entries.map { it.label },
+                            sortMode.ordinal
+                        ) { picked ->
+                            sortMode = SortMode.entries[picked]
+                            render()
+                        }
+                        "显示时间" -> {
+                            showTime = !showTime
+                            render()
+                        }
                         "更多设置" -> Nav.push(cn.olfact.app.ui.settings.SettingsPageFragment.newInstance("download"))
-                        "文件管理" -> Nav.toast("交给系统文件管理器（/Download）")
-                        else -> Nav.toast("$label：下载模块接入后生效")
                     }
                 }
             })
@@ -141,6 +175,8 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
     }
 
     companion object {
+        private val timeFormat = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
+
         fun formatSize(bytes: Long): String {
             if (bytes <= 0) return "0 B"
             val units = arrayOf("B", "KB", "MB", "GB")

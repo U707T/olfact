@@ -43,13 +43,13 @@ object K {
     val PAGE_ZOOM = SettingsKey("web.page_zoom", 100)
     val JS_ENABLED = SettingsKey("web.js", true)
 
-    // 下载
-    val DL_THREADS = SettingsKey("dl.threads", 4)
-    val DL_CONCURRENT = SettingsKey("dl.concurrent", 2)
-    val DL_WIFI_ONLY = SettingsKey("dl.wifi_only", false)
-    val DL_NOTIFY = SettingsKey("dl.notify", true)
-    val DL_AUTO_RENAME = SettingsKey("dl.auto_rename", true)
-    val DL_M3U8_MERGE = SettingsKey("dl.m3u8_merge", true)
+    // 下载：key 与 download 模块共用一份定义，避免设置页与队列各存一套
+    val DL_THREADS = cn.olfact.download.DownloadKeys.THREADS
+    val DL_CONCURRENT = cn.olfact.download.DownloadKeys.CONCURRENT
+    val DL_WIFI_ONLY = cn.olfact.download.DownloadKeys.WIFI_ONLY
+    val DL_NOTIFY = cn.olfact.download.DownloadKeys.NOTIFY
+    val DL_AUTO_RENAME = cn.olfact.download.DownloadKeys.AUTO_RENAME
+    val DL_M3U8_MERGE = cn.olfact.download.DownloadKeys.M3U8_MERGE
 
     // 嗅探/播放
     val SNIFF_ENABLED = SettingsKey("sniff.enabled", true)

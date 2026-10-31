@@ -4,7 +4,7 @@ import cn.olfact.download.m3u8.AdFilterConfig
 
 /** 队列行为配置。由设置页（B5）读写，[DownloadSettings] 负责落到 SharedPreferences。 */
 data class DownloadConfig(
-    val wifiOnly: Boolean = true,
+    val wifiOnly: Boolean = false,
     val chargingOnly: Boolean = false,
     val maxConcurrentTasks: Int = 2,
     val threadsPerTask: Int = 4,

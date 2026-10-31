@@ -8,8 +8,9 @@
 
     <color name="uikit_text_primary">#FFEDEDED</color>
     <color name="uikit_text_secondary">#FFA0A0A0</color>
-    <color name="uikit_text_hint">#FF757575</color>
+    <color name="uikit_text_hint">#FF8A8A8A</color>
     <color name="uikit_text_inverse">#FF111111</color>
+    <color name="uikit_text_accent">#FF2FB877</color>
 
     <color name="uikit_divider">#FF2A2A2C</color>
     <color name="uikit_stroke">#FF3A3A3C</color>

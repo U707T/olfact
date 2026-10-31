@@ -1,6 +1,8 @@
 package cn.olfact.app.ui.browser
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.webkit.WebView
 import cn.olfact.app.data.ActiveSurface
@@ -33,6 +35,7 @@ import java.util.UUID
  */
 class WebBrowserSurface(private val context: Context) : BrowserSurface {
 
+    private val main = Handler(Looper.getMainLooper())
     private var web: BrowserView? = null
     private var detectSink: ((String) -> Unit)? = null
     private val sticky = SessionSticky()
@@ -74,6 +77,7 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
                 injectLateScripts(view, url)
             },
             onExternalScheme = { url -> cn.olfact.app.data.openExternal(context, url) },
+            onError = { code, description, url -> host.onError(code, description, url) },
             onRenderProcessGone = { dead ->
                 // 渲染进程被系统杀掉：拆掉这个 WebView，提示用户重新加载，别让整个应用跟着崩
                 (dead.parent as? android.view.ViewGroup)?.removeView(dead)
@@ -126,7 +130,8 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
             javaScriptEnabled = AppSettings.get(K.JS_ENABLED),
             nightMode = night,
             textZoom = AppSettings.get(K.TEXT_ZOOM),
-            incognito = BrowserSession.current()?.incognito == true
+            incognito = BrowserSession.current()?.incognito == true,
+            blockThirdPartyCookies = AppSettings.get(K.PRIVACY_BLOCK_THIRD_PARTY)
         )
     }
 
@@ -159,9 +164,13 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
     override fun url(): String? = web?.url
 
     override fun evaluateJavascript(script: String, callback: (String) -> Unit) {
-        val view = web ?: run { callback(""); return }
-        runCatching { view.evaluateJavascript(script) { value -> callback(value.orEmpty()) } }
-            .onFailure { callback("") }
+        val run = Runnable {
+            val view = web ?: run { callback(""); return@Runnable }
+            runCatching { view.evaluateJavascript(script) { value -> callback(value.orEmpty()) } }
+                .onFailure { callback("") }
+        }
+        // 调用方可能来自 GM 桥 / AI 的后台线程；WebView 只接受主线程调用。
+        if (Looper.myLooper() == Looper.getMainLooper()) run.run() else main.post(run)
     }
 
     override fun findAll(text: String) {

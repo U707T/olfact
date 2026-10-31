@@ -11,7 +11,9 @@ import cn.olfact.app.ui.settings.pages.DohFragment
 import cn.olfact.app.ui.settings.pages.LogFragment
 import cn.olfact.app.ui.settings.pages.ProtocolFragment
 import cn.olfact.app.ui.settings.pages.ScriptFragment
+import cn.olfact.core.Core
 import cn.olfact.core.api.OlfactServices
+import cn.olfact.core.backup.PrivacyCleaner
 
 /**
  * 全部「结构性」设置页的数据。文案对齐原版设置文案（见 docs/refs/18、19、17、15）。
@@ -31,6 +33,12 @@ object SettingsSpecs {
         else -> Spec(title = "设置", sections = emptyList())
     }
 
+    private fun formatBytes(bytes: Long): String = when {
+        bytes < 1024 -> "$bytes B"
+        bytes < 1024 * 1024 -> String.format(java.util.Locale.US, "%.1f KB", bytes / 1024.0)
+        else -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1024.0 / 1024.0)
+    }
+
     private fun basic() = Spec(
         title = "基本设置",
         sections = listOf(
@@ -39,18 +47,12 @@ object SettingsSpecs {
                     Row.Choice(K.RESTORE_TABS, "启动时恢复标签", listOf(
                         "always" to "自动恢复", "manual" to "手动恢复", "never" to "不恢复"
                     )),
-                    Row.Toggle(K.BACK_NO_RELOAD, "返回不重载"),
-                    Row.Nav("搜索引擎管理", target = { SettingsPageFragment.newInstance("search") }),
-                    Row.Toggle(K.SEARCH_CLIPBOARD, "搜索自动提取剪贴板"),
-                    Row.Choice(K.SUGGEST_SOURCE, "搜索建议来源", listOf(
-                        "baidu" to "百度", "bing" to "必应", "google" to "Google", "off" to "关闭"
-                    ))
+                    Row.Nav("搜索引擎管理", target = { SettingsPageFragment.newInstance("search") })
                 )
             ),
             Section(
                 listOf(
-                    Row.Toggle(K.ALLOW_OPEN_APP, "允许网页打开应用"),
-                    Row.Toggle(K.ALLOW_LOCATION, "允许网页获取位置")
+                    Row.Toggle(K.ALLOW_OPEN_APP, "允许网页打开应用")
                 )
             ),
             Section(
@@ -58,13 +60,10 @@ object SettingsSpecs {
                     Row.Choice(K.HISTORY_LIMIT, "历史记录限制", listOf(
                         "100" to "100 条", "1000" to "1000 条", "5000" to "5000 条",
                         "100000" to "不限"
-                    )),
-                    Row.Toggle(K.CONTINUE_PLAY, "历史继续播放提示"),
-                    Row.Toggle(K.FORCE_NEW_WINDOW, "强制新窗口打开")
+                    ))
                 )
             )
-        ),
-        footer = "「返回不重载」依赖 web 内核的 bfcache 支持；关闭后每次返回都会重新请求页面。"
+        )
     )
 
     private fun appearance() = Spec(
@@ -80,9 +79,6 @@ object SettingsSpecs {
             ),
             Section(
                 listOf(
-                    Row.Toggle(K.FULLSCREEN_SCROLL, "全屏滚动隐藏工具栏"),
-                    Row.Toggle(K.SWIPE_BACK, "侧滑返回"),
-                    Row.Toggle(K.DOUBLE_TAP_ZOOM, "网页双击缩放"),
                     Row.IntChoice(K.TEXT_ZOOM, "网页字号", listOf(80 to "80%", 90 to "90%", 100 to "100%", 110 to "110%", 130 to "130%"))
                 )
             ),
@@ -106,9 +102,7 @@ object SettingsSpecs {
                     Row.IntChoice(K.DL_THREADS, "单任务线程数", listOf(1 to "1", 2 to "2", 4 to "4", 8 to "8")),
                     Row.IntChoice(K.DL_CONCURRENT, "同时下载任务数", listOf(1 to "1", 2 to "2", 3 to "3", 5 to "5")),
                     Row.Toggle(K.DL_WIFI_ONLY, "仅 Wi-Fi 下载"),
-                    Row.Toggle(K.DL_NOTIFY, "下载完成通知"),
-                    Row.Toggle(K.DL_AUTO_RENAME, "同名文件自动重命名"),
-                    Row.Toggle(K.DL_M3U8_MERGE, "M3U8 自动合并为 MP4")
+                    Row.Toggle(K.DL_NOTIFY, "下载通知（进度/完成/失败）")
                 )
             ),
             Section(
@@ -130,8 +124,7 @@ object SettingsSpecs {
             Section(
                 listOf(
                     Row.Toggle(K.SNIFF_ENABLED, "启用视频嗅探"),
-                    Row.Toggle(K.SNIFF_TIP, "发现视频时提示"),
-                    Row.Toggle(K.SNIFF_FILTER_SMALL, "过滤小于 1 MB 的分片")
+                    Row.Toggle(K.SNIFF_FILTER_SMALL, "过滤小于 256 KB 的媒体")
                 )
             ),
             Section(
@@ -139,8 +132,6 @@ object SettingsSpecs {
                     Row.Choice(K.PLAYER_SPEED, "默认倍速", listOf(
                         "0.75" to "0.75x", "1.0" to "1.0x", "1.25" to "1.25x", "1.5" to "1.5x", "2.0" to "2.0x"
                     )),
-                    Row.Toggle(K.PLAYER_SKIP_INTRO, "自动跳过片头片尾"),
-                    Row.Toggle(K.PLAYER_GRAVITY_ROTATE, "重力感应横屏"),
                     Row.Toggle(K.PLAYER_PIP, "允许画中画")
                 )
             )
@@ -194,14 +185,19 @@ object SettingsSpecs {
             Section(
                 listOf(
                     Row.Toggle(K.PRIVACY_CLEAR_ON_EXIT, "退出时清除数据"),
-                    Row.Toggle(K.PRIVACY_DO_NOT_TRACK, "发送 Do Not Track"),
                     Row.Toggle(K.PRIVACY_BLOCK_THIRD_PARTY, "阻止第三方 Cookie")
                 )
             ),
             Section(
                 listOf(
-                    Row.Action("清除缓存") { Nav.toast("已清理（web 模块接入后统计真实占用）") },
-                    Row.Action("清除 Cookie") { Nav.toast("已清理") },
+                    Row.Action("清除缓存", summary = "只清网页缓存，不影响书签/历史") {
+                        val freed = runCatching { PrivacyCleaner(Core.context).clearCache() }.getOrDefault(0L)
+                        Nav.toast(if (freed > 0) "已清理 ${formatBytes(freed)} 缓存" else "缓存已是空的")
+                    },
+                    Row.Action("清除 Cookie") {
+                        val ok = runCatching { PrivacyCleaner(Core.context).clearCookies() }.getOrDefault(false)
+                        Nav.toast(if (ok) "Cookie 已清除，已打开的网页需刷新" else "清除失败，请稍后重试")
+                    },
                     Row.Action("系统权限管理") { Nav.toast("请在系统设置里管理权限") },
                     Row.Toggle(K.DEV_MODE, "开发者模式"),
                     Row.Nav("崩溃与网络日志", target = { LogFragment() })
@@ -213,14 +209,6 @@ object SettingsSpecs {
     private fun more() = Spec(
         title = "更多设置",
         sections = listOf(
-            Section(
-                listOf(
-                    Row.Choice(K.LANGUAGE, "语言", listOf("zh" to "简体中文", "en" to "English")),
-                    Row.Toggle(K.NOTIFY, "通知"),
-                    Row.Choice(K.LOG_LEVEL, "日志级别", listOf("error" to "仅错误", "info" to "常规", "debug" to "调试")),
-                    Row.Toggle(K.WEB_LOG, "记录网页控制台日志")
-                )
-            ),
             Section(
                 listOf(
                     Row.Nav("用户协议", target = { ProtocolFragment.newInstance("terms") }),

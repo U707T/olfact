@@ -82,7 +82,7 @@ class AboutFragment : Fragment(R.layout.fragment_page) {
         val group = cn.olfact.core.uikit.SettingGroup(ctx)
         modules.forEach { (name, ready) ->
             group.addRow(setting(name, if (ready) "已接入" else "未接入").also {
-                it.setValueColor(if (ready) R.color.brand else R.color.text_hint)
+                it.setValueColor(if (ready) R.color.text_accent else R.color.text_hint)
             }, dividerInsetDp = 16)
         }
         b.content.addView(group)

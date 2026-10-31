@@ -138,14 +138,26 @@ object AiActions {
         val facade = AiFacade.get(activity)
         val provider = facade.providers.selected()
         if (provider == null) {
-            Nav.toast("先在「设置 → AI 供应商」里添加一个供应商")
+            showProviderDialog(activity, "还没有 AI 供应商", "先添加一个供应商和 API Key，再回来使用总结/翻译。")
             return null
         }
         if (!facade.providers.hasApiKey(provider)) {
-            Nav.toast("供应商「${provider.name}」还没填 API Key")
+            showProviderDialog(activity, "供应商还缺 API Key", "「${provider.name}」还没有填 Key，填完即可使用。")
             return null
         }
         return Ctx(facade, provider, facade.providers.apiKey(provider))
+    }
+
+    /** 断头路改成直达：对话框的「去设置」直接打开 AI 供应商页。 */
+    private fun showProviderDialog(activity: ComponentActivity, title: String, message: String) {
+        androidx.appcompat.app.AlertDialog.Builder(activity)
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton("去设置") { _, _ ->
+                Nav.push(cn.olfact.app.ui.settings.pages.AiFragment())
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     /** `evaluateJavascript` 回传的是 JSON 字符串字面量，去掉引号与转义。 */

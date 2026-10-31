@@ -3,6 +3,8 @@ package cn.olfact.app.data
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import cn.olfact.ai.AiFacade
 import cn.olfact.core.adblock.AdBlockManager
 import cn.olfact.core.api.AdBlockController
@@ -171,8 +173,15 @@ object ModuleBackends {
 /** 嗅探回调落点：B2 在 `shouldInterceptRequest` 命中媒体时调用。 */
 object SnifferSink : cn.olfact.core.api.MediaSniffer {
 
+    /** 小于这个体积的媒体多半是广告/预览片，默认过滤（可在设置里关）。 */
+    private const val SMALL_MEDIA_BYTES = 256L * 1024
+
     override fun onMediaDetected(item: cn.olfact.core.api.MediaItem) {
         if (!AppSettings.get(K.SNIFF_ENABLED)) return
+        if (AppSettings.get(K.SNIFF_FILTER_SMALL)) {
+            val length = item.contentLength
+            if (length != null && length in 1..SMALL_MEDIA_BYTES) return
+        }
         SnifferFeed.add(item)
     }
 
@@ -186,6 +195,9 @@ object InjectionBus {
     @Volatile
     private var sink: ((String) -> Unit)? = null
 
+    /** WebView 只能在 UI 线程操作：所有注入统一从主线程发出。 */
+    private val main = Handler(Looper.getMainLooper())
+
     fun attach(evaluate: (String) -> Unit) {
         sink = evaluate
     }
@@ -195,7 +207,12 @@ object InjectionBus {
     }
 
     fun evaluate(js: String) {
-        sink?.invoke(js)
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            sink?.invoke(js)
+        } else {
+            // GM_xmlhttpRequest 的回调在 olfact-gm-xhr 线程；直接 evaluate 属于未定义行为。
+            main.post { sink?.invoke(js) }
+        }
     }
 }
 
@@ -555,7 +572,13 @@ internal fun cn.olfact.download.DownloadRecord.toTask(): DownloadTask = Download
 )
 
 /** 外部协议（intent://、market://…）交给系统。 */
-internal fun openExternal(context: Context, url: String): Boolean = runCatching {
-    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-    true
-}.getOrDefault(false)
+internal fun openExternal(context: Context, url: String): Boolean {
+    // 「允许网页打开应用」关闭时，只放行 http(s)，其它 scheme（intent://、market://…）一律不拉起。
+    if (!AppSettings.get(K.ALLOW_OPEN_APP) && !url.startsWith("http://") && !url.startsWith("https://")) {
+        return false
+    }
+    return runCatching {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        true
+    }.getOrDefault(false)
+}

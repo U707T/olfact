@@ -46,7 +46,6 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
     private var surface: BrowserSurface? = null
     private var suggest: UrlSuggestPopup? = null
     private var findVisible = false
-
     private val handler = Handler(Looper.getMainLooper())
     private val debounce = Runnable { openSuggestions() }
 
@@ -133,12 +132,17 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
                 tab?.url = url
                 if (!b.urlBar.editor.hasFocus()) b.urlBar.setText(url)
                 b.blankPage.visibility = View.GONE
+                hideError()
             }
 
             override fun onPageFinished(url: String) {
                 tab?.title = s.title().orEmpty()
                 updateTabCount()
                 syncBottomBar()
+            }
+
+            override fun onError(code: Int, description: String, url: String) {
+                showError(code, description, url)
             }
 
             override fun onLongPress(url: String?, title: String?) {
@@ -151,8 +155,76 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
         )
     }
 
-    private fun buildFindBar(b: FragmentBrowserBinding) {
-        b.findClose.setOnClickListener { hideFind() }
+    private var errorView: View? = null
+
+    /** 主文档加载失败：给错误码 + 重试 + 复制网址，不再白屏。 */
+    private fun showError(code: Int, description: String, url: String) {
+        val b = binding ?: return
+        hideError()
+        val ctx = requireContext()
+        val box = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(ContextCompat.getColor(ctx, R.color.card))
+            setPadding(ctx.dpF(28f), ctx.dpF(24f), ctx.dpF(28f), ctx.dpF(24f))
+        }
+        box.addView(TextView(ctx).apply {
+            text = "网页加载失败"
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 18f)
+            setTextColor(ContextCompat.getColor(ctx, R.color.text_primary))
+            gravity = Gravity.CENTER
+        })
+        box.addView(TextView(ctx).apply {
+            text = buildString {
+                append(description.ifBlank { "网络不可用或页面无法访问" })
+                if (code != 0) append("（错误码 ").append(code).append("）")
+            }
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
+            gravity = Gravity.CENTER
+            setPadding(0, ctx.dpF(10f), 0, ctx.dpF(22f))
+        })
+
+        val actions = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        actions.addView(TextView(ctx).apply {
+            text = "重试"
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextColor(android.graphics.Color.WHITE)
+            gravity = Gravity.CENTER
+            setPadding(ctx.dpF(20f), ctx.dpF(9f), ctx.dpF(20f), ctx.dpF(9f))
+            background = ContextCompat.getDrawable(ctx, R.drawable.bg_button_primary)
+            setOnClickListener { hideError(); surface?.reload() }
+        })
+        actions.addView(TextView(ctx).apply {
+            text = "复制网址"
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextColor(ContextCompat.getColor(ctx, R.color.text_accent))
+            gravity = Gravity.CENTER
+            setPadding(ctx.dpF(20f), ctx.dpF(9f), ctx.dpF(20f), ctx.dpF(9f))
+            setOnClickListener {
+                val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                cm?.setPrimaryClip(android.content.ClipData.newPlainText("url", url))
+                Nav.toast("网址已复制")
+            }
+        })
+        box.addView(actions)
+
+        b.surfaceContainer.addView(
+            box,
+            ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        )
+        errorView = box
+    }
+
+    private fun hideError() {
+        errorView?.let { (it.parent as? ViewGroup)?.removeView(it) }
+        errorView = null
+    }
+
+    private fun buildFindBar(b: FragmentBrowserBinding) {        b.findClose.setOnClickListener { hideFind() }
         b.findInput.setOnEditorActionListener { _, _, _ ->
             surface?.findAll(b.findInput.text.toString())
             true

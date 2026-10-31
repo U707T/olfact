@@ -201,7 +201,7 @@ class DownloadQueue(
         record = record.copy(status = DownloadStatus.RUNNING, error = null, updatedAt = now())
         store.upsert(record)
         publish()
-        notifierProvider()?.notifyProgress(record, force = true)
+        if (config.notifyProgress) notifierProvider()?.notifyProgress(record, force = true)
         jobs[id] = kotlinx.coroutines.currentCoroutineContext()[Job] ?: return
 
         try {
@@ -212,7 +212,7 @@ class DownloadQueue(
             }
             store.upsert(finished)
             publish()
-            notifierProvider()?.notifyCompleted(finished)
+            if (config.notifyProgress) notifierProvider()?.notifyCompleted(finished)
         } catch (e: CancellationException) {
             val latest = store.get(id)
             if (latest != null && latest.status == DownloadStatus.RUNNING) {
@@ -228,7 +228,7 @@ class DownloadQueue(
             )
             store.upsert(failed)
             publish()
-            notifierProvider()?.notifyFailed(failed)
+            if (config.notifyProgress) notifierProvider()?.notifyFailed(failed)
         } finally {
             jobs.remove(id)
             activeIds.remove(id)
@@ -336,7 +336,7 @@ class DownloadQueue(
         }
         _items.value = store.all().map { if (it.id == record.id) record else it }
             .sortedByDescending { it.createdAt }
-        notifierProvider()?.notifyProgress(record)
+        if (configProvider().notifyProgress) notifierProvider()?.notifyProgress(record)
     }
 
     private fun publish() {

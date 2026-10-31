@@ -17,44 +17,60 @@ data class HistoryEntry(
     val visitedAt: Long = System.currentTimeMillis()
 )
 
-/** 书签。持久化到 SharedPreferences，最多几百条，够用且没有 Room 的构建成本。 */
+/**
+ * 书签。持久化到 SharedPreferences，最多几百条，够用且没有 Room 的构建成本。
+ *
+ * 线程：内存列表由 [lock] 保护；落盘在 [JsonPersist] 的后台线程完成，
+ * 主线程只负责更新内存 + 提交快照，不再序列化整张表。
+ */
 object BookmarkStore {
 
     private const val KEY = "bookmarks"
+    private val lock = Any()
+    private val data = mutableListOf<Bookmark>()
     private var nextId = 1L
-    val items = mutableListOf<Bookmark>()
+
+    /** 只读快照。 */
+    val items: List<Bookmark>
+        get() = synchronized(lock) { data.toList() }
 
     fun init(context: Context) {
-        if (items.isNotEmpty()) return
-        val arr = JsonStore.readArray(context, KEY)
-        for (i in 0 until arr.length()) {
-            val o = arr.optJSONObject(i) ?: continue
-            val id = o.optLong("id", nextId)
-            items.add(Bookmark(id, o.optString("title"), o.optString("url"), o.optString("folder", "默认"), o.optLong("at")))
-            if (id >= nextId) nextId = id + 1
+        synchronized(lock) {
+            if (data.isNotEmpty()) return
+            val arr = JsonStore.readArray(context, KEY)
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val id = o.optLong("id", nextId)
+                data.add(Bookmark(id, o.optString("title"), o.optString("url"), o.optString("folder", "默认"), o.optLong("at")))
+                if (id >= nextId) nextId = id + 1
+            }
         }
     }
 
     fun add(context: Context, title: String, url: String, folder: String = "默认"): Bookmark {
-        val b = Bookmark(nextId++, title.ifBlank { url }, url, folder)
-        items.add(0, b)
+        val b = synchronized(lock) {
+            Bookmark(nextId++, title.ifBlank { url }, url, folder).also { data.add(0, it) }
+        }
         persist(context)
         return b
     }
 
     fun remove(context: Context, id: Long) {
-        items.removeAll { it.id == id }
+        synchronized(lock) { data.removeAll { it.id == id } }
         persist(context)
     }
 
-    fun all(): List<Bookmark> = items.toList()
+    fun all(): List<Bookmark> = items
 
     private fun persist(context: Context) {
-        val arr = org.json.JSONArray()
-        items.forEach { b ->
-            arr.put(JsonStore.objOf("id" to b.id, "title" to b.title, "url" to b.url, "folder" to b.folder, "at" to b.createdAt))
+        JsonPersist.schedule(context, KEY, delayMs = 150) {
+            val snapshot = synchronized(lock) { data.toList() }
+            org.json.JSONArray().apply {
+                snapshot.forEach { b ->
+                    put(JsonStore.objOf("id" to b.id, "title" to b.title, "url" to b.url, "folder" to b.folder, "at" to b.createdAt))
+                }
+            }
         }
-        JsonStore.writeArray(context, KEY, arr)
     }
 }
 
@@ -62,34 +78,44 @@ object BookmarkStore {
 object HistoryStore {
 
     private const val KEY = "history"
-    val items = mutableListOf<HistoryEntry>()
+    private val lock = Any()
+    private val data = mutableListOf<HistoryEntry>()
+
+    /** 只读快照。 */
+    val items: List<HistoryEntry>
+        get() = synchronized(lock) { data.toList() }
 
     fun init(context: Context) {
-        if (items.isNotEmpty()) return
-        val arr = JsonStore.readArray(context, KEY)
-        for (i in 0 until arr.length()) {
-            val o: JSONObject = arr.optJSONObject(i) ?: continue
-            items.add(HistoryEntry(o.optString("title"), o.optString("url"), o.optLong("at")))
+        synchronized(lock) {
+            if (data.isNotEmpty()) return
+            val arr = JsonStore.readArray(context, KEY)
+            for (i in 0 until arr.length()) {
+                val o: JSONObject = arr.optJSONObject(i) ?: continue
+                data.add(HistoryEntry(o.optString("title"), o.optString("url"), o.optLong("at")))
+            }
         }
     }
 
     fun record(context: Context, title: String, url: String) {
         if (url.isBlank() || url.startsWith("about:")) return
-        items.removeAll { it.url == url }
-        items.add(0, HistoryEntry(title.ifBlank { url }, url))
         val limit = runCatching { AppSettings.get(K.HISTORY_LIMIT).toInt() }.getOrDefault(1000)
-        while (items.size > limit) items.removeAt(items.size - 1)
-        persist(context)
+        synchronized(lock) {
+            data.removeAll { it.url == url }
+            data.add(0, HistoryEntry(title.ifBlank { url }, url))
+            while (data.size > limit) data.removeAt(data.size - 1)
+        }
+        // 800ms debounce：连续翻页只落盘最后一次，避免每页一次整表序列化。
+        persist(context, delayMs = 800)
     }
 
     fun remove(context: Context, url: String) {
-        items.removeAll { it.url == url }
-        persist(context)
+        synchronized(lock) { data.removeAll { it.url == url } }
+        persist(context, delayMs = 150)
     }
 
     fun clear(context: Context) {
-        items.clear()
-        persist(context)
+        synchronized(lock) { data.clear() }
+        persist(context, delayMs = 0)
     }
 
     /** 首页「最近访问」用：按 host 去重，最多 n 条。 */
@@ -104,9 +130,14 @@ object HistoryStore {
     fun search(query: String, limit: Int = 5): List<HistoryEntry> =
         items.filter { it.title.contains(query, true) || it.url.contains(query, true) }.take(limit)
 
-    private fun persist(context: Context) {
-        val arr = org.json.JSONArray()
-        items.forEach { e -> arr.put(JsonStore.objOf("title" to e.title, "url" to e.url, "at" to e.visitedAt)) }
-        JsonStore.writeArray(context, KEY, arr)
+    private fun persist(context: Context, delayMs: Long = 800) {
+        JsonPersist.schedule(context, KEY, delayMs) {
+            val snapshot = synchronized(lock) { data.toList() }
+            org.json.JSONArray().apply {
+                snapshot.forEach { e ->
+                    put(JsonStore.objOf("title" to e.title, "url" to e.url, "at" to e.visitedAt))
+                }
+            }
+        }
     }
 }
