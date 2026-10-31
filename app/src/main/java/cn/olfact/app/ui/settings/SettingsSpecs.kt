@@ -202,7 +202,7 @@ object SettingsSpecs {
                     Row.Toggle(K.DESKTOP_MODE, "全局桌面模式"),
                     Row.Toggle(K.JS_ENABLED, "全局启用 JS")
                 ),
-                footer = "按站点的覆盖配置存放在 web 模块的 site_config 表里；本页只改全局默认。"
+                footer = "本页改的是全局默认；按站点的覆盖配置暂未开放入口，后续会加到「UA 管理」同级的站点列表里。"
             )
         )
     )
