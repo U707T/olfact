@@ -25,7 +25,7 @@ class DownloadAdapter(
     override fun getItemCount(): Int = items.size
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH =
-        VH(ListRow(parent.context))
+        VH(ListRow(parent.context).apply { showChevron(false) })
 
     override fun onBindViewHolder(holder: VH, position: Int) {
         val task = items[position]

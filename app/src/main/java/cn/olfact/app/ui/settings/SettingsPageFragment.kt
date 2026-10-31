@@ -182,21 +182,6 @@ class SettingsPageFragment : Fragment(R.layout.fragment_settings_page) {
         return false
     }
 
-    private fun refresh() {
-        val b = binding ?: return
-        val specs = SettingsSpecs.build(requireArguments().getString(ARG_ID).orEmpty())
-        b.sections.removeAllViews()
-        specs.sections.forEach { section ->
-            section.title?.let { b.sections.addView(sectionLabel(it)) }
-            val group = SettingGroup(requireContext())
-            section.rows.forEach { row -> group.addRow(buildRow(row)) }
-            b.sections.addView(group, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(12) })
-            section.footer?.let { b.sections.addView(footerLabel(it)) }
-        }
-    }
-
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     companion object {

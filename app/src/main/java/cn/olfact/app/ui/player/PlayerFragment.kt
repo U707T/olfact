@@ -1,9 +1,6 @@
 package cn.olfact.app.ui.player
 
-import android.app.PictureInPictureParams
-import android.os.Build
 import android.os.Bundle
-import android.util.Rational
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
