@@ -83,15 +83,20 @@ class M3u8Downloader(
                         coroutineContext.ensureActive()
                         val file = File(segmentDir, "%05d.ts".format(index))
                         if (!file.exists() || file.length() == 0L) {
-                            var data = fetchBytesWithRetry(spec, segment.uri)
                             val key = segment.key
-                            if (key != null && key.isAes128 && key.uri != null) {
-                                val keyBytes = keyCache.getOrPut(key.uri) { fetchBytesWithRetry(spec, key.uri) }
-                                val iv = Aes128Decryptor.parseIv(key.ivHex, segment.sequence)
-                                data = Aes128Decryptor.decrypt(data, keyBytes, iv)
+                            val keyBytes = if (key != null && key.isAes128 && key.uri != null) {
+                                keyCache.getOrPut(key.uri) { fetchBytesWithRetry(spec, key.uri) }
+                            } else {
+                                null
                             }
-                            file.writeBytes(data)
-                            bytes.addAndGet(data.size.toLong())
+                            val iv = if (keyBytes != null && key != null) {
+                                Aes128Decryptor.parseIv(key.ivHex, segment.sequence)
+                            } else {
+                                null
+                            }
+                            // 边下边解密边写文件：不再把整个分片读进 ByteArray
+                            val size = fetchToFile(spec, segment.uri, file, keyBytes, iv)
+                            bytes.addAndGet(size)
                         } else {
                             bytes.addAndGet(file.length())
                         }
@@ -152,6 +157,51 @@ class M3u8Downloader(
             if (!response.isSuccessful) throw IOException("HTTP ${response.code}：$url")
             val body = response.body ?: throw IOException("响应为空：$url")
             return body.bytes()
+        }
+    }
+
+    /**
+     * 下载分片并直接写文件；AES-128 分片用 [javax.crypto.CipherInputStream] 流式解密。
+     * 失败会删除半成品后重试，避免下次误判为「已下载」。
+     */
+    private suspend fun fetchToFile(
+        spec: DownloadSpec,
+        url: String,
+        target: File,
+        key: ByteArray?,
+        iv: ByteArray?
+    ): Long {
+        var attempt = 0
+        while (true) {
+            coroutineContext.ensureActive()
+            attempt++
+            try {
+                client.newCall(Http.request(spec, url)).await().use { response ->
+                    if (!response.isSuccessful) throw IOException("HTTP ${response.code}：$url")
+                    val body = response.body ?: throw IOException("响应为空：$url")
+                    target.parentFile?.mkdirs()
+                    val raw = body.byteStream()
+                    val input = if (key != null && iv != null) {
+                        val cipher = javax.crypto.Cipher.getInstance("AES/CBC/PKCS5Padding")
+                        cipher.init(
+                            javax.crypto.Cipher.DECRYPT_MODE,
+                            javax.crypto.spec.SecretKeySpec(key, "AES"),
+                            javax.crypto.spec.IvParameterSpec(iv)
+                        )
+                        javax.crypto.CipherInputStream(raw, cipher)
+                    } else {
+                        raw
+                    }
+                    input.use { ins ->
+                        target.outputStream().use { outs -> ins.copyTo(outs, 64 * 1024) }
+                    }
+                    return target.length()
+                }
+            } catch (e: Exception) {
+                runCatching { target.delete() }
+                if (attempt >= MAX_ATTEMPTS) throw e
+                delay(RETRY_BASE_DELAY_MS * attempt)
+            }
         }
     }
 

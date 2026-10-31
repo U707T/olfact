@@ -197,7 +197,7 @@ class TabManager(
             applyConfig(config)
         }
 
-        view.onLongPress = deps.longPressHandler
+        view.onLongPress = { target, _, _ -> deps.longPressHandler(target) }
         view.onDownload = deps.downloadHandler
 
         view.webViewClient = BrowserClient(

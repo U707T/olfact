@@ -31,13 +31,17 @@ class BrowserView @JvmOverloads constructor(
             applyUserAgent(url)
         }
 
-    var onLongPress: ((LongPressTarget) -> Unit)? = null
+    var onLongPress: ((LongPressTarget, Float, Float) -> Unit)? = null
     var onDownload: ((DownloadRequest) -> Unit)? = null
     var onSslError: ((String) -> Unit)? = null
 
     private val scriptHandles = ArrayList<ScriptHandler>()
     private var nightModeApplied = false
     private var lastUrl: String? = null
+
+    /** 最近一次 ACTION_DOWN 的 View 坐标：长按菜单用它定位。 */
+    private var lastTouchX = 0f
+    private var lastTouchY = 0f
 
     init {
         settings.apply {
@@ -63,7 +67,7 @@ class BrowserView @JvmOverloads constructor(
             if (target == null || target.kind == LongPressTarget.Kind.TEXT || target.kind == LongPressTarget.Kind.OTHER) {
                 false
             } else {
-                onLongPress?.invoke(target)
+                onLongPress?.invoke(target, lastTouchX, lastTouchY)
                 true
             }
         }
@@ -79,6 +83,14 @@ class BrowserView @JvmOverloads constructor(
                 )
             )
         }
+    }
+
+    override fun onTouchEvent(event: android.view.MotionEvent): Boolean {
+        if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
+            lastTouchX = event.x
+            lastTouchY = event.y
+        }
+        return super.onTouchEvent(event)
     }
 
     fun applyConfig(newConfig: BrowserConfig) {

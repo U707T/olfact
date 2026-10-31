@@ -53,4 +53,12 @@ interface BrowserSurfaceHost {
 
     /** 主文档加载失败（DNS/超时/HTTP 错误）。默认空实现，兜底渲染器可以不支持。 */
     fun onError(code: Int, description: String, url: String) {}
+
+    /**
+     * 带坐标的长按（原版菜单锚在手指位置）。
+     * 默认转调 [onLongPress]，不支持坐标的渲染器仍然可用。
+     */
+    fun onLongPressAt(url: String?, title: String?, x: Float, y: Float) {
+        onLongPress(url, title)
+    }
 }

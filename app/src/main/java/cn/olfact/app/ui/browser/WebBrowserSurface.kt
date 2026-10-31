@@ -88,7 +88,9 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
         )
         view.webChromeClient = BrowserChromeClient(tabId, events)
 
-        view.onLongPress = { target -> host.onLongPress(target.url ?: target.imageUrl, view.title) }
+        view.onLongPress = { target, x, y ->
+            host.onLongPressAt(target.url ?: target.imageUrl, view.title, x, y)
+        }
         view.onDownload = { request ->
             OlfactServices.downloads?.enqueue(request.url, null, request.pageUrl.orEmpty())
         }

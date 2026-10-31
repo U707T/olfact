@@ -158,6 +158,10 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
             override fun onLongPress(url: String?, title: String?) {
                 LongPressSheet.show(requireContext(), url, title) { showFind() }
             }
+
+            override fun onLongPressAt(url: String?, title: String?, x: Float, y: Float) {
+                LongPressSheet.showAt(requireContext(), url, title, b.surfaceContainer, x, y) { showFind() }
+            }
         }
         b.surfaceContainer.addView(
             s.createView(host),
