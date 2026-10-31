@@ -61,6 +61,7 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
         adapter = a
         b.list.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(requireContext())
         b.list.adapter = a
+        b.list.addItemDecoration(cn.olfact.core.uikit.InsetDivider(requireContext()))
 
         OlfactServices.downloads?.changes?.let { flow ->
             viewLifecycleOwner.lifecycleScope.launch {

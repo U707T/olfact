@@ -32,6 +32,7 @@ class BookmarksFragment : Fragment(R.layout.fragment_entry_list) {
         adapter = a
         b.list.layoutManager = LinearLayoutManager(requireContext())
         b.list.adapter = a
+        b.list.addItemDecoration(cn.olfact.core.uikit.InsetDivider(requireContext()))
         render()
     }
 
