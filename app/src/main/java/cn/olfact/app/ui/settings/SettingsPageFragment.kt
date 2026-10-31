@@ -13,6 +13,7 @@ import cn.olfact.app.R
 import cn.olfact.app.data.AppSettings
 import cn.olfact.app.data.HistoryStore
 import cn.olfact.app.data.K
+import cn.olfact.app.data.RuntimeFlags
 import cn.olfact.app.databinding.FragmentSettingsPageBinding
 import cn.olfact.app.nav.Nav
 import cn.olfact.app.ui.common.Dialogs
@@ -165,6 +166,11 @@ class SettingsPageFragment : Fragment(R.layout.fragment_settings_page) {
 
             K.HISTORY_LIMIT.name -> {
                 HistoryStore.trim(requireContext())
+            }
+
+            // 这些设置只影响新页面：标记一下，浏览器下次回到前台自动 reload。
+            "web.text_zoom", "web.no_image", "web.night", "web.desktop", "web.js" -> {
+                RuntimeFlags.reloadPagesOnResume = true
             }
         }
         return false

@@ -31,7 +31,9 @@ class GmBridge(
     private val values: GmValueStore,
     private val http: OkHttpClient,
     private val emit: (String) -> Unit,
-    private val logger: (String) -> Unit = {}
+    private val logger: (String) -> Unit = {},
+    /** 关闭后脚本照常执行，但不注入 GM_* 全局（对应设置里的「GM_* 桥接」）。 */
+    private val gmEnabled: () -> Boolean = { true }
 ) {
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -64,12 +66,22 @@ class GmBridge(
     }
 
     /** prelude（未闭合的 IIFE）+ 脚本体 + 收尾。 */
-    fun wrap(script: UserScript, body: String): String = buildString(body.length + 8192) {
-        append(prelude(script))
-        append("\ntry {\n")
-        append(body)
-        append("\n} catch (__olfactErr) { try { __call(\"log\", [\"[olfact] 脚本异常: \" + (__olfactErr && __olfactErr.stack ? __olfactErr.stack : __olfactErr)]); } catch (e) {} }\n")
-        append("})();\n")
+    fun wrap(script: UserScript, body: String): String {
+        if (!gmEnabled()) {
+            // 关掉 GM 桥时仍执行脚本体，只是不暴露 GM_* 全局。
+            return buildString(body.length + 128) {
+                append("(function(){\ntry {\n")
+                append(body)
+                append("\n} catch (__olfactErr) { if (window.console) { try { console.error('[olfact]', __olfactErr); } catch (e) {} } }\n})();\n")
+            }
+        }
+        return buildString(body.length + 8192) {
+            append(prelude(script))
+            append("\ntry {\n")
+            append(body)
+            append("\n} catch (__olfactErr) { try { __call(\"log\", [\"[olfact] 脚本异常: \" + (__olfactErr && __olfactErr.stack ? __olfactErr.stack : __olfactErr)]); } catch (e) {} }\n")
+            append("})();\n")
+        }
     }
 
     // --------------------------------------------------------------- 分发

@@ -86,7 +86,22 @@ class ScriptFragment : Fragment(R.layout.fragment_page) {
         cardBottomMargin(group)
 
         b.content.addView(settingGroup(
-            setting("新建脚本", "右键都不用了，直接点 +") { edit(null) }
+            setting("从网址安装", "支持 GreasyFork 等站点的 *.user.js 直链") {
+                Dialogs.input(ctx, "脚本地址", hint = "https://greasyfork.org/scripts/xxx.user.js") { url ->
+                    if (url.isBlank()) return@input
+                    val source = OlfactServices.scriptStore
+                    if (source == null) {
+                        Nav.toast("脚本模块未接入")
+                        return@input
+                    }
+                    Nav.toast("正在下载…")
+                    source.installFromUrl(url.trim()) { ok, message ->
+                        Nav.toast(if (ok) "已安装 $message" else "安装失败：$message")
+                        render()
+                    }
+                }
+            },
+            setting("新建脚本", "直接写一段 JS 也可以") { edit(null) }
         ).also { cardBottomMargin(it) })
 
         b.content.addView(note("实现说明：不引入 QuickJS，脚本通过 addDocumentStartJavaScript 注入页面；GM_* 能力由 JsBridge 提供。"))

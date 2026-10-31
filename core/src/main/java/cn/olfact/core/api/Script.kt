@@ -23,4 +23,12 @@ interface ScriptStore {
     fun save(script: UserScript)
     fun remove(id: String)
     fun setEnabled(id: String, enabled: Boolean)
+
+    /**
+     * 从 `.user.js` 直链下载并安装（GreasyFork 等）。
+     * 默认实现只回报「不支持」，有网络能力的实现负责下载、解析与落盘。
+     */
+    fun installFromUrl(url: String, onDone: (Boolean, String) -> Unit) {
+        onDone(false, "当前版本不支持从网址安装")
+    }
 }

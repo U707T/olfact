@@ -47,6 +47,7 @@ class HomeFragment : Fragment(R.layout.fragment_home), ChromeAware {
         "人间有味是清欢。" to "苏轼"
     )
     private var quoteIndex = 0
+    private var quoteHintShown = false
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val b = FragmentHomeBinding.bind(view)
@@ -66,6 +67,10 @@ class HomeFragment : Fragment(R.layout.fragment_home), ChromeAware {
             quoteIndex = (quoteIndex + 1) % quotes.size
             b.quoteText.text = quotes[quoteIndex].first
             b.quoteAuthor.text = quotes[quoteIndex].second
+            if (!quoteHintShown) {
+                quoteHintShown = true
+                Nav.toast("点按语录卡可换一句")
+            }
         }
 
         b.recentMore.setOnClickListener { Nav.push(HistoryFragment()) }

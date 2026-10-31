@@ -12,6 +12,7 @@ import cn.olfact.app.nav.Nav
 import cn.olfact.app.ui.common.Dialogs
 import cn.olfact.core.uikit.ListRow
 import cn.olfact.core.uikit.SettingGroup
+import com.google.android.material.snackbar.Snackbar
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -77,6 +78,12 @@ class HistoryFragment : Fragment(R.layout.fragment_entry_list) {
                         Dialogs.confirm(ctx, "删除记录", e.title, danger = true) {
                             HistoryStore.remove(ctx, e.url)
                             render()
+                            Snackbar.make(requireView(), "已删除这条记录", Snackbar.LENGTH_LONG)
+                                .setAction("撤销") {
+                                    HistoryStore.restore(ctx, e)
+                                    render()
+                                }
+                                .show()
                         }
                         true
                     }

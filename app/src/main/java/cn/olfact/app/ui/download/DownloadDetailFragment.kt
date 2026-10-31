@@ -48,13 +48,56 @@ class DownloadDetailFragment : Fragment(R.layout.fragment_download_detail) {
             Nav.pop()
         }
         b.actionOpen.setOnClickListener {
-            Nav.toast(if (task.state == DownloadState.DONE) "打开：${task.savePath}" else "还没下完")
+            if (task.state != DownloadState.DONE) {
+                Nav.toast("还没下完")
+                return@setOnClickListener
+            }
+            openFile(task.savePath)
         }
         b.actionDelete.setOnClickListener {
             center?.remove(task.id, true)
             Nav.toast("已删除")
             Nav.pop()
         }
+    }
+
+    /** 已下载文件：content:// 直接打开；绝对路径/公共 Downloads 走 FileProvider 分享。 */
+    private fun openFile(path: String) {
+        if (path.isBlank()) {
+            Nav.toast("文件路径未知")
+            return
+        }
+        val ctx = requireContext()
+        val uri = if (path.startsWith("content://") || path.startsWith("file://")) {
+            android.net.Uri.parse(path)
+        } else {
+            val file = if (path.startsWith("/")) {
+                java.io.File(path)
+            } else {
+                java.io.File(
+                    android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+                    path
+                )
+            }
+            if (!file.exists()) {
+                Nav.toast("文件不存在：${file.absolutePath}")
+                return
+            }
+            runCatching {
+                androidx.core.content.FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
+            }.getOrElse {
+                Nav.toast("无法分享文件：${it.message}")
+                return
+            }
+        }
+        val ext = android.net.Uri.parse(path).lastPathSegment?.substringAfterLast('.')?.lowercase().orEmpty()
+        val mime = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "*/*"
+        runCatching {
+            startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mime)
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            })
+        }.onFailure { Nav.toast("没有能打开该文件的应用") }
     }
 
     private fun stateText(task: cn.olfact.core.api.DownloadTask): String = when (task.state) {

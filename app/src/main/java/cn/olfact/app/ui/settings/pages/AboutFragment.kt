@@ -90,7 +90,6 @@ class AboutFragment : Fragment(R.layout.fragment_page) {
 
         b.content.addView(sectionTitle("其它"))
         b.content.addView(settingGroup(
-            setting("检查更新") { Nav.toast("当前是最新版本（CI 出包后在此接入）") },
             setting("用户协议") { Nav.push(ProtocolFragment.newInstance("terms")) },
             setting("隐私政策") { Nav.push(ProtocolFragment.newInstance("privacy")) },
             setting("开源许可") { Nav.push(ProtocolFragment.newInstance("licenses")) },

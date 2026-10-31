@@ -103,12 +103,14 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
     }
 
     private fun injectScripts(view: WebView, url: String) {
+        if (!AppSettings.get(K.SCRIPT_ENABLED)) return
         val scripts = OlfactServices.scripts?.documentStartScripts(url).orEmpty()
         (view as? BrowserView)?.applyDocumentStartScripts(scripts)
     }
 
     /** document-end 阶段：`addDocumentStartJavaScript` 只覆盖文档开始，其余阶段要显式注入。 */
     private fun injectLateScripts(view: WebView, url: String) {
+        if (!AppSettings.get(K.SCRIPT_ENABLED)) return
         val source = OlfactServices.scripts as? ScriptSourceImpl ?: return
         runCatching {
             source.scriptsFor(url, RunAt.DOCUMENT_END).forEach { view.evaluateJavascript(it.js, null) }

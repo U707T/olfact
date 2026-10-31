@@ -31,6 +31,7 @@ class BackupFragment : Fragment(R.layout.fragment_page) {
 
     private var binding: FragmentPageBinding? = null
     private var busy = false
+    private var needsRestart = false
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         binding = FragmentPageBinding.bind(view)
@@ -70,8 +71,20 @@ class BackupFragment : Fragment(R.layout.fragment_page) {
                 state?.let {
                     if (it.lastSuccess) "成功 · ${it.lastBytes / 1024} KB" else (it.lastError ?: "失败")
                 } ?: "还没有备份过"
+            ),
+            setting(
+                "上次备份时间",
+                AppSettings.get(K.BACKUP_LAST_AT).takeIf { it > 0 }
+                    ?.let { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(it)) }
+                    ?: "还没有备份过"
             )
         ).also { cardBottomMargin(it) })
+
+        if (needsRestart) {
+            b.content.addView(settingGroup(
+                setting("立即重启应用", "让恢复的设置与数据全部生效") { restartApp() }
+            ).also { cardBottomMargin(it) })
+        }
 
         b.content.addView(sectionTitle("WebDAV"))
         b.content.addView(settingGroup(
@@ -147,16 +160,39 @@ class BackupFragment : Fragment(R.layout.fragment_page) {
     }
 
     private fun restore(file: java.io.File) {
+        if (busy) return
+        busy = true
+        render()
         viewLifecycleOwner.lifecycleScope.launch {
             val result = AppBackup.restore(file)
+            busy = false
             if (!isAdded) return@launch
             if (result.error != null) {
                 Nav.toast("恢复失败：${result.error}")
             } else {
-                Nav.toast("已恢复 ${result.changed} 项，建议重启应用")
+                needsRestart = true
+                Nav.toast("已恢复 ${result.changed} 项，建议立即重启")
                 render()
             }
         }
+    }
+
+    /** 恢复会替换 DataStore / 数据库连接，必须重启进程才彻底生效。 */
+    private fun restartApp() {
+        val ctx = requireContext()
+        val intent = android.content.Intent(ctx, cn.olfact.app.MainActivity::class.java).apply {
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        }
+        // 先用 AlarmManager 预约启动，再杀进程：避免 startActivity 后立刻 exit 的竞态。
+        runCatching {
+            val pending = android.app.PendingIntent.getActivity(
+                ctx, 0, intent,
+                android.app.PendingIntent.FLAG_CANCEL_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+            val alarm = ctx.getSystemService(android.app.AlarmManager::class.java)
+            alarm?.set(android.app.AlarmManager.RTC, System.currentTimeMillis() + 300, pending)
+        }
+        android.os.Process.killProcess(android.os.Process.myPid())
     }
 
     override fun onDestroyView() {

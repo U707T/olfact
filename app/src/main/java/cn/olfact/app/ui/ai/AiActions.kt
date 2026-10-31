@@ -24,6 +24,10 @@ object AiActions {
     private const val MAX_PAGE_CHARS = 6000
 
     fun summarize(activity: ComponentActivity) {
+        if (!cn.olfact.app.data.AppSettings.get(cn.olfact.app.data.K.AI_SUMMARY)) {
+            Nav.toast("已在设置里关闭「网页总结」")
+            return
+        }
         val ctx = prepare(activity) ?: return
         val surface = ActiveSurface.current
         if (surface == null) {
@@ -70,6 +74,10 @@ object AiActions {
      * 与「划词翻译」共用同一套供应商与密钥；整页翻译更常用，所以放在长按菜单里。
      */
     fun translatePage(activity: ComponentActivity) {
+        if (!cn.olfact.app.data.AppSettings.get(cn.olfact.app.data.K.AI_TRANSLATE)) {
+            Nav.toast("已在设置里关闭「整页双语对照」")
+            return
+        }
         val ctx = prepare(activity) ?: return
         val surface = ActiveSurface.current
         if (surface == null) {

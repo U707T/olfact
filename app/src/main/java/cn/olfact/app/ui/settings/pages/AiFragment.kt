@@ -53,7 +53,6 @@ class AiFragment : Fragment(R.layout.fragment_page) {
         b.content.addView(sectionTitle("功能开关"))
         b.content.addView(settingGroup(
             toggle("网页总结", AppSettings.get(K.AI_SUMMARY), "Readability 抽正文 + 分块摘要") { AppSettings.set(K.AI_SUMMARY, it) },
-            toggle("划词翻译", AppSettings.get(K.AI_SELECTION), "选中即出现「译」浮层") { AppSettings.set(K.AI_SELECTION, it) },
             toggle("整页双语对照", AppSettings.get(K.AI_TRANSLATE), "逐段注入译文") { AppSettings.set(K.AI_TRANSLATE, it) }
         ).also { cardBottomMargin(it) })
 

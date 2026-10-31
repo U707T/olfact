@@ -4,8 +4,10 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.content.ContextCompat
 import cn.olfact.app.R
+import cn.olfact.app.data.AppSettings
 import cn.olfact.app.data.BookmarkStore
 import cn.olfact.app.data.BrowserSession
+import cn.olfact.app.data.K
 import cn.olfact.app.nav.Nav
 import cn.olfact.app.ui.ai.AiActions
 import cn.olfact.app.ui.download.AddDownloadSheet
@@ -59,8 +61,12 @@ object LongPressSheet {
         }
         val activity = context as? androidx.activity.ComponentActivity
         if (activity != null) {
-            row("AI 总结本页", R.drawable.orig_m_ai, rawIcon = true) { AiActions.summarize(activity) }
-            row("AI 翻译本页", R.drawable.orig_m_ai_alt, rawIcon = true) { AiActions.translatePage(activity) }
+            if (AppSettings.get(K.AI_SUMMARY)) {
+                row("AI 总结本页", R.drawable.orig_m_ai, rawIcon = true) { AiActions.summarize(activity) }
+            }
+            if (AppSettings.get(K.AI_TRANSLATE)) {
+                row("AI 翻译本页", R.drawable.orig_m_ai_alt, rawIcon = true) { AiActions.translatePage(activity) }
+            }
         }
         onFind?.let { find ->
             row("页内查找", R.drawable.ic_search) { find() }

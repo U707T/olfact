@@ -42,6 +42,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 
@@ -140,7 +141,8 @@ object ModuleBackends {
         val bridge = GmBridge(
             values = GmValueStore(File(app.filesDir, "gm")),
             http = GmBridge.defaultClient(),
-            emit = { js -> InjectionBus.evaluate(js) }
+            emit = { js -> InjectionBus.evaluate(js) },
+            gmEnabled = { AppSettings.get(K.SCRIPT_GM_BRIDGE) }
         )
         val source: ScriptSource = ScriptSourceImpl(store, bridge)
         OlfactServices.scripts = source
@@ -415,6 +417,19 @@ class AdBlockAdapter(private val manager: AdBlockManager) : AdBlockController {
         scope.launch { runCatching { manager.updateAll(force = true) } }
     }
 
+    override fun refreshAsync(onDone: (Boolean, String) -> Unit) {
+        scope.launch {
+            val result = runCatching { manager.updateAll(force = true) }
+            val ruleCount = manager.state.value.ruleCount
+            withContext(Dispatchers.Main) {
+                result.fold(
+                    onSuccess = { onDone(true, "规则已更新 · $ruleCount 条") },
+                    onFailure = { onDone(false, it.message ?: "更新失败") }
+                )
+            }
+        }
+    }
+
     override fun whitelist(): List<String> = manager.whitelist()
 
     override fun setWhitelist(hosts: List<String>) {
@@ -428,6 +443,8 @@ class AdBlockAdapter(private val manager: AdBlockManager) : AdBlockController {
 class ScriptAdapter(
     private val store: cn.olfact.core.script.ScriptStore
 ) : ScriptStore {
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun all(): List<UserScript> = store.list().map { meta ->
         UserScript(
@@ -461,6 +478,16 @@ class ScriptAdapter(
 
     override fun setEnabled(id: String, enabled: Boolean) {
         store.setEnabled(id, enabled)
+    }
+
+    override fun installFromUrl(url: String, onDone: (Boolean, String) -> Unit) {
+        scope.launch {
+            val parsed = store.installFromUrl(url, GmBridge.defaultClient())
+            withContext(Dispatchers.Main) {
+                if (parsed != null) onDone(true, parsed.name)
+                else onDone(false, "下载或解析失败，请确认链接指向 .user.js")
+            }
+        }
     }
 }
 

@@ -60,6 +60,16 @@ object BookmarkStore {
         persist(context)
     }
 
+    /** 撤销删除：原样放回（保留 id / 文件夹 / 创建时间）。 */
+    fun restore(context: Context, bookmark: Bookmark) {
+        synchronized(lock) {
+            data.removeAll { it.id == bookmark.id }
+            data.add(0, bookmark)
+            if (bookmark.id >= nextId) nextId = bookmark.id + 1
+        }
+        persist(context)
+    }
+
     fun all(): List<Bookmark> = items
 
     private fun persist(context: Context) {
@@ -110,6 +120,15 @@ object HistoryStore {
 
     fun remove(context: Context, url: String) {
         synchronized(lock) { data.removeAll { it.url == url } }
+        persist(context, delayMs = 150)
+    }
+
+    /** 撤销删除：原样放回（保留访问时间，分组不会跳）。 */
+    fun restore(context: Context, entry: HistoryEntry) {
+        synchronized(lock) {
+            data.removeAll { it.url == entry.url }
+            data.add(0, entry)
+        }
         persist(context, delayMs = 150)
     }
 

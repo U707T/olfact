@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 应用专属下载目录：/Android/data/<pkg>/files/Download/olfact -->
+    <external-files-path name="app_downloads" path="Download/" />
+    <!-- 系统 DownloadManager 的公共 Downloads（只读分享给外部播放器） -->
+    <external-path name="public_downloads" path="Download/" />
+    <cache-path name="cache" path="." />
+</paths>

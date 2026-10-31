@@ -34,7 +34,6 @@ import cn.olfact.player.PlaybackSource
 class PlayerFragment : Fragment(R.layout.fragment_player) {
 
     private var binding: FragmentPlayerBinding? = null
-    private var playing = false
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val b = FragmentPlayerBinding.bind(view)
@@ -46,19 +45,15 @@ class PlayerFragment : Fragment(R.layout.fragment_player) {
         b.replayBox.setOnClickListener { startPlayback(url, title) }
         b.playPause.setOnClickListener { startPlayback(url, title) }
         b.pip.setOnClickListener { enterPip() }
-        b.fullscreen.setOnClickListener { Nav.toast("横屏全屏由 player 模块的 PlayerView 接管") }
-        b.seek.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {}
-            override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
-            override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {
-                Nav.toast("拖动定位由 player 模块接管")
-            }
-        })
+
+        // 这里不是真正的播放器（真正的控制条在 player 模块的 Activity 里）。
+        // 隐藏假的进度条/全屏按钮，避免用户以为拖动或全屏应该在这里生效。
+        b.seek.visibility = View.GONE
+        b.fullscreen.visibility = View.GONE
+        b.position.text = ""
+        b.duration.text = ""
 
         buildContent(b.content, url, title)
-
-        // 原版行为：点嗅探结果直接进播放器，这里进页面即起播
-        startPlayback(url, title)
     }
 
     /** 起播交给 B3 的 Media3 播放器（独立 Activity，支持 PiP / 倍速 / 断点续播）。 */
@@ -117,10 +112,12 @@ class PlayerFragment : Fragment(R.layout.fragment_player) {
         })
         current.addView(actionRow(
             listOf(
-                Action(R.drawable.ic_back, "上一个") { Nav.toast("播放列表里的上一条") },
-                Action(R.drawable.ic_arrow_right, "下一个") { Nav.toast("播放列表里的下一条") },
-                Action(R.drawable.ic_list, "列表") { Nav.push(cn.olfact.app.ui.download.DownloadListFragment()) },
-                Action(R.drawable.ic_fullscreen, "竖屏全屏") { Nav.toast("竖屏全屏由 player 模块接管") }
+                Action(R.drawable.ic_play, "播放") { startPlayback(url, title) },
+                Action(R.drawable.ic_list, "嗅探结果") { SnifferSheet.show(requireActivity()) },
+                Action(R.drawable.ic_download, "下载") {
+                    OlfactServices.downloads?.enqueue(url, title)
+                    Nav.toast("已加入下载")
+                }
             )
         ))
         container.addView(current, LinearLayout.LayoutParams(
@@ -133,11 +130,6 @@ class PlayerFragment : Fragment(R.layout.fragment_player) {
                 val added = FavoriteStore.add(requireContext(), title, url)
                 Nav.toast(if (added) "已收藏" else "已经在收藏里了")
             },
-            Action(R.drawable.ic_download, "下载") {
-                OlfactServices.downloads?.enqueue(url, title)
-                Nav.toast("已加入下载")
-            },
-            Action(R.drawable.ic_play, "嗅探") { SnifferSheet.show(requireActivity()) },
             Action(R.drawable.ic_copy, "复制") {
                 val cm = requireContext().getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 cm.setPrimaryClip(android.content.ClipData.newPlainText("url", url))
@@ -145,20 +137,14 @@ class PlayerFragment : Fragment(R.layout.fragment_player) {
             }
         )))
 
-        // 更多操作
+        // 更多操作：只留真实生效的默认倍速
         container.addView(sectionCard("更多操作", listOf(
-            Action(R.drawable.ic_clock, "片头片尾") {
-                AppSettings.set(K.PLAYER_SKIP_INTRO, !AppSettings.get(K.PLAYER_SKIP_INTRO))
-                Nav.toast(if (AppSettings.get(K.PLAYER_SKIP_INTRO)) "已开启自动跳过" else "已关闭自动跳过")
-            },
-            Action(R.drawable.ic_play, "播放器") { speedDialog() },
-            Action(R.drawable.ic_clock, "定时停止") { Nav.toast("定时停止在 player 模块里实现") },
-            Action(R.drawable.ic_grid, "更多功能") { Nav.toast("按方案已裁掉投屏与视频手势") }
+            Action(R.drawable.ic_play, "默认倍速") { speedDialog() }
         )))
 
         container.addView(TextView(ctx).apply {
             text = "媒体地址：$url"
-            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 11.5f)
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f)
             setTextColor(ContextCompat.getColor(ctx, R.color.text_hint))
             setPadding(dp(4), dp(8), dp(4), 0)
         })

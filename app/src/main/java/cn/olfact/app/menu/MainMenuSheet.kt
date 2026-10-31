@@ -44,23 +44,27 @@ object MainMenuSheet {
     fun show(activity: MainActivity) {
         val sheet = Sheet(activity)
         val grid = NineGrid(activity)
-        val items = listOf(
-            Item(R.drawable.orig_m_bookmark_add, "加书签") { addBookmark(it) },
-            Item(R.drawable.orig_m_bookmark, "书签") { Nav.push(BookmarksFragment()) },
-            Item(R.drawable.orig_m_history, "历史") { Nav.push(HistoryFragment()) },
-            Item(R.drawable.orig_m_download, "下载") { Nav.push(DownloadListFragment()) },
-            Item(R.drawable.orig_m_plugin, "插件") { Nav.push(ScriptFragment()) },
-            Item(R.drawable.orig_m_sniff, "悬浮嗅探") { SnifferSheet.show(it) },
-            Item(R.drawable.orig_m_ua, "UA标识") { Nav.push(SettingsPageFragment.newInstance("ua")) },
-            Item(R.drawable.orig_m_log, "网络日志") { Nav.push(LogFragment()) },
-            Item(R.drawable.orig_m_refresh, "刷新") { reload() },
-            Item(R.drawable.orig_m_box, "工具箱") { Nav.push(SettingsPageFragment.newInstance("more")) },
-            Item(R.drawable.orig_m_incognito, "无痕模式") { openIncognito(it) },
-            Item(R.drawable.orig_m_ai, "AI 总结", tint = false) { AiActions.summarize(it) },
-            Item(R.drawable.orig_s_fullscreen, "全屏") { toggleFullscreen(it) },
-            Item(R.drawable.orig_m_night, "夜间模式") { toggleNight(it) },
-            Item(R.drawable.orig_m_site, "网站配置") { Nav.push(SettingsPageFragment.newInstance("site")) }
-        )
+        val items = buildList {
+            add(Item(R.drawable.orig_m_bookmark_add, "加书签") { addBookmark(it) })
+            add(Item(R.drawable.orig_m_bookmark, "书签") { Nav.push(BookmarksFragment()) })
+            add(Item(R.drawable.orig_m_history, "历史") { Nav.push(HistoryFragment()) })
+            add(Item(R.drawable.orig_m_download, "下载") { Nav.push(DownloadListFragment()) })
+            add(Item(R.drawable.orig_m_plugin, "插件") { Nav.push(ScriptFragment()) })
+            add(Item(R.drawable.orig_m_sniff, "嗅探结果") { SnifferSheet.show(it) })
+            add(Item(R.drawable.orig_m_ua, "UA标识") { Nav.push(SettingsPageFragment.newInstance("ua")) })
+            if (AppSettings.get(K.DEV_MODE)) {
+                add(Item(R.drawable.orig_m_log, "网络日志") { Nav.push(LogFragment()) })
+            }
+            add(Item(R.drawable.orig_m_refresh, "刷新") { reload() })
+            add(Item(R.drawable.orig_m_box, "工具箱") { Nav.push(SettingsPageFragment.newInstance("more")) })
+            add(Item(R.drawable.orig_m_incognito, "无痕模式") { openIncognito(it) })
+            if (AppSettings.get(K.AI_SUMMARY)) {
+                add(Item(R.drawable.orig_m_ai, "AI 总结", tint = false) { AiActions.summarize(it) })
+            }
+            add(Item(R.drawable.orig_s_fullscreen, "全屏") { toggleFullscreen(it) })
+            add(Item(R.drawable.orig_m_night, "夜间模式") { toggleNight(it) })
+            add(Item(R.drawable.orig_m_site, "网站配置") { Nav.push(SettingsPageFragment.newInstance("site")) })
+        }
         grid.setItems(items.map { NineGrid.Item(it.icon, it.label, it.tint) }) { index ->
             sheet.dismiss()
             items[index].action(activity)

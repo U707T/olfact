@@ -189,19 +189,29 @@ object SettingsSpecs {
                 )
             ),
             Section(
-                listOf(
-                    Row.Action("清除缓存", summary = "只清网页缓存，不影响书签/历史") {
+                buildList {
+                    add(Row.Action("清除缓存", summary = "只清网页缓存，不影响书签/历史") {
                         val freed = runCatching { PrivacyCleaner(Core.context).clearCache() }.getOrDefault(0L)
                         Nav.toast(if (freed > 0) "已清理 ${formatBytes(freed)} 缓存" else "缓存已是空的")
-                    },
-                    Row.Action("清除 Cookie") {
+                    })
+                    add(Row.Action("清除 Cookie") {
                         val ok = runCatching { PrivacyCleaner(Core.context).clearCookies() }.getOrDefault(false)
                         Nav.toast(if (ok) "Cookie 已清除，已打开的网页需刷新" else "清除失败，请稍后重试")
-                    },
-                    Row.Action("系统权限管理") { Nav.toast("请在系统设置里管理权限") },
-                    Row.Toggle(K.DEV_MODE, "开发者模式"),
-                    Row.Nav("崩溃与网络日志", target = { LogFragment() })
-                )
+                    })
+                    add(Row.Action("系统权限管理") {
+                        val intent = android.content.Intent(
+                            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            android.net.Uri.parse("package:${Core.context.packageName}")
+                        ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        runCatching { Core.context.startActivity(intent) }
+                            .onFailure { Nav.toast("打不开系统设置，请手动到「设置 → 应用」里管理") }
+                    })
+                    add(Row.Toggle(K.DEV_MODE, "开发者模式"))
+                    // 日志入口只在开发者模式显示，避免普通用户被日志页吓到
+                    if (AppSettings.get(K.DEV_MODE)) {
+                        add(Row.Nav("崩溃与网络日志", target = { LogFragment() }))
+                    }
+                }
             )
         )
     )

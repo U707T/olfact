@@ -38,6 +38,17 @@ interface AdBlockController {
     fun addSubscription(name: String, url: String)
     fun removeSubscription(id: String)
     fun refresh()
+
+    /**
+     * 带结果的规则更新（设置面板用）。默认实现退回 [refresh]，
+     * 成功与否由实现决定；不支持细粒度结果的实现可以只回调成功。
+     */
+    fun refreshAsync(onDone: (Boolean, String) -> Unit) {
+        runCatching { refresh() }
+            .onSuccess { onDone(true, "已开始更新规则") }
+            .onFailure { onDone(false, it.message ?: "更新失败") }
+    }
+
     fun whitelist(): List<String>
     fun setWhitelist(hosts: List<String>)
 }

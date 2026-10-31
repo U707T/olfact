@@ -58,9 +58,6 @@ class AdBlockFragment : Fragment(R.layout.fragment_page) {
                 AppSettings.set(K.AD_ENABLED, on)
                 controller?.setEnabled(on)
                 render()
-            },
-            toggle("元素隐藏（cosmetic）", AppSettings.get(K.AD_COSMETIC), "注入 CSS 隐藏占位广告位") { on ->
-                AppSettings.set(K.AD_COSMETIC, on)
             }
         ).also { cardBottomMargin(it) })
 
@@ -69,7 +66,7 @@ class AdBlockFragment : Fragment(R.layout.fragment_page) {
             setting("今日拦截", stats.todayBlocked.toString()),
             setting("累计拦截", stats.totalBlocked.toString()),
             setting("生效规则", if (stats.ruleCount > 0) "${stats.ruleCount} 条" else "—"),
-            setting("引擎", if (stats.engineReady) stats.engineName.ifBlank { "就绪" } else "未接入（B4 编译 .so 后启用）")
+            setting("引擎", if (stats.engineReady) stats.engineName.ifBlank { "就绪" } else "未就绪（正在使用内置规则）")
         ).also { cardBottomMargin(it) })
 
         b.content.addView(sectionTitle("订阅"))
@@ -100,13 +97,21 @@ class AdBlockFragment : Fragment(R.layout.fragment_page) {
                 Dialogs.input(Nav.context()!!, "订阅地址", hint = "https://…/easylist.txt") { url ->
                     if (url.isNotBlank()) {
                         controller?.addSubscription(url.substringAfterLast('/'), url)
-                        Nav.toast("已添加，等待 B4 拉取规则")
-                        render()
+                        Nav.toast("已添加，正在更新规则…")
+                        controller?.refreshAsync { ok, message ->
+                            Nav.toast(if (ok) message else "更新失败：$message")
+                            render()
+                        }
                     }
                 }
             },
             setting("立即更新规则", "拉取全部订阅并重建引擎") {
-                controller?.refresh() ?: Nav.toast("拦截引擎未接入")
+                val c = controller ?: return@setting Nav.toast("拦截引擎未接入")
+                Nav.toast("开始更新规则…")
+                c.refreshAsync { ok, message ->
+                    Nav.toast(if (ok) message else "更新失败：$message")
+                    render()
+                }
             }
         ).also { cardBottomMargin(it) })
 

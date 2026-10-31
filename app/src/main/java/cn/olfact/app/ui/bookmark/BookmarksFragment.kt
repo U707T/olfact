@@ -3,6 +3,7 @@ package cn.olfact.app.ui.bookmark
 import android.os.Bundle
 import android.view.View
 import androidx.fragment.app.Fragment
+import androidx.core.content.ContextCompat
 import cn.olfact.app.R
 import cn.olfact.app.data.BookmarkStore
 import cn.olfact.app.databinding.FragmentEntryListBinding
@@ -10,6 +11,7 @@ import cn.olfact.app.nav.Nav
 import cn.olfact.app.ui.common.Dialogs
 import cn.olfact.core.uikit.ListRow
 import cn.olfact.core.uikit.SettingGroup
+import com.google.android.material.snackbar.Snackbar
 
 /** 书签列表：点开、长按删、右上角新增。 */
 class BookmarksFragment : Fragment(R.layout.fragment_entry_list) {
@@ -51,18 +53,37 @@ class BookmarksFragment : Fragment(R.layout.fragment_entry_list) {
                 title = bookmark.title
                 subtitle = bookmark.url
                 setIcon(R.drawable.ic_bookmark)
+                showChevron(false)
                 onRowClick = { Nav.openBrowser(bookmark.url) }
-                setOnLongClickListener {
-                    Dialogs.confirm(ctx, "删除书签", bookmark.title, danger = true) {
-                        BookmarkStore.remove(ctx, bookmark.id)
-                        render()
-                    }
-                    true
-                }
+                setOnLongClickListener { confirmDelete(bookmark); true }
             }
+            // 可见的删除入口：不再只能靠长按猜。
+            val del = android.widget.ImageView(ctx).apply {
+                setImageResource(R.drawable.ic_trash)
+                imageTintList = ContextCompat.getColorStateList(ctx, R.color.text_hint)
+                contentDescription = "删除书签"
+                val pad = (10 * resources.displayMetrics.density).toInt()
+                setPadding(pad, pad, pad, pad)
+                setOnClickListener { confirmDelete(bookmark) }
+            }
+            row.addTrailing(del)
             group.addRow(row, dividerInsetDp = 52)
         }
         b.list.addView(group)
+    }
+
+    private fun confirmDelete(bookmark: cn.olfact.app.data.Bookmark) {
+        val ctx = requireContext()
+        Dialogs.confirm(ctx, "删除书签", bookmark.title, danger = true) {
+            BookmarkStore.remove(ctx, bookmark.id)
+            render()
+            Snackbar.make(requireView(), "已删除「${bookmark.title}」", Snackbar.LENGTH_LONG)
+                .setAction("撤销") {
+                    BookmarkStore.restore(ctx, bookmark)
+                    render()
+                }
+                .show()
+        }
     }
 
     override fun onDestroyView() {

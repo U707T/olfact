@@ -18,6 +18,7 @@ import cn.olfact.app.data.AppSettings
 import cn.olfact.app.data.BrowserSession
 import cn.olfact.app.data.HistoryStore
 import cn.olfact.app.data.K
+import cn.olfact.app.data.RuntimeFlags
 import cn.olfact.app.databinding.FragmentBrowserBinding
 import cn.olfact.app.link.LinkExtractor
 import cn.olfact.app.link.SearchEngines
@@ -80,6 +81,15 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
 
         val url = tab?.url.orEmpty()
         if (url.isNotBlank()) load(url)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // 设置页改了夜间网页/无图/字号/UA/JS：回到浏览器时自动刷新当前页。
+        if (RuntimeFlags.reloadPagesOnResume) {
+            RuntimeFlags.reloadPagesOnResume = false
+            surface?.reload()
+        }
     }
 
     private fun buildChrome(b: FragmentBrowserBinding) {
