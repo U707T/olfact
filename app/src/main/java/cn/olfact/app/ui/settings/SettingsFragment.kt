@@ -37,6 +37,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         val b = binding ?: return
         b.sections.removeAllViews()
         var first = true
+        var added = 0
         groups().forEach { rows ->
             val filtered = if (query.isBlank()) rows else rows.filter { it.title.contains(query, ignoreCase = true) }
             if (filtered.isEmpty()) return@forEach
@@ -55,6 +56,16 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = if (first) 0 else dp(12) })
             first = false
+            added += filtered.size
+        }
+        if (added == 0) {
+            b.sections.addView(android.widget.TextView(requireContext()).apply {
+                text = "没有匹配的设置"
+                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
+                setTextColor(androidx.core.content.ContextCompat.getColor(requireContext(), R.color.text_secondary))
+                gravity = android.view.Gravity.CENTER
+                setPadding(0, dp(48), 0, 0)
+            })
         }
     }
 
