@@ -63,7 +63,7 @@ class DohFragment : Fragment(R.layout.fragment_page) {
         b.content.removeAllViews()
 
         if (!engineReady) {
-            b.content.addView(banner("web 模块尚未接入 DoH 引擎：下列配置会保存，但暂时不会真正生效。"))
+            b.content.addView(banner("DoH 引擎未就绪：下列配置会保存，但暂时不会生效。"))
         }
 
         b.content.addView(sectionTitle("状态"))

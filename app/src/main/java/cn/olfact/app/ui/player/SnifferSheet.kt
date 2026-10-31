@@ -22,7 +22,7 @@ object SnifferSheet {
         val isDemo = real.isEmpty() && list.isNotEmpty()
 
         val sheet = Sheet(activity).title("嗅探结果")
-        if (isDemo) sheet.subtitle("示例数据 · web 模块接入后来自真实请求")
+        if (isDemo) sheet.subtitle("示例数据 · 尚未检测到真实媒体")
         if (list.isEmpty()) {
             sheet.subtitle("当前页面还没有嗅探到媒体，播放视频后会自动出现")
         }

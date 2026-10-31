@@ -48,7 +48,7 @@ class AiFragment : Fragment(R.layout.fragment_page) {
         val activeId = store?.activeId()
         b.content.removeAllViews()
 
-        if (store == null) b.content.addView(note("ai 模块尚未接入：供应商配置保存在本地，流式请求由 ai 模块发起。"))
+        if (store == null) b.content.addView(note("AI 模块未就绪：供应商配置保存在本地，请求由 AI 模块发起。"))
 
         b.content.addView(sectionTitle("功能开关"))
         b.content.addView(settingGroup(

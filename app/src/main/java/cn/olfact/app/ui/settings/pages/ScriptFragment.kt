@@ -44,7 +44,7 @@ class ScriptFragment : Fragment(R.layout.fragment_page) {
         b.content.removeAllViews()
 
         if (store == null) {
-            b.content.addView(note("script 模块尚未接入：这里的脚本会保存到本地，注入由 web 内核负责。"))
+            b.content.addView(note("脚本模块未就绪：脚本会保存在本地，注入由浏览内核负责。"))
         }
 
         b.content.addView(sectionTitle("注入"))

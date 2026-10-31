@@ -27,9 +27,10 @@ import cn.olfact.player.PlaybackOptions
 import cn.olfact.player.PlaybackSource
 
 /**
- * 播放页：黑色播放区 + 控制条 + 三张操作卡（对齐 docs/refs/04-播放页.jpg）。
+ * 播放详情页：起播入口 + 收藏/下载/复制等操作。
  *
- * 真正的 Media3 起播由 player 模块接管；未接入时控制条只做 UI 反馈，不伪造播放进度。
+ * 真正的播放器是 player 模块的 `VideoPlayerActivity`；本页不伪造进度条，
+ * 点「播放」才把 `PlaybackSource` 交给它。
  */
 class PlayerFragment : Fragment(R.layout.fragment_player) {
 
