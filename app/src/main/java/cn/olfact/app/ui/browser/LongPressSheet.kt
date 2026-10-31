@@ -80,7 +80,7 @@ object LongPressSheet {
                 list.addView(android.view.View(context).apply {
                     setBackgroundColor(ContextCompat.getColor(context, R.color.divider))
                 }, LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, 1
+                    ViewGroup.LayoutParams.MATCH_PARENT, context.dpF(1f).coerceAtLeast(1)
                 ).apply { marginStart = context.dpF(20f) })
             }
             list.addView(TextView(context).apply {
