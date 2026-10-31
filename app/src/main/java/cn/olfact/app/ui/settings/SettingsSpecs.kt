@@ -155,7 +155,7 @@ object SettingsSpecs {
                 )
             )
         ),
-        footer = "嗅探结果只保留当前页面发起的请求；跨域分片由 web 内核负责带上 Referer，避免 403。"
+        footer = "嗅探结果只保留当前页面发起的请求；跨域分片由浏览器内核负责带上 Referer，避免 403。"
     )
 
     private fun ua() = Spec(
