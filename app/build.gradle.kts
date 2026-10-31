@@ -62,6 +62,11 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    testOptions {
+        // Robolectric 需要真实资源表（SettingItem 建视图时会取 dimen / drawable）
+        unitTests.isIncludeAndroidResources = true
+    }
+
     packaging {
         resources.excludes += setOf(
             "META-INF/*.kotlin_module",
