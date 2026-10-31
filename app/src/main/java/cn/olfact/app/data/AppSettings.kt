@@ -74,7 +74,11 @@ object K {
     // DoH
     val DOH_ENABLED = SettingsKey("doh.enabled", false)
     val DOH_MODE = SettingsKey("doh.mode", "smart")
-    val DOH_UPSTREAM = SettingsKey("doh.upstream", "https://doh.pub/dns-query")
+    /** "auto" = 内置五路竞速；否则是内置上游的 URL 或自定义 URL。 */
+    val DOH_UPSTREAM = SettingsKey("doh.upstream", "auto")
+
+    /** 自定义 DoH 上游（用户自己填的 URL），与 DOH_UPSTREAM 分开存，便于一键切回内置。 */
+    val DOH_UPSTREAM_CUSTOM = SettingsKey("doh.upstream_custom", "")
     val DOH_RULES = SettingsKey("doh.rules", DEFAULT_DOH_RULES)
     val DOH_STICKY = SettingsKey("doh.sticky", true)
 

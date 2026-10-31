@@ -39,10 +39,9 @@ dependencies {
     implementation("androidx.media3:media3-muxer:1.9.0")
     implementation("androidx.media3:media3-extractor:1.9.0")
     implementation("androidx.media3:media3-common:1.9.0")
-    implementation("androidx.media3:media3-datasource:1.9.0")
 
     implementation("com.squareup.okhttp3:okhttp:5.5.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("com.squareup.okhttp3:mockwebserver:5.5.1")

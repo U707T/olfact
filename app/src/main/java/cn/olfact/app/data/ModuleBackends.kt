@@ -186,26 +186,88 @@ class DohAdapter(
     /** 用当前设置里的开关/模式/上游跑一次。 */
     fun startFromSettings() {
         val mode = DohMode.of(settings.get(K.DOH_MODE))
+        val url = settings.get(K.DOH_UPSTREAM).trim()
+        val preset = presetFor(url)
+        val custom = customUpstreams(url)
         impl.start(
             cn.olfact.web.doh.DohConfig(
                 enabled = true,
                 mode = mode.toWeb(),
                 rules = DnsRules.parse(settings.get(K.DOH_RULES), mode.toWeb()),
-                useProxy = true
+                useProxy = true,
+                preferredUpstreamId = preset?.id,
+                customUpstreams = custom,
+                // 用户显式填的自定义地址：只用它，不再和内置上游混跑
+                customOnly = custom.isNotEmpty()
             )
         )
     }
+
+    /** 当前选中的上游地址（预设或自定义）。 */
+    fun selectedUpstreamUrl(): String = settings.get(K.DOH_UPSTREAM).trim()
+
+    /** 命中某个内置上游则返回它；否则视为自定义（auto / 空串返回 null）。 */
+    fun presetFor(url: String): cn.olfact.web.doh.DohUpstream? =
+        cn.olfact.web.doh.DohUpstream.byUrl(url)
+
+    companion object {
+        /** 「自动」：内置上游并发竞速。 */
+        const val AUTO = "auto"
+
+        /** 给界面用：判断某个地址是不是内置上游（不需要实例）。 */
+        fun isPresetUrl(url: String): Boolean =
+            cn.olfact.web.doh.DohUpstream.byUrl(url) != null
+
+        /**
+         * 把用户填的地址翻译成池子里的两条上游。
+         *
+         * 规则（与设置页的校验保持一致）：
+         * - 必须 https://
+         * - 必须有主机名，且带非空路径（`/dns-query` 这类端点；只有 host 的地址大概率填错）
+         * 不合法返回空表 → 退化为只用内置上游，不会把引擎带崩。
+         */
+        fun buildCustomUpstreams(url: String): List<cn.olfact.web.doh.DohUpstream> {
+            val clean = url.trim()
+            if (!clean.startsWith("https://", ignoreCase = true)) return emptyList()
+            val rest = clean.substringAfter("://")
+            val host = rest.substringBefore('/').substringBefore(':')
+            val path = rest.substringAfter('/', "")
+            if (host.isBlank() || path.isBlank()) return emptyList()
+            val label = "自定义 · $host"
+            return listOf(
+                cn.olfact.web.doh.DohUpstream(
+                    id = "custom-cn", label = label, url = clean,
+                    region = cn.olfact.web.doh.DohUpstream.Region.DOMESTIC,
+                    supportsEcs = false, bootstrap = emptyList()
+                ),
+                cn.olfact.web.doh.DohUpstream(
+                    id = "custom-intl", label = label, url = clean,
+                    region = cn.olfact.web.doh.DohUpstream.Region.FOREIGN,
+                    supportsEcs = false, bootstrap = emptyList()
+                )
+            )
+        }
+    }
+
+    /** 自定义上游：同一地址注册成「国内 / 国外」两条身份，让它在任何分池里都能参选。 */
+    fun customUpstreams(url: String): List<cn.olfact.web.doh.DohUpstream> = buildCustomUpstreams(url)
 
     fun shouldUseDoh(host: String): Boolean =
         runCatching { impl.rules().useDoh(host) }.getOrDefault(false)
 
     override fun start(cfg: DohConfig) {
+        val requested = cfg.upstreams.firstOrNull().orEmpty()
+        val preset = presetFor(requested)
+        val custom = customUpstreams(requested)
         impl.start(
             cn.olfact.web.doh.DohConfig(
                 enabled = cfg.enabled,
                 mode = cfg.mode.toWeb(),
                 rules = DnsRules.parse(cfg.rules.joinToString("\n"), cfg.mode.toWeb()),
-                useProxy = true
+                useProxy = true,
+                preferredUpstreamId = preset?.id,
+                customUpstreams = custom,
+                customOnly = custom.isNotEmpty()
             )
         )
     }
@@ -240,7 +302,7 @@ class DohAdapter(
         return DohConfig(
             enabled = true,
             mode = rules.mode.toCore(),
-            upstreams = emptyList(),
+            upstreams = listOf(selectedUpstreamUrl()),
             rules = rules.toText().lines().filter { it.isNotBlank() }
         )
     }

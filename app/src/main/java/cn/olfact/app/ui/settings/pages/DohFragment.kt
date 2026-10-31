@@ -14,9 +14,11 @@ import kotlinx.coroutines.launch
 import cn.olfact.app.R
 import cn.olfact.app.data.AppSettings
 import cn.olfact.app.data.DohAdapter
+import cn.olfact.app.data.DohUpstreams
 import cn.olfact.app.data.K
 import cn.olfact.app.databinding.FragmentPageBinding
 import cn.olfact.app.nav.Nav
+import cn.olfact.app.ui.common.Dialogs
 import cn.olfact.app.ui.common.cardBottomMargin
 import cn.olfact.app.ui.common.note
 import cn.olfact.app.ui.common.sectionTitle
@@ -102,7 +104,13 @@ class DohFragment : Fragment(R.layout.fragment_page) {
         ).also { cardBottomMargin(it) })
 
         b.content.addView(sectionTitle("上游"))
-        val upstreams = listOf(
+        val engine = OlfactServices.doh as? DohAdapter
+        val selected = (engine?.selectedUpstreamUrl() ?: AppSettings.get(K.DOH_UPSTREAM)).trim()
+        val savedCustom = AppSettings.get(K.DOH_UPSTREAM_CUSTOM).trim()
+        val isAuto = selected.isBlank() || selected == DohAdapter.AUTO
+        val isCustom = !isAuto && !DohAdapter.isPresetUrl(selected)
+
+        val presets = listOf(
             "https://doh.pub/dns-query" to "腾讯 DNSPod（国内）",
             "https://dns.alidns.com/dns-query" to "阿里 AliDNS（国内）",
             "https://1.1.1.1/dns-query" to "Cloudflare（国外）",
@@ -110,24 +118,71 @@ class DohFragment : Fragment(R.layout.fragment_page) {
             "https://dns.google/dns-query" to "Google（国外）"
         )
         val group = cn.olfact.core.uikit.SettingGroup(ctx)
-        upstreams.forEach { (url, name) ->
-            val row = ListRow(ctx).apply {
+
+        // 自动：内置五路并发竞速（默认）
+        group.addRow(ListRow(ctx).apply {
+            title = "自动（内置竞速）"
+            subtitle = "腾讯 / 阿里 / Cloudflare / Quad9 / Google，按延迟自动选"
+            trailing = if (isAuto) "当前" else null
+            setIcon(R.drawable.ic_refresh)
+            onRowClick = { applyUpstream(DohAdapter.AUTO) }
+        }, dividerInsetDp = 0)
+
+        presets.forEach { (url, name) ->
+            group.addRow(ListRow(ctx).apply {
                 title = name
                 subtitle = url
-                trailing = if (url == AppSettings.get(K.DOH_UPSTREAM)) "当前" else null
-                onRowClick = {
-                    AppSettings.set(K.DOH_UPSTREAM, url)
-                    render()
+                trailing = if (!isAuto && !isCustom && DohUpstreams.normalize(selected) == url) "当前" else null
+                onRowClick = { applyUpstream(url) }
+            }, dividerInsetDp = 0)
+        }
+
+        // 自定义：任意 RFC 8484 端点；选中后只用它，不和内置混跑
+        group.addRow(ListRow(ctx).apply {
+            title = "自定义上游"
+            subtitle = when {
+                isCustom -> "$selected（仅使用该上游）"
+                savedCustom.isNotBlank() -> "已保存：$savedCustom"
+                else -> "https://…/dns-query，自建 AdGuard Home / NextDNS 等"
+            }
+            trailing = if (isCustom) "当前 · 编辑" else "设置"
+            setIcon(R.drawable.ic_edit)
+            onRowClick = {
+                Dialogs.input(
+                    ctx,
+                    "自定义 DoH 上游",
+                    if (savedCustom.isNotBlank()) savedCustom else "",
+                    "https://dns.example.com/dns-query"
+                ) { raw ->
+                    when (val parsed = DohUpstreams.parse(raw)) {
+                        is DohUpstreams.Result.Ok -> {
+                            AppSettings.set(K.DOH_UPSTREAM_CUSTOM, parsed.url)
+                            if (parsed.local) Nav.toast("本地地址：仅在可信网络使用")
+                            applyUpstream(parsed.url)
+                        }
+                        is DohUpstreams.Result.Failed -> Nav.toast("地址不合法：${parsed.reason}")
+                    }
                 }
             }
-            group.addRow(row, dividerInsetDp = 0)
-        }
+        }, dividerInsetDp = 0)
+
         b.content.addView(group)
         cardBottomMargin(group)
 
+        b.content.addView(note(
+            if (isCustom) {
+                "自定义上游已生效：只使用这一个地址，不再与内置上游混跑。\n" +
+                    "· 域名形式的地址仍需先解析域名（走系统 DNS）；网络 DNS 被污染时建议填 IP 形式；\n" +
+                    "· 不支持 ECS（不向第三方上游暴露你的网段）。"
+            } else {
+                "「自动」并发探测内置上游并按延迟切换；选中某个上游后固定用它，" +
+                    "只有它探测失败才回落到同池最快的一个。"
+            }
+        ))
+
         b.content.addView(sectionTitle("维护"))
         b.content.addView(settingGroup(
-            setting("立即重新竞速", "并发探测 5 个上游，取最快") {
+            setting("立即重新竞速", "并发探测全部上游，取最快") {
                 val m = OlfactServices.doh
                 if (m == null) Nav.toast("DoH 引擎未接入") else { m.rerace(); Nav.toast("已重新竞速") }
             },
@@ -170,6 +225,39 @@ class DohFragment : Fragment(R.layout.fragment_page) {
                 "· DoH 只解决 DNS 污染/劫持，IP 层封锁与 SNI 阻断不在范围内；\n" +
                 "· 不做 MITM/ECH，避免要求系统信任用户证书。"
         ))
+    }
+
+    /**
+     * 选上游：落库 → 引擎在跑就立即重建（重新竞速），否则只更新界面。
+     *
+     * 传 [DohAdapter.AUTO] 表示回到内置竞速；其余地址一律走 [DohUpstreams] 归一化，
+     * 内置地址顺手转成规范形式，避免「同一个上游因大小写/斜杠对不上而认不出」。
+     */
+    private fun applyUpstream(url: String) {
+        val target = if (url == DohAdapter.AUTO) {
+            DohAdapter.AUTO
+        } else {
+            when (val parsed = DohUpstreams.parse(url)) {
+                is DohUpstreams.Result.Ok -> parsed.url
+                is DohUpstreams.Result.Failed -> {
+                    Nav.toast("地址不合法：${parsed.reason}")
+                    return
+                }
+            }
+        }
+        AppSettings.set(K.DOH_UPSTREAM, target)
+
+        val engine = OlfactServices.doh as? DohAdapter
+        if (engine != null && AppSettings.get(K.DOH_ENABLED)) {
+            viewLifecycleOwner.lifecycleScope.launch {
+                runCatching { engine.startFromSettings() }
+                    .onFailure { Nav.toast("DoH 启动失败：${it.message}") }
+                render()
+            }
+        } else {
+            Nav.toast(if (target == DohAdapter.AUTO) "已切回自动竞速" else "已切换上游")
+            render()
+        }
     }
 
     private fun pick(mode: DohMode, id: String) {

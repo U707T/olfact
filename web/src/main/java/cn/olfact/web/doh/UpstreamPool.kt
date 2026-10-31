@@ -19,7 +19,7 @@ class UpstreamPool(
     private val upstreams: List<DohUpstream> = DohUpstream.DEFAULTS,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     private val onEvent: (String) -> Unit = {},
-    preferredId: String? = null,
+    private val preferredId: String? = null,
     private val failureThreshold: Int = 3
 ) {
 
@@ -73,12 +73,23 @@ class UpstreamPool(
                 }.awaitAll()
             }
             val succeeded = results.filter { it.second != null }
-            val domestic = succeeded
-                .filter { it.first.region == DohUpstream.Region.DOMESTIC }
-                .minByOrNull { it.second ?: Long.MAX_VALUE }?.first
-            val foreign = succeeded
-                .filter { it.first.region == DohUpstream.Region.FOREIGN }
-                .minByOrNull { it.second ?: Long.MAX_VALUE }?.first
+            // 用户显式选过的上游优先：只要它探测通过，就不让竞速把它换掉；
+            // 它挂了才回落到同池最快的一个。
+            val pinned = upstreams.firstOrNull { it.id == preferredId }
+            val pinnedLatency = pinned?.let { p -> succeeded.firstOrNull { it.first.id == p.id }?.second }
+
+            val domestic = if (pinned != null && pinned.region == DohUpstream.Region.DOMESTIC && pinnedLatency != null) {
+                pinned
+            } else {
+                succeeded.filter { it.first.region == DohUpstream.Region.DOMESTIC }
+                    .minByOrNull { it.second ?: Long.MAX_VALUE }?.first
+            }
+            val foreign = if (pinned != null && pinned.region == DohUpstream.Region.FOREIGN && pinnedLatency != null) {
+                pinned
+            } else {
+                succeeded.filter { it.first.region == DohUpstream.Region.FOREIGN }
+                    .minByOrNull { it.second ?: Long.MAX_VALUE }?.first
+            }
 
             if (domestic != null) domesticBest = domestic
             if (foreign != null) foreignBest = foreign

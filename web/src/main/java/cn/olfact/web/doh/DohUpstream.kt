@@ -65,6 +65,24 @@ data class DohUpstream(
 
         fun byId(id: String?): DohUpstream? = DEFAULTS.firstOrNull { it.id == id }
 
+        /** 按 URL 找内置上游（忽略大小写、末尾斜杠与默认端口）。 */
+        fun byUrl(url: String?): DohUpstream? {
+            val target = normalizeUrl(url) ?: return null
+            return DEFAULTS.firstOrNull { normalizeUrl(it.url) == target }
+        }
+
+        /** 简单归一化：去空白、补 https、去末尾斜杠。 */
+        fun normalizeUrl(raw: String?): String? {
+            val text = raw?.trim().orEmpty()
+            if (text.isEmpty()) return null
+            val withScheme = if (text.startsWith("http://") || text.startsWith("https://")) {
+                text
+            } else {
+                "https://$text"
+            }
+            return withScheme.trimEnd('/').lowercase()
+        }
+
         /** bootstrap 表，供 [BootstrapDns] 使用。 */
         fun bootstrapTable(upstreams: List<DohUpstream> = DEFAULTS): Map<String, List<String>> =
             upstreams.associate { it.host to it.bootstrap }

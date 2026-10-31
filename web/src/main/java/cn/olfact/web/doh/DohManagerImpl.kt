@@ -72,11 +72,20 @@ class DohManagerImpl(
         currentRules = cfg.rules
         lastError = null
 
-        val newTransport = DohTransport(timeoutMs = cfg.timeoutMs)
+        val poolUpstreams = when {
+            cfg.customOnly && cfg.customUpstreams.isNotEmpty() -> cfg.customUpstreams
+            cfg.customUpstreams.isEmpty() -> DohUpstream.DEFAULTS
+            else -> DohUpstream.DEFAULTS.filterNot { base -> cfg.customUpstreams.any { it.host == base.host } } +
+                cfg.customUpstreams
+        }
+        val newTransport = DohTransport(
+            timeoutMs = cfg.timeoutMs,
+            bootstrap = DohUpstream.bootstrapTable(poolUpstreams)
+        )
         transport = newTransport
         val newPool = UpstreamPool(
             transport = newTransport,
-            upstreams = DohUpstream.DEFAULTS,
+            upstreams = poolUpstreams,
             scope = scope,
             onEvent = { message ->
                 lastError = null
