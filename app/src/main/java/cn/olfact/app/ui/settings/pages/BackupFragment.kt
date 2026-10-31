@@ -58,12 +58,17 @@ class BackupFragment : Fragment(R.layout.fragment_page) {
                 local.firstOrNull()?.let { "${it.name.removePrefix("olfact-backup-")} · ${local.size} 份" } ?: "没有可用备份"
             ) {
                 val file = AppBackup.latestLocal() ?: return@setting Nav.toast("还没有本地备份")
-                val preview = AppBackup.preview(file)
-                val summary = preview?.let {
-                    "书签 ${it.bookmarks.size} / 历史 ${it.history.size} / 脚本 ${it.scripts.size} 项"
-                } ?: "无法读取备份内容"
-                Dialogs.confirm(ctx, "恢复备份", "$summary\n将合并进当前数据（设置会被覆盖），继续？") {
-                    restore(file)
+                // 预览要解 zip，放 IO；读完再弹确认框。
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val summary = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        AppBackup.preview(file)?.let {
+                            "书签 ${it.bookmarks.size} / 历史 ${it.history.size} / 脚本 ${it.scripts.size} 项"
+                        } ?: "无法读取备份内容"
+                    }
+                    if (!isAdded) return@launch
+                    Dialogs.confirm(ctx, "恢复备份", "$summary\n将合并进当前数据（设置会被覆盖），继续？") {
+                        restore(file)
+                    }
                 }
             },
             setting(

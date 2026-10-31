@@ -118,7 +118,10 @@ object AppBackup {
 
     suspend fun restore(file: File): ImportResult {
         val p = pipeline ?: return ImportResult(error = "备份未初始化")
-        val result = p.importBytes(file.readBytes(), MergeOptions(overwriteSettings = true))
+        // 读 zip 放到 IO：备份包可能几十 MB，不能占主线程。
+        val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            p.importBytes(file.readBytes(), MergeOptions(overwriteSettings = true))
+        }
         // 脚本/订阅/白名单恢复后让内存态跟上（否则界面还是旧的，注入也不生效）
         ModuleBackends.adBlockManager?.let { manager ->
             runCatching { manager.reload() }

@@ -47,21 +47,26 @@ class BackupPipeline(
 
     override suspend fun run(trigger: String): BackupResult = withContext(Dispatchers.IO) {
         val started = clock()
+        var size = 0L
         val result = try {
             val data = collect()
-            val bytes = exportBytes(data)
             val target = targetProvider()
             val name = fileName(started)
             val location = when (target) {
                 is BackupTarget.Local -> {
                     StoreFiles.ensureDir(target.dir)
                     val file = File(target.dir, name)
-                    file.writeBytes(bytes)
+                    // 流式写 zip：备份包可能几十 MB，不再先拼进 ByteArrayOutputStream。
+                    java.io.FileOutputStream(file).use { out -> writer.write(data, out, appVersion) }
+                    size = file.length()
                     pruneLocal(target.dir, target.retention)
                     file.absolutePath
                 }
 
                 is BackupTarget.WebDav -> {
+                    // WebDAV 客户端目前只接受 ByteArray；本地备份是主路径，这里维持现状。
+                    val bytes = exportBytes(data)
+                    size = bytes.size.toLong()
                     val client = target.client
                     runCatching { client.mkcol(target.dir) }
                     val remotePath = if (target.dir.isBlank()) name else "${target.dir.trimEnd('/')}/$name"
@@ -70,8 +75,8 @@ class BackupPipeline(
                     "webdav:$remotePath"
                 }
             }
-            B4Log.d("Backup", "备份完成 $location（${bytes.size / 1024} KB）")
-            BackupResult(true, bytes.size.toLong(), location, trigger, started)
+            B4Log.d("Backup", "备份完成 $location（${size / 1024} KB）")
+            BackupResult(true, size, location, trigger, started)
         } catch (t: Throwable) {
             B4Log.e("Backup", "备份失败（$trigger）", t)
             BackupResult(false, 0L, "", trigger, started, t.message ?: t.javaClass.simpleName)
