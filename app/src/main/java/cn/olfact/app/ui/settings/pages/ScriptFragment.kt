@@ -71,6 +71,20 @@ class ScriptFragment : Fragment(R.layout.fragment_page) {
                 subtitle = "${script.version} · ${script.matches.firstOrNull() ?: "*://*/*"}"
                 showChevron(true)
                 onRowClick = { edit(script) }
+                setOnLongClickListener {
+                    Dialogs.confirm(ctx, "删除脚本", script.name, danger = true) {
+                        store?.remove(script.id)
+                        render()
+                        com.google.android.material.snackbar.Snackbar
+                            .make(requireView(), "已删除「${script.name}」", com.google.android.material.snackbar.Snackbar.LENGTH_LONG)
+                            .setAction("撤销") {
+                                store?.save(script)
+                                render()
+                            }
+                            .show()
+                    }
+                    true
+                }
             }
             val sw = UiSwitch(ctx).apply {
                 setChecked(script.enabled, false)

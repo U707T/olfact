@@ -87,6 +87,13 @@ class AdBlockFragment : Fragment(R.layout.fragment_page) {
                 }
             }
             row.addTrailing(sw)
+            row.setOnLongClickListener {
+                Dialogs.confirm(ctx, "删除订阅", sub.name, danger = true) {
+                    controller?.removeSubscription(sub.id)
+                    render()
+                }
+                true
+            }
             group.addRow(row, dividerInsetDp = 0)
         }
         b.content.addView(group)

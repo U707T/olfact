@@ -128,8 +128,15 @@ class AiFragment : Fragment(R.layout.fragment_page) {
             }
             .setNeutralButton(if (existing == null) "取消" else "删除") { _, _ ->
                 if (existing != null) {
-                    store?.remove(existing.id)
-                    render()
+                    AlertDialog.Builder(ctx)
+                        .setTitle("删除供应商")
+                        .setMessage("将删除「${existing.name}」及其 API Key，不可恢复。")
+                        .setPositiveButton("删除") { _, _ ->
+                            store?.remove(existing.id)
+                            render()
+                        }
+                        .setNegativeButton("取消", null)
+                        .show()
                 }
             }
             .setNegativeButton(if (existing == null) null else "设为当前", null)
