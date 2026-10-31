@@ -143,7 +143,7 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
 
     private fun showMenu() {
         val sheet = Sheet(requireContext()).title("下载列表")
-        listOf("排序方式", "显示时间", "更多设置").forEach { label ->
+        listOf("排序方式", "显示时间", "全部暂停", "全部继续", "更多设置").forEach { label ->
             sheet.addRow(ListRow(requireContext()).apply {
                 title = label
                 when (label) {
@@ -165,6 +165,26 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
                         "显示时间" -> {
                             showTime = !showTime
                             render()
+                        }
+                        "全部暂停" -> {
+                            val center = OlfactServices.downloads
+                            if (center != null) {
+                                center.tasks()
+                                    .filter { it.state == DownloadState.RUNNING || it.state == DownloadState.QUEUED }
+                                    .forEach { center.pause(it.id) }
+                                Nav.toast("已暂停全部任务")
+                                render()
+                            }
+                        }
+                        "全部继续" -> {
+                            val center = OlfactServices.downloads
+                            if (center != null) {
+                                center.tasks()
+                                    .filter { it.state == DownloadState.PAUSED || it.state == DownloadState.FAILED }
+                                    .forEach { center.resume(it.id) }
+                                Nav.toast("已继续全部任务")
+                                render()
+                            }
                         }
                         "更多设置" -> Nav.push(cn.olfact.app.ui.settings.SettingsPageFragment.newInstance("download"))
                     }
