@@ -1,6 +1,7 @@
 package cn.olfact.app.menu
 
 import android.view.Gravity
+import android.view.View
 import android.widget.ImageView
 import android.widget.LinearLayout
 import androidx.appcompat.app.AppCompatDelegate
@@ -66,27 +67,29 @@ object MainMenuSheet {
             if (currentSheet === sheet) currentSheet = null
         }
         val grid = NineGrid(activity)
+        // 严格对齐原版 view_browser_menu_popup.xml 的 5×3 十五格，顺序也一致：
+        // 行1 加书签/书签/历史/下载/插件；行2 嗅探/UA标识/网络日志/刷新/工具箱；
+        // 行3 无痕/（原「阅读模式」，本工程裁掉，换成 AI 总结）/全屏/夜间/网站配置。
+        // 固定 15 格，避免某些开关关掉后整块九宫格错位。
         val items = buildList {
             add(Item(R.drawable.orig_m_bookmark_add, "加书签") { addBookmark(it) })
             add(Item(R.drawable.orig_m_bookmark, "书签") { Nav.toggle(BookmarksFragment()) })
             add(Item(R.drawable.orig_m_history, "历史") { Nav.toggle(HistoryFragment()) })
             add(Item(R.drawable.orig_m_download, "下载") { Nav.toggle(DownloadListFragment()) })
             add(Item(R.drawable.orig_m_plugin, "插件") { Nav.toggle(ScriptFragment()) })
+
             add(Item(R.drawable.orig_m_sniff, "嗅探结果") { SnifferSheet.show(it) })
             add(Item(R.drawable.orig_m_ua, "UA标识") {
                 Nav.toggle(SettingsPageFragment.newInstance("ua")) { f ->
                     f is SettingsPageFragment && f.pageId == "ua"
                 }
             })
-            if (AppSettings.get(K.DEV_MODE)) {
-                add(Item(R.drawable.orig_m_log, "网络日志") { Nav.toggle(LogFragment()) })
-            }
+            add(Item(R.drawable.orig_m_log, "网络日志") { Nav.toggle(LogFragment()) })
             add(Item(R.drawable.orig_m_refresh, "刷新") { reload() })
             add(Item(R.drawable.orig_m_box, "工具箱") { Nav.toggle(cn.olfact.app.ui.tools.ToolsFragment()) })
+
             add(Item(R.drawable.orig_m_incognito, "无痕模式") { openIncognito(it) })
-            if (AppSettings.get(K.AI_SUMMARY)) {
-                add(Item(R.drawable.orig_m_ai, "AI 总结", tint = false) { AiActions.summarize(it) })
-            }
+            add(Item(R.drawable.orig_m_ai, "AI 总结", tint = false) { AiActions.summarize(it) })
             add(Item(R.drawable.orig_s_fullscreen, "全屏") { toggleFullscreen(it) })
             add(Item(R.drawable.orig_m_night, "夜间模式") { toggleNight(it) })
             add(Item(R.drawable.orig_m_site, "网站配置") {
@@ -141,13 +144,17 @@ object MainMenuSheet {
     }
 
     private fun reload() {
-        (Nav.current() as? BrowserFragment)?.reload()
+        when (val f = Nav.current()) {
+            is BrowserFragment -> f.reload()
+            is cn.olfact.app.ui.HomeFragment -> f.refresh()
+            is cn.olfact.app.ui.TabsFragment -> f.refresh()
+        }
     }
 
     private fun openIncognito(activity: MainActivity) {
         val tab = BrowserSession.open(null, "无痕标签页", incognito = true)
-        // root：不留返回栈，避免反复点「无痕模式」越叠越深
-        Nav.root(BrowserFragment.newInstance(tab.id))
+        // push（不是 root）：返回键能回到上一个页面，也不会把首页从返回栈里清掉。
+        Nav.push(BrowserFragment.newInstance(tab.id, focusUrl = true))
     }
 
     private fun toggleFullscreen(activity: MainActivity) = activity.toggleFullscreen()
@@ -158,5 +165,79 @@ object MainMenuSheet {
         AppCompatDelegate.setDefaultNightMode(
             if (next) AppCompatDelegate.MODE_NIGHT_YES else AppCompatDelegate.MODE_NIGHT_NO
         )
+    }
+
+    // ---------------- 底栏长按（对齐原版 initBottomBar 的 longClick） ----------------
+
+    /**
+     * 长按标题胶囊：原版是锚在胶囊下方的白色浮层，五项
+     * 「回到主页 / 复制链接 / 分享链接 / 二维码分享 / 粘贴前往」。
+     */
+    fun showLinkActions(activity: MainActivity, anchor: View) {
+        val url = BrowserSession.current()?.url.orEmpty()
+        val labels = mutableListOf("回到主页")
+        if (url.isNotBlank()) {
+            labels += listOf("复制链接", "分享链接", "二维码分享")
+        }
+        labels += "粘贴前往"
+        cn.olfact.core.uikit.AnchoredMenu.show(anchor, labels) { index ->
+            when (labels[index]) {
+                "回到主页" -> Nav.goHome()
+                "复制链接" -> {
+                    val cm = activity.getSystemService(android.content.ClipboardManager::class.java)
+                    cm?.setPrimaryClip(android.content.ClipData.newPlainText("url", url))
+                    Nav.toast("链接已复制")
+                }
+                "分享链接" -> {
+                    val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(android.content.Intent.EXTRA_TEXT, url)
+                    }
+                    runCatching { activity.startActivity(android.content.Intent.createChooser(send, "分享链接")) }
+                        .onFailure { Nav.toast("没有可用的分享应用") }
+                }
+                "二维码分享" -> Nav.push(cn.olfact.app.ui.tools.QrShareFragment.newInstance(url))
+                else -> pasteAndGo(activity)
+            }
+        }
+    }
+
+    /** 长按标签数：原版是「新建窗口 / 清除其它窗口 / 清除全部窗口」。 */
+    fun showTabActions(activity: MainActivity, anchor: View) {
+        val labels = listOf("新建窗口", "清除其它窗口", "清除全部窗口")
+        cn.olfact.core.uikit.AnchoredMenu.show(anchor, labels) { index ->
+            when (labels[index]) {
+                "新建窗口" -> {
+                    val tab = BrowserSession.openBlank(reuseBlank = false)
+                    Nav.push(BrowserFragment.newInstance(tab.id, focusUrl = true))
+                }
+                "清除其它窗口" -> {
+                    val current = BrowserSession.currentId
+                    if (current == null) {
+                        Nav.toast("没有可保留的标签页")
+                    } else {
+                        BrowserSession.closeOthers(current)
+                        Nav.toast("已清除其它标签页")
+                    }
+                }
+                else -> cn.olfact.app.ui.common.Dialogs.confirm(
+                    activity, "清除全部窗口", "将关闭所有标签页，保留一个空白页。", danger = true
+                ) {
+                    BrowserSession.closeAll()
+                    Nav.goHome()
+                }
+            }
+        }
+    }
+
+    private fun pasteAndGo(activity: MainActivity) {
+        val cm = activity.getSystemService(android.content.ClipboardManager::class.java)
+        val text = cm?.primaryClip?.takeIf { it.itemCount > 0 }
+            ?.getItemAt(0)?.coerceToText(activity)?.toString()?.trim().orEmpty()
+        if (text.isBlank()) {
+            Nav.toast("剪贴板是空的")
+            return
+        }
+        Nav.openBrowser(cn.olfact.app.link.SearchEngines.urlFor(text))
     }
 }

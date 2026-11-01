@@ -28,6 +28,9 @@ import cn.olfact.app.link.SearchEngines
 import cn.olfact.app.menu.MainMenuSheet
 import cn.olfact.app.nav.ChromeAware
 import cn.olfact.app.nav.Nav
+import cn.olfact.app.ui.HomeFragment
+import cn.olfact.app.ui.TabsFragment
+import cn.olfact.app.ui.browser.BrowserFragment
 import cn.olfact.core.backup.PrivacyCleaner
 import cn.olfact.core.uikit.BottomBar
 
@@ -68,14 +71,21 @@ class MainActivity : AppCompatActivity() {
         applyInsets()
 
         Nav.attach(this, R.id.container)
+        // 底栏角标、标签页列表与「1」的初始状态保持一致：会话至少有一个标签页。
+        BrowserSession.ensureTab()
         setupBottomBar()
         observeChrome()
         applyEyeCare()
         requestNotifyPermissionOnce()
 
         if (savedInstanceState == null) {
+            // restore 内部会替换掉启动时的唯一空白页，不会多出一个空标签。
             BrowserSession.restoreIfNeeded(this)
-            if (!handleIntent(intent)) Nav.openHome()
+            // 先落一个首页作为根页面，再处理外部链接/下载通知。
+            // 否则冷启动直接 push 浏览器时，返回栈只有浏览器一项，按返回会把容器清空。
+            Nav.openHome()
+            supportFragmentManager.executePendingTransactions()
+            handleIntent(intent)
             AppLog.i("app", "启动完成，模块：${cn.olfact.core.api.OlfactServices.modules().joinToString { "${it.first}=${it.second}" }}")
         }
     }
@@ -88,9 +98,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // 设置页改「底部栏样式」后回到主界面立即生效，不必重启。
-        val style = if (AppSettings.get(K.BOTTOM_STYLE) == "pill") BottomBar.Style.PILL else BottomBar.Style.ICON_ONLY
-        if (currentBottomStyle != null && currentBottomStyle != style) setupBottomBar()
+        // 设置页改「底部栏样式」后回到主界面立即生效，不必重启（含四种槽位变体）。
+        val variant = AppSettings.get(K.BOTTOM_STYLE)
+        if (currentBottomStyle != null && currentBottomVariant != variant) setupBottomBar()
+        applyChromeForCurrent()
     }
 
     override fun onPause() {
@@ -111,6 +122,8 @@ class MainActivity : AppCompatActivity() {
 
         // 「退出时清除数据」：只在本 Activity 真被销毁（返回键/划掉）时清，
         // 配置变更（旋转、切深色）不能误清。
+        Nav.detach(this)
+
         if (isFinishing && ::binding.isInitialized && AppSettings.get(K.PRIVACY_CLEAR_ON_EXIT)) {
             val cleared = runCatching {
                 PrivacyCleaner(this).clearAll(
@@ -130,6 +143,7 @@ class MainActivity : AppCompatActivity() {
     private var fullscreen = false
     private var bottomInset = 0
     private var currentBottomStyle: BottomBar.Style? = null
+    private var currentBottomVariant: String? = null
     private var eyeCareOverlay: android.view.View? = null
 
     /** 主菜单「全屏」：隐藏/恢复系统栏（上滑可临时唤出）。 */
@@ -164,36 +178,102 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupBottomBar() {
-        val style = if (AppSettings.get(K.BOTTOM_STYLE) == "pill") BottomBar.Style.PILL else BottomBar.Style.ICON_ONLY
+        val variant = AppSettings.get(K.BOTTOM_STYLE)
+        val style = if (variant == "icon") BottomBar.Style.ICON_ONLY else BottomBar.Style.PILL
         currentBottomStyle = style
-        // 五槽对齐原版 view_stub_browser_bottom：首页 / 刷新 / 标题胶囊 / 标签数 / 菜单
-        binding.bottomBar.configure(
-            listOf(
-                BottomBar.Item("home", R.drawable.orig_b_home),
-                BottomBar.Item("action", R.drawable.ic_tabs),
-                BottomBar.Item("main", icon = R.drawable.orig_b_home, label = "主页", kind = BottomBar.Kind.PILL),
-                BottomBar.Item("tabs", R.drawable.ic_tabs, kind = BottomBar.Kind.COUNT),
-                BottomBar.Item("menu", R.drawable.orig_b_menu)
-            ),
-            style
-        )
+        currentBottomVariant = variant
+        // 五槽对齐原版 view_stub_browser_bottom1..4：间距/尺寸照抄，
+        // 只按设置切换槽位顺序（原版就是用 4 份 layout 表达 4 种底栏）。
+        val items = when (variant) {
+            // 原版 bottom3：第一格后退、第二格前进（阅读/沉浸场景）
+            "back" -> listOf(
+                BottomBar.Item("back", R.drawable.orig_b_back, description = "后退", marginStart = 10f),
+                BottomBar.Item(
+                    "refresh", R.drawable.orig_b_forward, description = "前进或刷新",
+                    marginStart = 15f, marginEnd = 18f
+                ),
+                BottomBar.Item(
+                    "search", label = "主页", kind = BottomBar.Kind.PILL,
+                    description = "地址与搜索", marginStart = 5f, marginEnd = 5f
+                ),
+                BottomBar.Item("tabs", kind = BottomBar.Kind.COUNT, description = "标签页", marginStart = 18f),
+                BottomBar.Item("menu", R.drawable.orig_b_menu, description = "菜单", marginStart = 15f, marginEnd = 10f)
+            )
+            // 原版 bottom4：标签数在最左，首页在右
+            "tabs_left" -> listOf(
+                BottomBar.Item("tabs", kind = BottomBar.Kind.COUNT, description = "标签页", marginStart = 10f),
+                BottomBar.Item(
+                    "refresh", R.drawable.orig_b_refresh, description = "刷新或前进",
+                    marginStart = 15f, marginEnd = 18f
+                ),
+                BottomBar.Item(
+                    "search", label = "主页", kind = BottomBar.Kind.PILL,
+                    description = "地址与搜索", marginStart = 5f, marginEnd = 5f
+                ),
+                BottomBar.Item("home", R.drawable.orig_b_home, description = "首页", marginStart = 18f),
+                BottomBar.Item("menu", R.drawable.orig_b_menu, description = "菜单", marginStart = 15f, marginEnd = 10f)
+            )
+            else -> listOf(
+                BottomBar.Item("home", R.drawable.orig_b_home, description = "首页", marginStart = 10f),
+                BottomBar.Item(
+                    "refresh", R.drawable.orig_b_refresh, description = "刷新或前进",
+                    marginStart = 15f, marginEnd = 18f
+                ),
+                BottomBar.Item(
+                    "search", label = "主页", kind = BottomBar.Kind.PILL,
+                    description = "地址与搜索", marginStart = 5f, marginEnd = 5f
+                ),
+                BottomBar.Item("tabs", kind = BottomBar.Kind.COUNT, description = "标签页", marginStart = 18f),
+                BottomBar.Item("menu", R.drawable.orig_b_menu, description = "菜单", marginStart = 15f, marginEnd = 10f)
+            )
+        }
+        binding.bottomBar.configure(items, style)
         binding.bottomBar.onSelect = { id ->
             when (id) {
                 "home" -> {
-                    val home = Nav.current() as? cn.olfact.app.ui.HomeFragment
-                    // 已在首页：回到顶部；否则重建根页面
-                    if (home != null) home.scrollToTop() else Nav.root(cn.olfact.app.ui.HomeFragment())
+                    val home = Nav.current() as? HomeFragment
+                    // 已在首页：回到顶部；否则回首页根页面
+                    if (home != null) home.scrollToTop() else Nav.goHome()
                 }
-                // 浏览器里是「刷新」，其它页面是「标签页」；再次点击标签页会收起
-                "action" -> {
-                    val browser = Nav.current() as? cn.olfact.app.ui.browser.BrowserFragment
-                    if (browser != null) browser.reload() else Nav.toggle(cn.olfact.app.ui.TabsFragment())
+                "back" -> (Nav.current() as? BrowserFragment)?.goBack() ?: Nav.pop()                "refresh" -> when (val f = Nav.current()) {
+                    is BrowserFragment -> f.refreshOrForward()
+                    is HomeFragment -> f.refresh()
+                    is TabsFragment -> f.refresh()
                 }
-                "main", "tabs" -> Nav.toggle(cn.olfact.app.ui.TabsFragment())
+                // 原版标题胶囊 = 地址/搜索入口：把焦点交给当前页的输入框，而不是打开标签页
+                "search" -> openSearch()
+                "tabs" -> Nav.toggle(TabsFragment())
                 "menu" -> MainMenuSheet.toggle(this)
             }
         }
+        // 长按与原版一致：首页回首页顶部、刷新强制重载、胶囊出当前页链接菜单、
+        // 标签数出「新建 / 清除其它 / 清除全部」、菜单长按直开设置。
+        binding.bottomBar.onLongSelect = { id, anchor ->
+            when (id) {
+                "home" -> (Nav.current() as? HomeFragment)?.scrollToTop()
+                "back" -> (Nav.current() as? BrowserFragment)?.goBack()
+                "refresh" -> when (val f = Nav.current()) {
+                    is BrowserFragment -> f.reload()
+                    is HomeFragment -> f.refresh()
+                    is TabsFragment -> f.refresh()
+                }
+                "search" -> MainMenuSheet.showLinkActions(this, anchor)
+                "tabs" -> MainMenuSheet.showTabActions(this, anchor)
+                "menu" -> Nav.toggle(cn.olfact.app.ui.settings.SettingsFragment())
+            }
+        }
         refreshBottomBar()
+    }
+
+    /** 底栏标题胶囊的统一入口：首页/浏览器聚焦搜索框，其它页回首页并聚焦。 */
+    private fun openSearch() {
+        // 标签页是覆盖层：先收起，别为了聚焦搜索框把底下的浏览器重建掉。
+        if (Nav.current() is TabsFragment) Nav.pop()
+        when (val f = Nav.current()) {
+            is HomeFragment -> f.focusSearch()
+            is BrowserFragment -> f.focusUrlBar()
+            else -> Nav.root(HomeFragment.newInstance(focusSearch = true))
+        }
     }
 
     /** 护眼模式：全屏叠一层 10% 暖色，不拦截触摸。 */
@@ -235,46 +315,65 @@ class MainActivity : AppCompatActivity() {
     fun applyBottomBarStyle() {
         if (!::binding.isInitialized) return
         setupBottomBar()
-        refreshBottomBar()
+        applyChromeForCurrent()
     }
 
-    /** 底栏随当前页面更新：胶囊显示页面标题，第四格显示标签数，第二格切换刷新/标签。 */
+    /** 底栏随当前页面更新：胶囊显示页面标题，第四格显示标签数，第二格是刷新/前进。 */
     fun refreshBottomBar() {
         if (!::binding.isInitialized) return
-        val browser = Nav.current() as? cn.olfact.app.ui.browser.BrowserFragment
-        binding.bottomBar.setIcon("action", if (browser != null) R.drawable.orig_b_refresh else R.drawable.ic_tabs)
-        binding.bottomBar.setPillText("main", browser?.currentTitle() ?: "主页")
-        binding.bottomBar.setBadge("tabs", BrowserSession.tabs.size.coerceAtLeast(1))
+        val browser = Nav.current() as? BrowserFragment
+        // 「前进后退」变体（原版 bottom3）第二格固定是右箭头前进，不随历史变化。
+        val refreshIcon = when {
+            currentBottomVariant == "back" -> R.drawable.orig_b_forward
+            browser?.canGoForward() == true -> R.drawable.orig_b_forward
+            else -> R.drawable.orig_b_refresh
+        }
+        binding.bottomBar.setIcon("refresh", refreshIcon)
+        binding.bottomBar.setPillText("search", barTitle())
+        binding.bottomBar.setBadge("tabs", BrowserSession.tabs.size)
+    }
+
+    private fun barTitle(): String {
+        val f = Nav.current()
+        return when (f) {
+            is HomeFragment -> "主页"
+            is BrowserFragment -> f.currentTitle()?.takeIf { it.isNotBlank() } ?: "主页"
+            is TabsFragment -> "标签页"
+            else -> (f as? ChromeAware)?.barTitle?.takeIf { it.isNotBlank() } ?: "主页"
+        }
     }
 
     private fun observeChrome() {
         supportFragmentManager.registerFragmentLifecycleCallbacks(object : FragmentManager.FragmentLifecycleCallbacks() {
             override fun onFragmentResumed(fm: FragmentManager, f: Fragment) {
-                val chrome = f as? ChromeAware
-                setChrome(chrome?.showsBottomBar ?: false, chrome?.barId)
-                refreshBottomBar()
+                applyChromeForCurrent()
             }
         }, false)
     }
 
+    private fun applyChromeForCurrent() {
+        if (!::binding.isInitialized) return
+        val chrome = Nav.current() as? ChromeAware
+        setChrome(chrome?.showsBottomBar ?: false, chrome?.barId)
+        refreshBottomBar()
+    }
+
+    /**
+     * 底栏显隐不带动画：原来的下滑动画在「设置页 → 快速返回首页」时会留下
+     * withEndAction，把刚显示的底栏又设成 GONE。底栏在 Fragment 切换时立即到位，
+     * 与 ViewStub 的原版行为一致，也避免 inset 与可见状态不同步。
+     *
+     * 事务切换的中间态 `Nav.current()` 可能是 null，此时**不要**把底栏藏掉：
+     * 否则首页/浏览器会闪一下「底栏消失」，再被下一帧恢复。
+     */
     fun setChrome(visible: Boolean, barId: String?) {
+        if (!visible && barId == null && Nav.current() == null) return
         val bar = binding.bottomBar
         bar.animate().cancel()
-        if (visible) {
-            if (bar.visibility != android.view.View.VISIBLE) {
-                bar.visibility = android.view.View.VISIBLE
-                bar.translationY = bar.height.toFloat()
-                bar.animate().translationY(0f).setDuration(180).start()
-                updateContainerBottomInset()
-            }
-            if (barId != null) bar.select(barId, notify = false)
-        } else if (bar.visibility == android.view.View.VISIBLE) {
-            bar.animate().translationY(bar.height.toFloat()).setDuration(140)
-                .withEndAction {
-                    bar.visibility = android.view.View.GONE
-                    updateContainerBottomInset()
-                }.start()
-        }
+        bar.translationY = 0f
+        bar.visibility = if (visible) android.view.View.VISIBLE else android.view.View.GONE
+        if (visible && barId != null) bar.select(barId, notify = false)
+        updateContainerBottomInset()
     }
 
     // ---------------- 默认浏览器 / 外链分发 ----------------
@@ -320,7 +419,8 @@ class MainActivity : AppCompatActivity() {
             Nav.openBrowser(SearchEngines.urlFor(text.trim()))
             return true
         }
-        links.drop(1).forEach { BrowserSession.open(it.url) }
+        // 其余链接进后台标签，不抢当前页；否则 currentId 会停在最后一个后台标签上。
+        links.drop(1).forEach { BrowserSession.open(it.url, selectNew = false) }
         Nav.openBrowser(links.first().url)
         if (links.size > 1) toast("已识别 ${links.size} 个链接，其余 ${links.size - 1} 个在标签页里")
         return true

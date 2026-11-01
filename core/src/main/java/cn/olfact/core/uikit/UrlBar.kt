@@ -141,9 +141,9 @@ class UrlBar @JvmOverloads constructor(
             }
         }
 
-        // 假输入框：点击整条进浏览器
+        // 整条可点：假输入框进浏览器；真输入框直接把焦点给编辑区（扩大命中范围）。
         setOnClickListener {
-            if (!editable) onBarClick?.invoke()
+            if (editable) focusEditor() else onBarClick?.invoke()
         }
     }
 
@@ -174,6 +174,15 @@ class UrlBar @JvmOverloads constructor(
             ContextCompat.getColor(context, if (secure) R.color.uikit_accent else R.color.uikit_text_secondary)
         )
         statusIcon.contentDescription = if (secure) "加密 DNS 已生效" else "系统 DNS"
+    }
+
+    /** 首页搜索框不显示左侧 DNS 图标，保持原版空白搜索框的观感。 */
+    fun setLeadingIconVisible(visible: Boolean) {
+        statusIcon.visibility = if (visible) VISIBLE else GONE
+    }
+
+    fun setActionDescription(description: CharSequence?) {
+        actionIcon.contentDescription = description
     }
 
     fun setActionIcon(resId: Int) {

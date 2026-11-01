@@ -37,7 +37,7 @@
         <cn.olfact.core.uikit.UrlBar
             android:id="@+id/urlBar"
             android:layout_width="match_parent"
-            android:layout_height="48dp"
+            android:layout_height="54dp"
             android:layout_marginTop="16dp" />
 
         <LinearLayout
@@ -55,7 +55,7 @@
             android:layout_marginTop="18dp"
             android:background="@drawable/uikit_bg_soft"
             android:orientation="vertical"
-            android:padding="14dp">
+            android:padding="16dp">
 
             <TextView
                 android:id="@+id/quoteText"
@@ -63,17 +63,17 @@
                 android:layout_height="wrap_content"
                 android:text="几时能命驾，对酒落花前。"
                 android:textColor="@color/text_primary"
-                android:textSize="16sp" />
+                android:textSize="17sp" />
 
             <TextView
                 android:id="@+id/quoteAuthor"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
+                android:layout_marginTop="10dp"
                 android:gravity="end"
                 android:text="贾岛"
-                android:textColor="@color/text_secondary"
-                android:textSize="13sp" />
+                android:textColor="@color/text_primary"
+                android:textSize="14sp" />
         </LinearLayout>
 
         <LinearLayout
@@ -89,9 +89,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:background="@drawable/uikit_bg_soft"
-                android:orientation="vertical"
-                android:paddingTop="4dp"
-                android:paddingBottom="4dp" />
+                android:orientation="vertical" />
 
             <ImageView
                 android:id="@+id/scenery"

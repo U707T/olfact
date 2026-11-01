@@ -93,7 +93,15 @@ object SettingsSpecs {
                 listOf(
                     Row.IntChoice(K.NIGHT_MODE, "夜间模式", listOf(0 to "跟随系统", 1 to "开启", 2 to "关闭")),
                     Row.Toggle(K.EYE_CARE, "护眼模式"),
-                    Row.Choice(K.BOTTOM_STYLE, "底部栏样式", listOf("pill" to "胶囊主页", "icon" to "纯图标")),
+                    Row.Choice(
+                        K.BOTTOM_STYLE, "底部栏样式", listOf(
+                            "pill" to "标题胶囊（原版默认）",
+                            "back" to "前进后退（原版第 3 套）",
+                            "tabs_left" to "标签在左（原版第 4 套）",
+                            "icon" to "纯图标（本项目新增）"
+                        ),
+                        summary = "前三项对应原版 view_stub_browser_bottom 的 1/3/4 号布局；改完立即生效"
+                    ),
                     Row.IntChoice(K.FONT_SCALE, "字体缩放", listOf(90 to "90%", 100 to "100%", 110 to "110%", 120 to "120%"))
                 )
             ),

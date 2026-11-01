@@ -1,63 +1,63 @@
 package cn.olfact.app.ui.browser
 
-import android.annotation.SuppressLint
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import cn.olfact.app.R
-import cn.olfact.app.data.AppSettings
 import cn.olfact.app.data.BrowserSession
 import cn.olfact.app.data.HistoryStore
-import cn.olfact.app.data.K
 import cn.olfact.app.data.RuntimeFlags
 import cn.olfact.app.databinding.FragmentBrowserBinding
-import cn.olfact.app.link.LinkExtractor
 import cn.olfact.app.link.SearchEngines
-import cn.olfact.app.menu.MainMenuSheet
 import cn.olfact.app.nav.ChromeAware
 import cn.olfact.app.nav.Nav
-import cn.olfact.app.ui.common.Dialogs
 import cn.olfact.core.api.BrowserSurface
 import cn.olfact.core.api.BrowserSurfaceHost
 import cn.olfact.core.api.OlfactServices
 import cn.olfact.core.uikit.dpF
 
 /**
- * 浏览器主界面：地址栏 + 渲染器 + 页内查找。
+ * 浏览器主界面：网页铺满 + 底栏（首页 / 刷新 / 标题胶囊 / 标签数 / 菜单）。
  *
- * 渲染器优先用 B2 注册的 [BrowserSurface]；没有则用 [DefaultBrowserSurface] 兜底，
- * 保证「设为默认浏览器 → 点外部链接 → 能打开」这条链路现在就能验收。
+ * 与原版 `activity_browser.xml` 一致：**没有常驻顶栏**，地址与页内查找都是贴在底栏上方的
+ * 覆盖条，点底栏标题胶囊才出现（原版 `showSearchView(true)` / `search_bg`）。
+ * 之前把地址栏、标签数、菜单做成网页上方的一条，既不是原版形态，也挤掉了网页高度。
+ *
+ * 返回优先级（原版 onBackPressed）：收地址条 → 收页内查找 → 网页后退 → 回首页。
  */
 class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
 
-    /** 原版浏览器页有底栏：首页 / 刷新 / 标题胶囊 / 标签数 / 菜单。 */
     override val showsBottomBar: Boolean = true
-    override val barId: String = "main"
+
+    /** 底栏高亮在标题胶囊（地址/搜索入口）。 */
+    override val barId: String = "search"
+    override val barTitle: String? get() = currentTitle()?.takeIf { it.isNotBlank() }
 
     private var binding: FragmentBrowserBinding? = null
     private var surface: BrowserSurface? = null
     private var suggest: UrlSuggestPopup? = null
     private var findVisible = false
+    private var addressVisible = false
     private val handler = Handler(Looper.getMainLooper())
     private val debounce = Runnable { openSuggestions() }
 
-    private val tabId: Long get() = requireArguments().getLong(ARG_TAB)
+    /** 当前绑定的标签 id。切换标签时由 [showTab] 改写，不需要重建 Fragment。 */
+    private var boundTabId: Long = -1L
 
-    private val tab get() = BrowserSession.tabs.firstOrNull { it.id == tabId }
+    private val tab get() = BrowserSession.tabs.firstOrNull { it.id == boundTabId }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val b = FragmentBrowserBinding.bind(view)
         binding = b
-        buildChrome(b)
+        boundTabId = requireArguments().getLong(ARG_TAB)
+        buildAddressBar(b)
         buildSurface(b)
         buildFindBar(b)
         renderBlank(b)
@@ -66,25 +66,27 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
             viewLifecycleOwner,
             object : androidx.activity.OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
-                    val s = surface
-                    when {
-                        findVisible -> hideFind()
-                        s != null && s.canGoBack() -> s.goBack()
-                        else -> {
-                            isEnabled = false
-                            Nav.pop()
-                        }
-                    }
+                    handleBack()
                 }
             }
         )
 
         val url = tab?.url.orEmpty()
+        // 首次进入（书签/外链/恢复标签）要记历史；只有 showTab() 换绑标签时不再重复记。
         if (url.isNotBlank()) load(url)
+        if (url.isBlank() && arguments?.getBoolean(ARG_FOCUS_URL) == true) {
+            showAddressBar()
+        }
     }
 
     override fun onResume() {
         super.onResume()
+        // 标签页里可能刚把这个标签关掉；退回浏览器时切到当前标签，而不是停在一个空壳页。
+        if (tab == null) {
+            view?.post { if (isAdded && tab == null) switchToCurrentTabOrHome() }
+            return
+        }
+        syncBottomBar()
         // 设置页改了夜间网页/无图/字号/UA/JS：回到浏览器时自动刷新当前页。
         if (RuntimeFlags.reloadPagesOnResume) {
             RuntimeFlags.reloadPagesOnResume = false
@@ -92,28 +94,111 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
         }
     }
 
-    private fun buildChrome(b: FragmentBrowserBinding) {
+    override fun onPause() {
+        super.onPause()
+        handler.removeCallbacks(debounce)
+        suggest?.dismiss()
+    }
+
+    private fun switchToCurrentTabOrHome() {
+        val current = BrowserSession.current()
+        if (current != null) {
+            // 只换绑当前 Fragment，不再 Nav.root 重建整页；否则 Home/返回栈会被一起清掉。
+            showTab(current.id)
+        } else {
+            Nav.openHome()
+        }
+    }
+
+    /**
+     * 换绑到一个已存在的标签（多窗口覆盖层选中标签时调用）。
+     *
+     * 只换 WebView 的内容，不重建 Fragment，因此 Home / 返回栈 / 滚动位置都能保住。
+     */
+    fun showTab(id: Long) {
+        val target = BrowserSession.tabs.firstOrNull { it.id == id } ?: return
+        if (id == boundTabId) {
+            syncBottomBar()
+            return
+        }
+        boundTabId = id
+        if (findVisible) hideFind()
+        hideAddressBar(clearText = false)
+        hideError()
+        surface?.stopLoading()
+        surface?.clearHistory()
+
+        val b = binding ?: return
+        val url = target.url
+        if (url.isBlank()) {
+            b.loading.visibility = View.GONE
+            b.urlBar.setProgress(0)
+            b.urlBar.setText("")
+            b.blankPage.visibility = View.VISIBLE
+            renderBlank(b)
+            syncBottomBar()
+        } else {
+            b.blankPage.visibility = View.GONE
+            b.urlBar.setText(url)
+            load(url, recordHistory = false)
+        }
+    }
+
+    // ---------------- 地址条覆盖层 ----------------
+
+    private fun buildAddressBar(b: FragmentBrowserBinding) {
         b.urlBar.editable = true
         b.urlBar.setHint(getString(R.string.search_hint))
         b.urlBar.setSecure(OlfactServices.doh?.isProxying() == true)
+        b.urlBar.setActionIcon(R.drawable.ic_search)
+        b.urlBar.setActionDescription("搜索建议")
         b.urlBar.onTextChanged = { text ->
             handler.removeCallbacks(debounce)
             if (text.isNotBlank() && b.urlBar.editor.hasFocus()) handler.postDelayed(debounce, 200)
         }
         b.urlBar.onSubmit = { text ->
             commit(text)
-            b.urlBar.clearFocusCompat()
+            hideAddressBar()
         }
-        b.urlBar.onBarClick = { b.urlBar.focusEditor() }
         b.urlBar.onActionClick = { openSuggestions() }
+        b.addressClose.setOnClickListener { hideAddressBar() }
+    }
 
-        b.back.setOnClickListener {
-            val s = surface
-            if (s != null && s.canGoBack()) s.goBack() else Nav.pop()
+    /** 底栏标题胶囊 → 展开地址条并聚焦（原版点标题弹 search_bar）。 */
+    fun focusUrlBar() {
+        showAddressBar(selectAll = true)
+    }
+
+    private fun showAddressBar(selectAll: Boolean = false) {
+        val b = binding ?: return
+        addressVisible = true
+        b.addressBar.visibility = View.VISIBLE
+        b.urlBar.setText(tab?.url.orEmpty())
+        if (selectAll) b.urlBar.editor.setSelection(b.urlBar.text().length)
+        b.urlBar.post { b.urlBar.focusEditor() }
+    }
+
+    private fun hideAddressBar(clearText: Boolean = true) {
+        val b = binding ?: return
+        if (!addressVisible) return
+        addressVisible = false
+        suggest?.dismiss()
+        b.urlBar.clearFocusCompat()
+        b.addressBar.visibility = View.GONE
+        if (clearText) b.urlBar.setText(tab?.url.orEmpty())
+    }
+
+    /**
+     * 返回优先级：收地址条 → 收页内查找 → 网页后退 → 回首页。
+     */
+    private fun handleBack() {
+        when {
+            addressVisible -> hideAddressBar()
+            findVisible -> hideFind()
+            surface?.canGoBack() == true -> surface?.goBack()
+            else -> Nav.pop()
         }
-        b.menu.setOnClickListener { MainMenuSheet.toggle(requireActivity() as cn.olfact.app.MainActivity) }
-        b.tabCountBox.setOnClickListener { Nav.toggle(cn.olfact.app.ui.TabsFragment()) }
-        updateTabCount()
+        syncBottomBar()
     }
 
     private fun buildSurface(b: FragmentBrowserBinding) {
@@ -129,7 +214,7 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
 
             override fun onTitle(title: String?) {
                 tab?.title = title.orEmpty()
-                // 用户正在地址栏输入时不要抢文本（页面标题变化很频繁）
+                // 用户正在输入地址时不要抢文本（页面标题变化很频繁）
                 if (!b.urlBar.editor.hasFocus()) b.urlBar.setText(s.url())
                 syncBottomBar()
             }
@@ -148,7 +233,6 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
 
             override fun onPageFinished(url: String) {
                 tab?.title = s.title().orEmpty()
-                updateTabCount()
                 syncBottomBar()
             }
 
@@ -239,7 +323,8 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
         errorView = null
     }
 
-    private fun buildFindBar(b: FragmentBrowserBinding) {        b.findClose.setOnClickListener { hideFind() }
+    private fun buildFindBar(b: FragmentBrowserBinding) {
+        b.findClose.setOnClickListener { hideFind() }
         b.findInput.setOnEditorActionListener { _, _, _ ->
             surface?.findAll(b.findInput.text.toString())
             true
@@ -288,21 +373,29 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
         val text = b.urlBar.text()
         if (text.isBlank()) return
         if (suggest == null) {
-            suggest = UrlSuggestPopup(requireActivity(), b.urlBar).apply {
+            // 地址条贴在底栏上方，候选要往上弹，否则会落到屏幕外。
+            suggest = UrlSuggestPopup(requireActivity(), b.urlBar, above = true).apply {
                 onOpen = { url ->
                     b.urlBar.setText(url)
                     load(url)
+                    hideAddressBar()
                 }
                 onOpenAll = { list ->
-                    list.drop(1).forEach { BrowserSession.open(it.url) }
+                    // 其余候选进后台标签，不能改 currentId，否则地址栏还是 A、
+                    // 会话已经指向最后一个后台标签，切标签/加书签都会错位。
+                    list.drop(1).forEach { BrowserSession.open(it.url, selectNew = false) }
                     list.firstOrNull()?.let {
                         b.urlBar.setText(it.url)
                         load(it.url)
                     }
-                    updateTabCount()
+                    hideAddressBar()
+                    syncBottomBar()
                     Nav.toast("已打开 ${list.size} 个标签页")
                 }
-                onSearch = { commit(it) }
+                onSearch = { text ->
+                    commit(text)
+                    hideAddressBar()
+                }
             }
         }
         suggest?.show(text)
@@ -315,22 +408,42 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
         load(url)
     }
 
-    fun load(url: String) {
+    fun load(url: String, recordHistory: Boolean = true) {
         binding?.blankPage?.visibility = View.GONE
         surface?.loadUrl(url)
         tab?.url = url
-        HistoryStore.record(requireContext(), url, url)
+        if (recordHistory) HistoryStore.record(requireContext(), url, url)
         binding?.urlBar?.setText(url)
         syncBottomBar()
     }
 
     fun reload() {
         surface?.reload()
+        syncBottomBar()
     }
 
-    /** 底栏胶囊要显示的标题（当前标签页）。 */
+    /**
+     * 原版第二格：能前进就先前进，否则刷新。
+     * 底栏图标也按这个状态在「刷新 / 前进」之间切换。
+     */
+    fun refreshOrForward() {
+        if (surface?.canGoForward() == true) surface?.goForward() else surface?.reload()
+        syncBottomBar()
+    }
+
+    /** 底栏变体「前进后退」里的后退格。 */
+    fun goBack() {
+        if (surface?.canGoBack() == true) surface?.goBack() else Nav.pop()
+        syncBottomBar()
+    }
+
+    fun canGoForward(): Boolean = surface?.canGoForward() == true
+
+    /** 底栏胶囊要显示的标题（当前标签页）：标题为空时退回网址，别显示成「主页」。 */
     fun currentTitle(): String? =
-        tab?.title?.takeIf { it.isNotBlank() } ?: surface?.title()
+        tab?.title?.takeIf { it.isNotBlank() }
+            ?: surface?.title()?.takeIf { it.isNotBlank() }
+            ?: tab?.url?.takeIf { it.isNotBlank() }
 
     private fun syncBottomBar() {
         (activity as? cn.olfact.app.MainActivity)?.refreshBottomBar()
@@ -338,14 +451,11 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
 
     private fun dp(v: Int) = requireContext().dpF(v.toFloat())
 
-    private fun updateTabCount() {
-        binding?.tabCount?.text = BrowserSession.tabs.size.toString()
-    }
-
     // ---------------- 页内查找 ----------------
 
     private fun showFind() {
         val b = binding ?: return
+        hideAddressBar(clearText = false)
         findVisible = true
         b.findBar.visibility = View.VISIBLE
         b.findInput.requestFocus()
@@ -375,8 +485,13 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
 
     companion object {
         private const val ARG_TAB = "tab_id"
-        fun newInstance(tabId: Long) = BrowserFragment().apply {
-            arguments = Bundle().apply { putLong(ARG_TAB, tabId) }
+        private const val ARG_FOCUS_URL = "focus_url"
+
+        fun newInstance(tabId: Long, focusUrl: Boolean = false) = BrowserFragment().apply {
+            arguments = Bundle().apply {
+                putLong(ARG_TAB, tabId)
+                putBoolean(ARG_FOCUS_URL, focusUrl)
+            }
         }
     }
 }

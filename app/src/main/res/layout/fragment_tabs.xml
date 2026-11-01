@@ -1,33 +1,50 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  多窗口列表：对齐原版 pop_multi_window_text.xml
+  - 顶部只有标题和数量（原版弹层顶部留白 30dp，无返回箭头）
+  - 中间单列卡片（圆角白卡 + 站点图标 + 标题 + 关闭）
+  - 底部三个等宽动作：清空 / 新增 / 完成（原版 ic_close_dark / ic_round_add_fill_dark / ic_check_dark）
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/page_bg"
     android:orientation="vertical">
 
-    <cn.olfact.core.uikit.PageHeader
-        android:id="@+id/header"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content" />
-
-    <TextView
-        android:id="@+id/countText"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
         android:paddingStart="20dp"
-        android:paddingTop="4dp"
+        android:paddingTop="18dp"
         android:paddingEnd="20dp"
-        android:paddingBottom="8dp"
-        android:textColor="@color/text_secondary"
-        android:textSize="13sp" />
+        android:paddingBottom="10dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="标签页"
+            android:textColor="@color/text_primary"
+            android:textSize="28sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/countText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="共 1 个"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp" />
+    </LinearLayout>
 
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:clipToPadding="false"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
+        android:paddingTop="2dp"
         android:paddingBottom="8dp"
         android:scrollbars="none">
 
@@ -35,20 +52,50 @@
             android:id="@+id/tabList"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical" />
+            android:orientation="vertical"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp" />
     </ScrollView>
 
-    <TextView
-        android:id="@+id/newTab"
+    <View
         android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:layout_marginStart="16dp"
-        android:layout_marginTop="4dp"
-        android:layout_marginEnd="16dp"
-        android:layout_marginBottom="16dp"
-        android:background="@drawable/bg_button_primary"
+        android:layout_height="1dp"
+        android:background="@color/divider" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:background="@color/page_bg"
         android:gravity="center"
-        android:text="+ 新建标签页"
-        android:textColor="@color/white"
-        android:textSize="15sp" />
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp">
+
+        <ImageView
+            android:id="@+id/clearAll"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:contentDescription="清空全部标签页"
+            android:padding="12dp"
+            android:src="@drawable/orig_tab_close" />
+
+        <ImageView
+            android:id="@+id/newTab"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:contentDescription="新建标签页"
+            android:padding="10dp"
+            android:src="@drawable/orig_tab_add" />
+
+        <ImageView
+            android:id="@+id/done"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:contentDescription="关闭标签页列表"
+            android:padding="12dp"
+            android:src="@drawable/orig_tab_done" />
+    </LinearLayout>
 </LinearLayout>

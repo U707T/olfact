@@ -4,8 +4,8 @@
 原版（含规则引擎、迅雷 SDK、磁力、投屏等）只作为视觉与行为参照，范围见
 [`docs/TECH-PLAN.md`](docs/TECH-PLAN.md)。
 
-**当前版本：`1.0.0-rc8`（versionCode 8）** ·
-[Release](https://github.com/U707T/olfact/releases/tag/v1.0.0-rc8)
+**当前版本：`1.0.0-rc11`（versionCode 11）** ·
+[Release](https://github.com/U707T/olfact/releases/tag/v1.0.0-rc11)
 
 - **minSdk 24 / targetSdk 37**，Gradle 9.7.0 + AGP 9.0.1 + Kotlin 2.3.20，JDK 21
 - 纯 View 体系（不引 Compose），release 开 R8 + 资源压缩 + ABI split
@@ -53,7 +53,7 @@ export ANDROID_HOME=/opt/android-sdk ANDROID_SDK_ROOT=/opt/android-sdk
 
 1. 改 `app/build.gradle.kts` 的 `versionName`（`versionCode` 递增）
 2. `CHANGELOG.md` 顶部加同版本段落（CI 会把它贴进 Release）
-3. push 打 tag：`git tag v1.0.0-rc8 && git push origin v1.0.0-rc8`
+3. push 打 tag：`git tag v1.0.0-rc11 && git push origin v1.0.0-rc11`
 4. CI 跑单测 / lint / debug → 签 `assembleRelease` → 上传 APK 并创建 Release
    （`-rc` / `-beta` 自动标 prerelease）
 
@@ -61,7 +61,7 @@ export ANDROID_HOME=/opt/android-sdk ANDROID_SDK_ROOT=/opt/android-sdk
 
 | 文件 | 内容 |
 |---|---|
-| [`docs/audit/2026-11-01-rc8-status.md`](docs/audit/2026-11-01-rc8-status.md) | **当前状态**：已修项、剩余项、真机复核清单 |
+| [`docs/audit/2026-11-01-rc11-status.md`](docs/audit/2026-11-01-rc11-status.md) | **当前状态**：已修项、剩余项、真机复核清单 |
 | [`docs/audit/archive/`](docs/audit/archive/) | 历史审计（rc4 / rc6 基线，不再更新） |
 | [`docs/TECH-PLAN.md`](docs/TECH-PLAN.md) | 范围、选型、模块划分、DoH 设计 |
 | [`docs/tasks/README.md`](docs/tasks/README.md) | 五批并行的切分、接口契约、交付说明（历史） |
@@ -71,7 +71,8 @@ export ANDROID_HOME=/opt/android-sdk ANDROID_SDK_ROOT=/opt/android-sdk
 ## 已知限制
 
 - 沙箱无 KVM/adb，视觉与真机冒烟用例需在真机补跑（见 `docs/tasks/B5-SMOKE.md`）。
-- **标签切换仍会重建 `BrowserFragment`**：per-tab WebView 池 + host 重绑未做，
-  滚动/表单/视频进度在切标签时会丢；这是当前唯一未闭环的 P1 交互项。
+- **标签切换复用同一个 `BrowserFragment`，但 WebView 会换页**：per-tab surface 池 + host
+  重绑未做，网页内的滚动/表单/视频进度在切标签时仍会丢；Fragment 与返回栈、首页不再被重建。
 - `libadblock_ffi.so` 默认由手动触发的 CI job 产出，缺失时降级 Kotlin 引擎（规则上限 2 万条）。
 - 仅中文资源，未提供英文。
+- 下载列表「文件管理」只尝试拉起系统文件管理器，未接 SAF 目录选择器（失败时提示下载目录路径）。

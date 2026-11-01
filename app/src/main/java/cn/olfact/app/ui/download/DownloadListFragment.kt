@@ -7,7 +7,6 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import cn.olfact.app.R
 import cn.olfact.app.databinding.FragmentDownloadListBinding
-import cn.olfact.app.nav.ChromeAware
 import cn.olfact.app.nav.Nav
 import cn.olfact.app.ui.common.Dialogs
 import cn.olfact.core.api.DownloadState
@@ -15,7 +14,6 @@ import cn.olfact.core.api.DownloadTask
 import cn.olfact.core.api.OlfactServices
 import cn.olfact.core.uikit.EmptyView
 import cn.olfact.core.uikit.ListRow
-import cn.olfact.core.uikit.Sheet
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.launch
@@ -23,10 +21,7 @@ import kotlinx.coroutines.launch
 /**
  * 下载列表：已下载 / 下载中两档，右上角 ⋮ 是原版那个六项菜单。
  */
-class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAware {
-
-    override val showsBottomBar: Boolean = true
-    override val barId: String = "downloads"
+class DownloadListFragment : Fragment(R.layout.fragment_download_list) {
 
     private var binding: FragmentDownloadListBinding? = null
     private var adapter: DownloadAdapter? = null
@@ -54,6 +49,7 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
 
         b.tabDone.setOnClickListener { showRunning = false; render() }
         b.tabRunning.setOnClickListener { showRunning = true; render() }
+        b.back.setOnClickListener { Nav.pop() }
         b.more.setOnClickListener { showMenu() }
         b.newTask.setOnClickListener { AddDownloadSheet.show(requireContext()) { url, name -> enqueue(url, name) } }
         b.clearAll.setOnClickListener {
@@ -168,64 +164,74 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
         else -> "${task.progress}%"
     }
 
-    private var menuSheet: Sheet? = null
-
+    /**
+     * 右上角 ⋮ 菜单：对齐原版 `05-下载列表-菜单` 的六项
+     * （排序方式 / 批量删除 / 文件管理 / 显示时间 / 分类显示 / 更多设置），
+     * 形态是锚在按钮下方的白色浮层，不再是底部 Sheet。
+     */
     private fun showMenu() {
-        menuSheet?.takeIf { it.isShowing }?.dismiss()
-        val sheet = Sheet(requireContext()).title("下载列表")
-        menuSheet = sheet
-        sheet.setOnDismissListener { if (menuSheet === sheet) menuSheet = null }
-        listOf("排序方式", "显示时间", "全部暂停", "全部继续", "更多设置").forEach { label ->
-            sheet.addRow(ListRow(requireContext()).apply {
-                title = label
-                when (label) {
-                    "排序方式" -> trailing = sortMode.label
-                    "显示时间" -> trailing = if (showTime) "开" else "关"
+        val anchor = binding?.more ?: return
+        val items = listOf("排序方式", "批量删除", "文件管理", "显示时间", "分类显示", "更多设置")
+        cn.olfact.core.uikit.AnchoredMenu.show(anchor, items) { index ->
+            when (items[index]) {
+                "排序方式" -> Dialogs.choose(
+                    requireContext(),
+                    "排序方式",
+                    SortMode.entries.map { it.label },
+                    sortMode.ordinal
+                ) { picked ->
+                    sortMode = SortMode.entries[picked]
+                    uiPrefs.edit().putInt("dl_sort", sortMode.ordinal).apply()
+                    render()
                 }
-                onRowClick = {
-                    sheet.dismiss()
-                    when (label) {
-                        "排序方式" -> Dialogs.choose(
+                "批量删除" -> {
+                    val all = OlfactServices.downloads?.tasks().orEmpty()
+                    val target = if (showRunning) all.filter { it.state != DownloadState.DONE }
+                    else all.filter { it.state == DownloadState.DONE }
+                    if (target.isEmpty()) {
+                        Nav.toast("当前列表是空的")
+                    } else {
+                        Dialogs.confirm(
                             requireContext(),
-                            "排序方式",
-                            SortMode.entries.map { it.label },
-                            sortMode.ordinal
-                        ) { picked ->
-                            sortMode = SortMode.entries[picked]
-                            uiPrefs.edit().putInt("dl_sort", sortMode.ordinal).apply()
+                            "批量删除",
+                            "将删除当前列表的 ${target.size} 条任务记录（不删除文件）。",
+                            danger = true
+                        ) {
+                            target.forEach { OlfactServices.downloads?.remove(it.id, false) }
                             render()
                         }
-                        "显示时间" -> {
-                            showTime = !showTime
-                            uiPrefs.edit().putBoolean("dl_show_time", showTime).apply()
-                            render()
-                        }
-                        "全部暂停" -> {
-                            val center = OlfactServices.downloads
-                            if (center != null) {
-                                center.tasks()
-                                    .filter { it.state == DownloadState.RUNNING || it.state == DownloadState.QUEUED }
-                                    .forEach { center.pause(it.id) }
-                                Nav.toast("已暂停全部任务")
-                                render()
-                            }
-                        }
-                        "全部继续" -> {
-                            val center = OlfactServices.downloads
-                            if (center != null) {
-                                center.tasks()
-                                    .filter { it.state == DownloadState.PAUSED || it.state == DownloadState.FAILED }
-                                    .forEach { center.resume(it.id) }
-                                Nav.toast("已继续全部任务")
-                                render()
-                            }
-                        }
-                        "更多设置" -> Nav.push(cn.olfact.app.ui.settings.SettingsPageFragment.newInstance("download"))
                     }
                 }
-            })
+                "文件管理" -> {
+                    val dir = java.io.File(
+                        requireContext().getExternalFilesDir(null),
+                        "Download/olfact"
+                    )
+                    runCatching {
+                        startActivity(
+                            android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                                setDataAndType(
+                                    android.net.Uri.parse("content://com.android.externalstorage.documents/root/primary"),
+                                    "resource/folder"
+                                )
+                            }
+                        )
+                    }.onFailure {
+                        Nav.toast("下载目录：${dir?.absolutePath ?: "应用专属目录"}")
+                    }
+                }
+                "显示时间" -> {
+                    showTime = !showTime
+                    uiPrefs.edit().putBoolean("dl_show_time", showTime).apply()
+                    render()
+                }
+                "分类显示" -> {
+                    showRunning = !showRunning
+                    render()
+                }
+                "更多设置" -> Nav.push(cn.olfact.app.ui.settings.SettingsPageFragment.newInstance("download"))
+            }
         }
-        sheet.show()
     }
 
     companion object {

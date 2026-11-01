@@ -148,7 +148,9 @@ object LongPressSheet {
         val out = mutableListOf<Action>()
         if (target != null) {
             out.add(Action("在新标签页打开") {
-                BrowserSession.open(target)
+                // 后台标签：不抢当前页，否则地址栏和 currentId 会错位。
+                BrowserSession.open(target, selectNew = false)
+                (context as? cn.olfact.app.MainActivity)?.refreshBottomBar()
                 Nav.toast("已在新标签页打开")
             })
             out.add(Action("复制链接") { copy(context, target) })

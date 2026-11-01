@@ -18,7 +18,7 @@
         android:layout_marginTop="4dp"
         android:layout_marginEnd="16dp"
         android:layout_marginBottom="12dp"
-        android:background="@drawable/uikit_bg_urlbar"
+        android:background="@drawable/uikit_bg_search"
         android:drawableStart="@drawable/ic_search"
         android:drawablePadding="8dp"
         android:drawableTint="@color/text_hint"

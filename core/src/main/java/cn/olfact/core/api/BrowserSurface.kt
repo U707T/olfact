@@ -17,6 +17,9 @@ interface BrowserSurface {
     fun goBack()
     fun canGoForward(): Boolean
     fun goForward()
+
+    /** 切标签时清掉上一个标签的网页历史，避免在 A 标签里后退回到 B 标签。 */
+    fun clearHistory() {}
     fun title(): String?
     fun url(): String?
     fun destroy()

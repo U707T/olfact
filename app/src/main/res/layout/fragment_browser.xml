@@ -1,59 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  浏览器页：对齐原版 activity_browser.xml —— **没有常驻顶栏**，
+  网页全屏铺满，地址/搜索是贴在底栏上方的覆盖条（原版 search_bg / view_stub_main_search）。
+  底栏（首页 / 刷新 / 标题胶囊 / 标签数 / 菜单）由 MainActivity 统一提供。
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/card"
     android:orientation="vertical">
-
-    <LinearLayout
-        android:id="@+id/chrome"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="4dp"
-        android:paddingTop="6dp"
-        android:paddingEnd="4dp">
-
-        <ImageView
-            android:id="@+id/back"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:contentDescription="@string/back"
-            android:padding="10dp"
-            android:src="@drawable/ic_back" />
-
-        <cn.olfact.core.uikit.UrlBar
-            android:id="@+id/urlBar"
-            android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_weight="1" />
-
-        <FrameLayout
-            android:id="@+id/tabCountBox"
-            android:layout_width="36dp"
-            android:layout_height="40dp">
-
-            <TextView
-                android:id="@+id/tabCount"
-                android:layout_width="22dp"
-                android:layout_height="22dp"
-                android:layout_gravity="center"
-                android:background="@drawable/bg_round_12"
-                android:gravity="center"
-                android:text="1"
-                android:textColor="@color/text_primary"
-                android:textSize="12sp" />
-        </FrameLayout>
-
-        <ImageView
-            android:id="@+id/menu"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:contentDescription="@string/more"
-            android:padding="10dp"
-            android:src="@drawable/ic_more" />
-    </LinearLayout>
 
     <cn.olfact.core.uikit.LoadingBar
         android:id="@+id/loading"
@@ -74,7 +29,7 @@
             android:gravity="center_horizontal"
             android:orientation="vertical"
             android:paddingStart="24dp"
-            android:paddingTop="80dp"
+            android:paddingTop="72dp"
             android:paddingEnd="24dp"
             android:visibility="gone">
 
@@ -101,6 +56,34 @@
         </LinearLayout>
     </FrameLayout>
 
+    <!-- 地址/搜索覆盖条（原版 search_bg：白底 52dp，在底栏之上，默认收起） -->
+    <LinearLayout
+        android:id="@+id/addressBar"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:background="@color/card"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="8dp"
+        android:paddingEnd="4dp"
+        android:visibility="gone">
+
+        <cn.olfact.core.uikit.UrlBar
+            android:id="@+id/urlBar"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1" />
+
+        <ImageView
+            android:id="@+id/addressClose"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:contentDescription="收起地址栏"
+            android:padding="10dp"
+            android:src="@drawable/ic_close" />
+    </LinearLayout>
+
+    <!-- 页内查找（原版 view_stub_main_search：白底 44dp，同样贴在底栏上方） -->
     <LinearLayout
         android:id="@+id/findBar"
         android:layout_width="match_parent"

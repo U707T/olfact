@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 设置页搜索框：无描边、轻底色，避免和地址栏的 2dp 黑边混淆。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/uikit_card" />
+    <stroke android:width="1dp" android:color="@color/uikit_divider" />
+    <corners android:radius="22dp" />
+</shape>

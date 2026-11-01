@@ -3,6 +3,72 @@
 本项目遵循「版本号 + CHANGELOG 顶部段落」的发版约定；`release` job 会把对应版本段落
 原样贴进 GitHub Release。
 
+## [1.0.0-rc11] - 2026-11-01
+
+这一版把 UI 与操作流程逐屏对照原版 6.82（`_archive/olfact-repack/decode` 的 `res/layout`
+与 `WebViewActivity.smali`）重做了一遍，重点修「三个入口都进标签页」「首页统计/最近访问消失」
+「切标签把首页和返回栈一起清掉」。
+
+### 底栏：按原版五槽 + 四种布局重做
+
+- 逐项照抄原版 `view_stub_browser_bottom.xml` 的尺寸与间距：栏高 54dp、槽位 36dp、
+  图标 26dp、间距 10/15/18/5/5/18/15/10，胶囊 `#F5F5F5`、文字与图标 `#444444`。
+- 去掉自造的「选中槽位高亮」：原版 `updateBottomBarColor` 给五个图标统一上色，
+  点完刷新/菜单不会让首页图标变灰。
+- 补上原版的 4 个底栏变体（`getBottomBarLayoutId` 对应 bottom1..4）：
+  **标题胶囊 / 纯图标 / 前进后退 / 标签在左**，设置里即时切换。
+- 补上原版「五个槽位都有长按」：胶囊→回到主页/复制链接/分享链接/二维码分享/粘贴前往；
+  标签数→新建窗口/清除其它窗口/清除全部窗口；首页→回顶部；刷新→强制重载。
+- 长按菜单改成原版 `asAttachList` 形态的锚定白色浮层（新增 `uikit.AnchoredMenu`），
+  不再是底部 Sheet。
+
+### 浏览器：恢复原版「无顶栏 + 覆盖条」
+
+- `fragment_browser.xml` 重写：网页铺满，地址条（52dp）与页内查找（48dp）都是贴在
+  底栏上方的覆盖条，默认隐藏——原版就是 `search_bg` / `view_stub_main_search`。
+- 点底栏胶囊展开地址条并聚焦，候选层向上弹（`UrlSuggestPopup(above = true)`）；
+  返回键依次收地址条 → 收页内查找 → 网页后退 → 回首页。
+- 顶栏那套「标签数 + 菜单」删掉：原版顶栏不存在，这两个入口在底栏已经有了。
+- `BrowserSurface` 新增 `clearHistory()`，切标签时清掉上一个标签的网页历史，
+  避免在 A 标签里后退回到 B 标签。
+
+### 标签页：原版覆盖层，切标签不再重建首页
+
+- 布局改成原版 `pop_multi_window_text.xml` 形态：大标题 + 「共 N 个」、单列白卡片
+  （站点图标 + 标题 + 关闭）、底部三等宽动作（清空 / 新增 / 完成，均用原版 drawable）。
+- 覆盖层不再挂主底栏（原版多窗口自带底部动作），系统返回 = 收起覆盖层。
+- **切标签不再 `Nav.root`**：`Nav.switchToTab()` 先 pop 掉覆盖层，底下是浏览器就
+  `showTab()` 换绑标签（返回栈、首页、滚动位置全部保留），底下是首页才 push 一层浏览器。
+  这是「新建标签再返回，首页 UI 消失」的直接原因。
+- 「新建窗口」按原版语义**每次真的新建**（`openBlank(reuseBlank = false)`）；
+  只有隐式路径（外部链接、冷启动）才复用空白页，避免叠一串空标签。
+- `Nav.root` 改 `commitNow()`、`Nav.pop` 改 `popBackStackImmediate()`：消除「容器空一拍」
+  导致的底栏闪 GONE；`setChrome` 在容器真为空时也不再隐藏底栏。
+
+### 首页：统计卡和最近访问不再消失
+
+- 根因仍是「签名是 Fragment 字段，View 重建后签名还在」；现在 `onViewCreated` 重置签名并
+  强制构建一次，`refreshHomeData` 额外把「容器为空」当成需要重建。
+- 搜索框去掉左侧地球图标（原版是空白框），右侧换原版 `scan_light`；快捷入口「小程序」
+  换原版 `icon_app3`；边距恢复 16dp。
+- 首页搜索 / 最近访问在**当前标签**里导航；已经在浏览器页时直接换地址，不再叠一层浏览器。
+
+### 下载列表 / 主菜单
+
+- 下载列表补左上返回箭头（原版有），右上 ⋮ 换成原版六项锚定浮层
+  （排序方式 / 批量删除 / 文件管理 / 显示时间 / 分类显示 / 更多设置），
+  六项全部有实现，不再有占位文案。
+- 主菜单固定 15 格、顺序与原版 `view_browser_menu_popup.xml` 一致，
+  不再因为「开发者模式 / AI 总结」开关导致九宫格错位；「无痕模式」改 push（返回键可回上一页）。
+
+### 资源与验证
+
+- 新增原版资源（直接取自 decode）：`orig_b_back`(ic_left_circle)、`orig_tab_add`、
+  `orig_tab_close`、`orig_tab_done`、`orig_tab_globe`、`orig_home_scan`、`orig_home_miniapp`。
+- 新增单测 `BrowserSessionTest`（10 例）锁住标签会话不变式。
+- 本地验证：`:app:compileDebugKotlin`、`testDebugUnitTest`（218 例 0 失败）、
+  `:app:assembleDebug` 全部通过；四种底栏、地址条上弹候选、覆盖层长按仍需真机复核。
+
 ## [1.0.0-rc10] - 2026-11-01
 
 UI 精细化：首页统计卡重排、搜索框/卡片层级、底栏图标统一。
@@ -146,185 +212,3 @@ rc7 之后的收尾：设置搜索更完整、下载详情更好用、危险操�
   脚本管理用原版「插件」拼图，隐私用原版「无痕」图标，AI 供应商保留原版绿色 AI 图标（不做 tint）。
 - **全屏回到主菜单**：从 APK 里补出原版四角箭头图标（`orig_s_fullscreen`），
   主菜单 15 格恢复成「…无痕 / AI 总结 / 全屏 / 夜间 / 网站配置」，和原版排布一致；
-  全屏走 `WindowInsetsController` 隐藏系统栏，上滑可临时唤出。
-- 「AI 翻译」从主菜单移到长按菜单（页面级「AI 翻译本页」），主菜单不再挤掉原版功能。
-
-### 记账
-
-- 这轮所有界面图标都来自安装包（菜单 `orig_m_*`、底栏 `orig_b_*`、设置 `orig_s_*`），
-  不再有自绘图标参与界面。
-
-## [1.0.0-rc5] - 2026-10-31
-
-主菜单与底栏改成原版的样子（图标直接用安装包里的矢量，不重绘），AI 总结/翻译有了正式入口。
-
-### 界面（对照原版资源）
-
-- **主菜单九宫格**：15 个图标全部换成原版矢量（`orig_m_*`，是从 APK 反编译出来的
-  1024/200 viewport `#ff222222` 图标，逐条按 path 在安装包里核对过来源，不是手绘）；
-  图标 24dp → **26dp**，5 列 3 行，顺序对齐原版（加书签 / 书签 / 历史 / 下载 / 插件 /
-  悬浮嗅探 / UA标识 / 网络日志 / 刷新 / 工具箱 / 无痕模式 / AI 总结 / 翻译 / 夜间模式 / 网站配置）。
-  AI 两个图标保留原色，不被 tint 成黑色。
-- **底栏**：按原版 `view_stub_browser_bottom*.xml` 做五槽
-  `[首页] [刷新·标签页（按页面切换）] [标题胶囊] [标签数] [菜单]`。
-  之前 `BrowserFragment` 没声明 `showsBottomBar`，浏览器页**根本没有底栏**，这次补上；
-  尺寸对齐原版截图：图标 26dp → **30dp**、胶囊文字 14sp → **16sp**、标签数 24dp → **26dp**。
-- 删掉两枚此前的重绘图标（阅读模式 / 全屏）。
-
-### 新增
-
-- **AI 总结**：对当前页面抽正文（Readability）→ 分块摘要，结果流式显示在底部面板，可整段复制；
-  供应商与 Key 复用「AI 供应商」里的配置。
-- **划词翻译**：先选中网页文字再点「翻译」，译文流式输出（长文自动分块）。
-- **长按菜单两个页面级入口**：「AI 总结本页」「AI 翻译本页」——整页翻译取 `body.innerText`
-  截断 6000 字后流式输出，和划词翻译共用同一套供应商与密钥。
-- `BrowserSurface` 增加 `evaluateJavascript`（默认空实现），AI 取正文/选区不再依赖 web 模块内部类。
-
-### 说明
-
-- 原版设置页用的是另一套线性图标（板手 / 衬衫 / 机器人 / 插头…），形状与我们自绘的不同。
-  这轮没有替换（需要逐个从 APK 比对），记为下一版待办。
-
-## [1.0.0-rc4] - 2026-10-31
-
-扫码能真扫了；冷启动不再等读盘；CI 加 lint；依赖版本收进 version catalog。
-
-### 新增
-
-- **扫一扫**：CameraX 预览 + ZXing 解码（QR / DataMatrix / Aztec / PDF-417 / 一维码）。
-  只取 Y 平面转灰度、按帧 `rotationDegrees` 摆正；命中一次即停，非网址给「搜索 / 复制」出口。
-- 自适应图标补 `monochrome`（Android 13+ 主题图标）。
-
-### 变更
-
-- **冷启动**：`Application` 只同步注册「首帧要用」的嗅探回调与渲染器工厂；
-  DoH / 拦截 / 脚本 / AI / 下载改到后台初始化，备份链路挂在其后。
-  下载队列首帧不再读队列文件，WorkManager 的自动备份排程也移出主线程。
-- **依赖版本目录**：新增 `gradle/libs.versions.toml`，六个模块的插件与依赖全部改成 `libs.xxx`。
-- **CI**：新增 `lint` job（0 error 才放行，报告作为 artifact 存档）。
-
-### 修复
-
-- WebView 渲染进程被系统回收时不再带崩整个应用：`onRenderProcessGone` 拆掉死掉的 WebView 并提示重新加载。
-- 扫码页不再锁竖屏（Android 16 起系统本来也会忽略固定方向）。
-- Lint 收口：`DefaultLocale`、`dataExtractionRules`、PiP 误报（代码在 player 模块，app 模块看不到）。
-
-### 体积
-
-- release **3.11 MB/ABI**：CameraX 带来 +260 KB，其余与 rc3 持平（删掉的 recyclerview /
-  viewmodel-ktx / media3-datasource 在 R8 后本来就没占多少）。
-
-## [1.0.0-rc3] - 2026-10-31
-
-DoH 上游可以自己填了，并且「选中哪个就用哪个」终于真的生效；顺手做了一轮全功能审计。
-
-### 新增
-
-- **自定义 DoH 上游**：加密 DNS 页新增「自定义上游」，填任意 RFC 8484 端点
-  （自建 AdGuard Home / NextDNS / 企业 DNS），支持只写域名（自动补 `https://` 与 `/dns-query`）、
-  IP 形式、本地 `http://127.0.0.1`（会提示仅在可信网络使用）。
-- **自动 / 手动上游**：上游列表第一项是「自动（内置竞速）」；选中某个内置上游后固定使用它。
-
-### 修复
-
-- **DoH 上游选择之前是装饰**：界面把 URL 写进了设置，但 `DohAdapter` 从没把选择传给引擎，
-  引擎永远跑内置五路竞速。现在：自动 = 竞速；选中预设 = 固定该上游（探测失败才回落最快的一个）；
-  自定义 = 只使用该地址（`customOnly`），不再与内置混跑。
-- 上游地址统一归一化（大小写、默认端口、末尾斜杠），`https://DoH.Pub/dns-query/` 也能认出是腾讯。
-- 自定义上游不发送 ECS，避免把用户网段暴露给第三方。
-
-### 审计（`docs/audit/archive/2026-10-31-full-audit.md`）
-
-- **正常**：逐功能列出可用性——主干全通；缺扫码解码、AI 总结/翻译的界面入口、下载瞬时速度。
-- **主流**：Gradle 9.7 / AGP 9 / Kotlin 2.3 / Media3 / Room / DataStore / R8 + 资源混淆 + ABI split、
-  预测性返回与 edge-to-edge 均对齐；欠 lint job 与依赖版本目录。
-- **轻量**：release **2.85 MB/ABI**（原版 41.7 MB，约 7%）；dex 3.0 MB / 21k 方法；
-  删掉未使用的 recyclerview、lifecycle-viewmodel-ktx、media3-datasource。
-
-### 测试
-
-- 新增 `DohUpstreamsTest`（地址归一化/校验 5 组）与 `DohCustomUpstreamTest`（池子映射 5 组）。
-
-## [1.0.0-rc2] - 2026-10-31
-
-设置项点不动、备份存空包、播放页只是壳——这一版把「合并后没接上的线」一次性接完，并把首页插画换成原版资源。
-
-### 修复
-
-- **设置里点不进去（阻断）**：`SettingItem` 只在 `SWITCH/CHECKBOX` 分支注册点击监听，
-  `CHEVRON/NONE`（跳转、单选、命令）整行没有 listener，`onClickAction` 永远不触发。
-  改为「单一注册点 + 行内交互与外部动作叠加」，并补 4 条 Robolectric 回归用例
-  （`SettingItemClickTest`，CI 跑）。
-- **备份存了个空包**：`BackupManager` 读的是已经没人写的 SharedPreferences，设置迁到
-  DataStore 后备份内容永远是空表。改为接 B4 的 `BackupPipeline`：
-  设置（带类型前缀）/书签/历史/脚本/订阅/白名单 → zip + manifest(SHA256) → 本地或 WebDAV；
-  恢复走整包校验 + 只增不减合并；WebDAV 密码改 Keystore 加密存储，旧明文自动迁移。
-- **定时备份不生效**：`AutoBackupScheduler` 从未被调用，「每天/每周」现在真的会排 WorkManager，
-  改了开关立即重排；新增 `BackupInterval.WEEK`。
-- **播放页是壳**：点播放只弹「player 模块接入后由此起播」。现在直接拉起 B3 的
-  `VideoPlayerActivity`（Media3 + PiP + 倍速 + 断点续播），进页面即起播。
-- **加密 DNS 开关不生效**：之前只在冷启动读一次设置，界面里开/关要重启才起作用；
-  现在切开关立即 start/stop 引擎。
-- **退出清数据没接**：`PrivacyCleaner` 从未调用，现在 `isFinishing` 且开关打开时清
-  缓存 / Cookie / WebStorage / 表单 / 历史（旋转等配置变更不会误清）。
-
-### 界面资源
-
-- 首页插画、新标签页插画改用**原版安装包里的海鸥图**（`res/kI.png`，裁掉透明留白后
-  按 2.1:1 输出 WebP，xxhdpi + mdpi 两档），删掉之前手绘的 `img_bird.xml` 与渐变占位
-  `bg_home_hero.xml`。
-- 首页右下风景卡继续用原版 `res/kM.webp`（与安装包字节一致）。
-
-### 审计
-
-- 新增 `docs/audit/archive/2026-10-30-merge-audit.md` 的「第二轮：可达性审计」：
-  逐屏点检 30+ 入口、列出仍缺的接入（扫码解码、投屏已裁、下载速度字段）。
-
-## [1.0.0-rc1] - 2026-10-30
-
-首个合并版：B1 地基、B2 浏览内核 + DoH、B3 播放/下载/AI、B4 拦截/脚本/备份、B5 界面复刻
-五条并行分支首次合入主干并出包。
-
-### 新增
-
-- **浏览内核**：`BrowserView`（UA/缩放/无图/夜间/长按/下载）、`BrowserClient`（拦截 → 嗅探 →
-  DoH 粘性）、多标签与 LRU 回收、Cookie 快照隔离、地址栏 200ms 防抖与文本提链、站点配置、UA 管理。
-- **加密 DNS（DoH）**：自研 RFC1035/8484 编解码、五路上游竞速、TTL/负缓存、bootstrap IP 表、
-  本地 CONNECT 隧道 + `ProxyController`（L2）、熔断与切网重建，三档分流规则（智能/仅指定/仅排除）。
-- **播放**：Media3 播放页、倍速/跳片头、PiP、嗅探结果列表与收藏。
-- **下载**：系统 DownloadManager 委派 + 自研分块 + M3U8（AES-128 解密、广告分片过滤、TS remux）、
-  队列/并发约束、断点续传、通知、外部下载器委派。
-- **AI**：OpenAI 兼容多供应商（密钥 Keystore AES-GCM 加密）、SSE 流式、网页总结（Readability +
-  分块）、划词/整页翻译。
-- **拦截**：adblock-rust JNI 壳 + Kotlin 倒排降级引擎（2 万条上限）、uBO/ABP 子集解析、
-  订阅更新（ETag/304）、元素隐藏、白名单、拦截计数。
-- **脚本**：UserScript 元数据解析、GM_* 桥、document-start/end/idle 三段注入。
-- **数据**：zip + JSON 备份（manifest + SHA256 校验、zip-slip 防护）、只增不减合并、WebDAV、
-  WorkManager 定时备份、隐私清理。
-- **界面**：38 个界面、`core/uikit` 组件库（BottomBar/UrlBar/SettingItem/…）、设置页声明式 Spec、
-  默认浏览器接管（`RoleManager.ROLE_BROWSER`）、外链分发与多链接批量开标签。
-- **CI**：push 跑单测 + `assembleDebug`；打 `v*` tag 自动签名出 `assembleRelease` 并发 Release。
-
-### 变更 / 集成
-
-- 设置统一走 `core` 的 DataStore 单例（原 B5 的 SharedPreferences 实现删除），备份与各模块读同一份。
-- 新增 `app/data/ModuleBackends.kt`：把 B2/B3/B4 的实现适配到 `core/api` 契约
-  （`DownloadRecord→DownloadTask`、B4 `UserScript→` 面板模型、`DohStatus` 映射等）。
-- `core/api` 在冻结的五个契约之外，补上 UI 需要的扩展文件：`BrowserSurface.kt`、
-  `AdBlockPanel.kt`、`Script.kt`。
-- `core/script/ScriptStore` 新增 `save(meta, code)`，脚本编辑器不再依赖 `==UserScript==` 头。
-- `core` 的 OkHttp 依赖改为 `api`（`GmBridge.defaultClient()` 的签名里是 `OkHttpClient`）。
-- ABI split 产物为 `app-<abi>-{debug,release}.apk`，CI 上传路径改为通配。
-
-### 移除
-
-- B5 兜底实现里的明文 AI 供应商存储（`LocalProviderStore`）：密钥只能进 Keystore 加密存储。
-- B2 自带的 `core/api/MediaSniffer.kt` 重复契约（与 m0 的 `Media.kt` 冲突）。
-
-### 已知限制
-
-- 无真机验收：沙箱没有 `/dev/kvm`、adb 不可用，视觉对照表见 `docs/tasks/B5-DELIVERY.md` §3，
-  20 条手工冒烟用例见 `docs/tasks/B5-SMOKE.md`，需在真机上补跑。
-- 扫码仅到「相机 + 取景框 + 手动输入」，ZXing 解码未接。
-- `libadblock_ffi.so` 需手动触发 CI job 编译；未带 .so 时自动降级 Kotlin 引擎。
-- release 体积 2.8 MB/ABI（debug 12.6 MB/ABI），低于 15 MB 目标。

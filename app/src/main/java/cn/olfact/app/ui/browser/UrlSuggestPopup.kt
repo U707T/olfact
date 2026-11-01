@@ -3,6 +3,7 @@ package cn.olfact.app.ui.browser
 import android.app.Activity
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
@@ -22,7 +23,12 @@ import cn.olfact.core.uikit.dpF
  *
  * 「粘一段含 3 个链接的文本 → 出 3 条候选且能批量打开」就是这里实现的（验收项）。
  */
-class UrlSuggestPopup(private val activity: Activity, private val anchor: View) {
+class UrlSuggestPopup(
+    private val activity: Activity,
+    private val anchor: View,
+    /** true = 向上弹（地址条贴在底栏上方时用），false = 向下弹（首页搜索框）。 */
+    private val above: Boolean = false
+) {
 
     private val column = LinearLayout(activity).apply {
         orientation = LinearLayout.VERTICAL
@@ -110,9 +116,29 @@ class UrlSuggestPopup(private val activity: Activity, private val anchor: View) 
             })
         }
 
+        // 高度要按「锚点上方/下方实际可用空间」算，否则固定 360dp 会在小屏或
+        // 地址条贴底时被顶出屏幕，候选层直接看不见。
+        val metrics = activity.resources.displayMetrics
+        val loc = IntArray(2)
+        anchor.getLocationOnScreen(loc)
+        val margin = activity.dpF(8f)
+        val space = if (above) {
+            loc[1] - margin
+        } else {
+            metrics.heightPixels - (loc[1] + anchor.height) - margin
+        }
+        val maxHeight = activity.dpF(360f)
         popup.width = anchor.width
-        popup.height = activity.dpF(360f)
-        if (!popup.isShowing) popup.showAsDropDown(anchor, 0, activity.dpF(4f))
+        popup.height = space.coerceIn(activity.dpF(96f).toInt(), maxHeight)
+
+        if (popup.isShowing) {
+            popup.update(anchor, 0, 0, -1, -1)
+        } else if (above) {
+            // 向上弹：底部对齐到锚点上方，列表从下往上长，避免遮住输入框。
+            popup.showAsDropDown(anchor, 0, -(anchor.height + popup.height), Gravity.BOTTOM)
+        } else {
+            popup.showAsDropDown(anchor, 0, activity.dpF(4f))
+        }
     }
 
     fun dismiss() {

@@ -169,6 +169,10 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
         web?.goForward()
     }
 
+    override fun clearHistory() {
+        web?.clearHistory()
+    }
+
     override fun title(): String? = web?.title
 
     override fun url(): String? = web?.url

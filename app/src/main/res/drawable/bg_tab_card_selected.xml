@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 当前标签卡片：白底 + 1.5dp 主题绿描边（原版 item_muti_window 的选中态）。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/card" />
+    <stroke android:width="1.5dp" android:color="@color/brand" />
+    <corners android:radius="10dp" />
+</shape>

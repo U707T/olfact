@@ -15,18 +15,22 @@ import android.widget.TextView
 import androidx.core.content.ContextCompat
 
 /**
- * 底部栏，按原版 `view_stub_browser_bottom*.xml` 的五槽布局：
+ * 底部栏，逐像素对齐原版 `view_stub_browser_bottom.xml`：
  *
  * ```
- * [首页] [刷新] [ 标题胶囊（占大半个宽度） ] [标签数] [菜单]
+ * [首页] [刷新] [ 标题胶囊（占剩余宽度） ] [标签数] [菜单]
+ *   36dp   36dp          weight=1            36dp   36dp
  * ```
  *
- * 三个槽位类型：
- * - [Kind.ICON]：固定宽度图标；
- * - [Kind.PILL]：**拉宽**的胶囊，显示当前页面标题（无页面时显示「主页」）；
- * - [Kind.COUNT]：圆角方框 + 居中数字（原版是「标签页数量」）。
+ * 尺寸/间距全部照抄原版：栏高 54dp、容器左右 padding 10dp、图标卡 36dp（内 padding 5dp
+ * → 图标 26dp）、home 前 10dp、home→refresh 15dp、refresh→胶囊 18dp、胶囊→标签数 18dp、
+ * 标签数→菜单 15dp、菜单后 10dp。
  *
- * 图标一律用原版矢量资源（`orig_b_*`），只在 ImageView 上做 tint 以适配深色模式。
+ * 颜色也照抄：图标与胶囊文字都是 `blackText2 #444444`，**没有选中态高亮**——
+ * 原版点完「刷新/菜单」后首页图标不会变灰，选中态只体现在胶囊文字上。
+ *
+ * 长按与原版一致：每个槽位都能长按（首页回首页、刷新强制刷新、胶囊出链接菜单、
+ * 标签数出「新建窗口/清除其它/清除全部」）。
  */
 class BottomBar @JvmOverloads constructor(
     context: Context,
@@ -41,21 +45,29 @@ class BottomBar @JvmOverloads constructor(
         val id: String,
         val icon: Int = 0,
         val label: String = "",
-        val kind: Kind = Kind.ICON
+        val kind: Kind = Kind.ICON,
+        /** 无障碍播报；图标槽必须给，否则 TalkBack 只读「按钮」。 */
+        val description: String = label,
+        /** 原版是相对布局的 marginStart/marginEnd，这里保留同样的间距。 */
+        val marginStart: Float = 0f,
+        val marginEnd: Float = 0f
     )
 
     private val slotContainer = LinearLayout(context).apply {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(context.dpF(4f), 0, context.dpF(4f), 0)
+        setPadding(context.dpF(10f), 0, context.dpF(10f), 0)
     }
 
     private val slots = LinkedHashMap<String, View>()
     private val icons = LinkedHashMap<String, ImageView>()
-    private val badges = LinkedHashMap<String, TextView>()
+    private val counts = LinkedHashMap<String, ImageView>()
     private val pills = LinkedHashMap<String, TextView>()
 
     var onSelect: ((String) -> Unit)? = null
+
+    /** 长按槽位（原版每个槽位都有 longClick，见 WebViewActivity#initBottomBar）。 */
+    var onLongSelect: ((String, View) -> Unit)? = null
 
     var style: Style = Style.ICON_ONLY
         private set
@@ -69,121 +81,150 @@ class BottomBar @JvmOverloads constructor(
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, 1)
             setBackgroundColor(ContextCompat.getColor(context, R.color.uikit_divider))
         })
-        // 底栏 52dp：图标 28dp，上下各留 12dp；比原来的 50/30 更松弛
-        addView(slotContainer, LayoutParams(LayoutParams.MATCH_PARENT, context.dpF(52f)))
+        // 原版 `bottom_bar_bg` 高 54dp（含 1dp 顶部分隔线）。
+        addView(slotContainer, LayoutParams(LayoutParams.MATCH_PARENT, context.dpF(53f)))
     }
 
     fun configure(items: List<Item>, style: Style = Style.ICON_ONLY) {
         this.style = style
         slotContainer.removeAllViews()
-        slots.clear(); icons.clear(); badges.clear(); pills.clear()
+        slots.clear(); icons.clear(); counts.clear(); pills.clear()
 
         items.forEach { item ->
-            // 「纯图标」模式下中间的标题胶囊退化为图标槽（由调用方给 Item.icon）；
-            // 旧实现只把 style 存成字段，两种样式渲染完全一样。
-            val slot = when {
-                item.kind == Kind.PILL && style == Style.ICON_ONLY -> buildIconSlot(item)
-                item.kind == Kind.PILL -> buildPill(item)
-                item.kind == Kind.COUNT -> buildCountSlot(item)
-                else -> buildIconSlot(item)
+            // 纯图标模式没有标题胶囊：整槽省略，用四个等宽图标铺满。
+            if (item.kind == Kind.PILL && style == Style.ICON_ONLY) return@forEach
+
+            val slot = when (item.kind) {
+                Kind.PILL -> buildPill(item)
+                Kind.COUNT -> buildCountSlot(item)
+                Kind.ICON -> buildIconSlot(item)
             }
-            val weight = if (item.kind == Kind.PILL && style == Style.PILL) 3.2f else 1f
-            slotContainer.addView(slot, LayoutParams(0, LayoutParams.MATCH_PARENT, weight))
+            val lp = if (item.kind == Kind.PILL || style == Style.ICON_ONLY) {
+                LayoutParams(0, LayoutParams.MATCH_PARENT, 1f)
+            } else {
+                LayoutParams(context.dpF(36f), LayoutParams.MATCH_PARENT)
+            }
+            lp.marginStart = context.dpF(item.marginStart)
+            lp.marginEnd = context.dpF(item.marginEnd)
+            slotContainer.addView(slot, lp)
             slots[item.id] = slot
-            slot.setOnClickListener { select(item.id, notify = true) }
+
+            // 点击/长按都只回调宿主：底栏自身不改选中态（原版没有这一层）。
+            slot.setOnClickListener { onSelect?.invoke(item.id) }
+            slot.setOnLongClickListener {
+                val handler = onLongSelect ?: return@setOnLongClickListener false
+                handler(item.id, slot)
+                true
+            }
+            slot.contentDescription = item.description.ifBlank { item.id }
         }
         select(items.firstOrNull()?.id, notify = false)
     }
 
     private fun buildIconSlot(item: Item): View {
-        val container = FrameLayout(context)
+        val container = FrameLayout(context).apply {
+            background = ContextCompat.getDrawable(context, R.drawable.uikit_ripple_row)
+        }
         val icon = ImageView(context).apply {
             setImageResource(item.icon)
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            layoutParams = FrameLayout.LayoutParams(context.dpF(28f), context.dpF(28f), Gravity.CENTER)
+            imageTintList = ContextCompat.getColorStateList(context, R.color.uikit_text_bar)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            contentDescription = item.description.ifBlank { null }
+            layoutParams = FrameLayout.LayoutParams(context.dpF(26f), context.dpF(26f), Gravity.CENTER)
         }
         container.addView(icon)
         icons[item.id] = icon
         return container
     }
 
-    /** 标签数：圆角方框 + 居中数字（方框是 shape，数字由 [setBadge] 填）。 */
+    /**
+     * 标签数：直接使用原版 `icon_web_discory_N`（数字画在图标里）。
+     * 超过 10 个时退回不带数字的窗口图标，contentDescription 仍报真实数量。
+     */
     private fun buildCountSlot(item: Item): View {
-        val container = FrameLayout(context)
-        val box = View(context).apply {
-            setBackgroundResource(R.drawable.uikit_bg_count)
-            layoutParams = FrameLayout.LayoutParams(context.dpF(24f), context.dpF(24f), Gravity.CENTER)
+        val container = FrameLayout(context).apply {
+            background = ContextCompat.getDrawable(context, R.drawable.uikit_ripple_row)
         }
-        val badge = TextView(context).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-            setTypeface(typeface, Typeface.BOLD)
-            setTextColor(ContextCompat.getColor(context, R.color.uikit_text_primary))
-            gravity = Gravity.CENTER
-            text = "1"
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER
-            )
+        val image = ImageView(context).apply {
+            setImageResource(R.drawable.uikit_ic_tab_count_1)
+            imageTintList = ContextCompat.getColorStateList(context, R.color.uikit_text_bar)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            contentDescription = "1 个标签页"
+            layoutParams = FrameLayout.LayoutParams(context.dpF(26f), context.dpF(26f), Gravity.CENTER)
         }
-        container.addView(box)
-        container.addView(badge)
-        badges[item.id] = badge
+        container.addView(image)
+        counts[item.id] = image
         return container
     }
 
     private fun buildPill(item: Item): View {
+        // 原版 `bottom_bar_text_bg`：gray_rice #F5F5F5、32dp 高、圆角 18dp、文字 #444444。
         val pill = TextView(context).apply {
             text = item.label
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            setTypeface(typeface, Typeface.BOLD)
+            setTypeface(typeface, Typeface.NORMAL)
             gravity = Gravity.CENTER
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.MIDDLE
-            setPadding(context.dpF(14f), context.dpF(6f), context.dpF(14f), context.dpF(6f))
+            setPadding(context.dpF(12f), 0, context.dpF(12f), 0)
             background = ContextCompat.getDrawable(context, R.drawable.uikit_bg_pill)
-            setTextColor(ContextCompat.getColor(context, R.color.uikit_text_primary))
-            tag = "pill"
+            setTextColor(ContextCompat.getColor(context, R.color.uikit_text_bar))
         }
         val wrapper = FrameLayout(context).apply {
-            setPadding(context.dpF(4f), 0, context.dpF(4f), 0)
+            background = ContextCompat.getDrawable(context, R.drawable.uikit_ripple_row)
             addView(pill, FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER
+                FrameLayout.LayoutParams.MATCH_PARENT, context.dpF(32f), Gravity.CENTER
             ))
         }
         pills[item.id] = pill
         return wrapper
     }
 
-    /** 胶囊文字：浏览器里传页面标题，其它页面传「主页」。 */
     fun setPillText(id: String, text: CharSequence?) {
         pills[id]?.text = text?.takeIf { it.isNotBlank() } ?: "主页"
     }
 
+    /**
+     * 记录当前页面槽位（只有 home / search / tabs 会用到）。
+     *
+     * 原版底栏图标始终同色，所以这里**不**改 tint；保留 [selectedId] 仅供宿主查询。
+     */
     fun select(id: String?, notify: Boolean = false) {
         selectedId = id
-        val active = ContextCompat.getColor(context, R.color.uikit_text_primary)
-        val inactive = ContextCompat.getColor(context, R.color.uikit_text_secondary)
-        icons.forEach { (key, icon) ->
-            icon.imageTintList = android.content.res.ColorStateList.valueOf(if (key == id) active else inactive)
-        }
-        pills.forEach { (key, pill) ->
-            pill.setTextColor(if (key == id) active else ContextCompat.getColor(context, R.color.uikit_text_primary))
-        }
         if (notify) onSelect?.invoke(id ?: return)
     }
 
-    /** 换某个槽位的图标（底栏第二格在浏览器里是刷新、在其它页面是标签页）。 */
+    /** 换某个槽位的图标（底栏第二格在可前进时显示前进箭头）。 */
     fun setIcon(id: String, iconRes: Int) {
         icons[id]?.setImageResource(iconRes)
     }
 
     fun setBadge(id: String, count: Int) {
-        val badge = badges[id] ?: return
-        badge.text = when {
-            count <= 0 -> "1"
-            count > 99 -> "99+"
-            else -> count.toString()
-        }
+        val image = counts[id] ?: return
+        val safe = count.coerceAtLeast(0)
+        image.setImageResource(
+            when {
+                safe in 1..10 -> COUNT_ICONS[safe - 1]
+                else -> R.drawable.uikit_ic_tab_count_many
+            }
+        )
+        image.contentDescription = "$safe 个标签页"
     }
 
     fun currentId(): String? = selectedId
+
+    private companion object {
+        val COUNT_ICONS = intArrayOf(
+            R.drawable.uikit_ic_tab_count_1,
+            R.drawable.uikit_ic_tab_count_2,
+            R.drawable.uikit_ic_tab_count_3,
+            R.drawable.uikit_ic_tab_count_4,
+            R.drawable.uikit_ic_tab_count_5,
+            R.drawable.uikit_ic_tab_count_6,
+            R.drawable.uikit_ic_tab_count_7,
+            R.drawable.uikit_ic_tab_count_8,
+            R.drawable.uikit_ic_tab_count_9,
+            R.drawable.uikit_ic_tab_count_10
+        )
+    }
 }
