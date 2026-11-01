@@ -111,8 +111,8 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
             val s = surface
             if (s != null && s.canGoBack()) s.goBack() else Nav.pop()
         }
-        b.menu.setOnClickListener { MainMenuSheet.show(requireActivity() as cn.olfact.app.MainActivity) }
-        b.tabCountBox.setOnClickListener { Nav.push(cn.olfact.app.ui.TabsFragment()) }
+        b.menu.setOnClickListener { MainMenuSheet.toggle(requireActivity() as cn.olfact.app.MainActivity) }
+        b.tabCountBox.setOnClickListener { Nav.toggle(cn.olfact.app.ui.TabsFragment()) }
         updateTabCount()
     }
 
