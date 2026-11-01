@@ -168,8 +168,13 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
         else -> "${task.progress}%"
     }
 
+    private var menuSheet: Sheet? = null
+
     private fun showMenu() {
+        menuSheet?.takeIf { it.isShowing }?.dismiss()
         val sheet = Sheet(requireContext()).title("下载列表")
+        menuSheet = sheet
+        sheet.setOnDismissListener { if (menuSheet === sheet) menuSheet = null }
         listOf("排序方式", "显示时间", "全部暂停", "全部继续", "更多设置").forEach { label ->
             sheet.addRow(ListRow(requireContext()).apply {
                 title = label
