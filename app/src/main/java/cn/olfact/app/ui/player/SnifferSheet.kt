@@ -18,6 +18,12 @@ object SnifferSheet {
     /** 当前显示的嗅探面板：重复点「嗅探结果」先收起旧的，避免叠层。 */
     private var current: Sheet? = null
 
+    /** Activity 销毁时清掉静态引用。 */
+    fun dismiss() {
+        current?.takeIf { it.isShowing }?.dismiss()
+        current = null
+    }
+
     fun show(activity: Activity) {
         current?.takeIf { it.isShowing }?.dismiss()
         val pageUrl = BrowserSession.current()?.url.orEmpty()

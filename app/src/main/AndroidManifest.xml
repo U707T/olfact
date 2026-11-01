@@ -87,6 +87,7 @@
         <activity
             android:name=".ui.tools.ScanActivity"
             android:exported="false"
+            android:launchMode="singleTop"
             android:theme="@style/ThemeOlfactPlayer" />
     </application>
 </manifest>

@@ -129,7 +129,8 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
 
             override fun onTitle(title: String?) {
                 tab?.title = title.orEmpty()
-                b.urlBar.setText(s.url())
+                // 用户正在地址栏输入时不要抢文本（页面标题变化很频繁）
+                if (!b.urlBar.editor.hasFocus()) b.urlBar.setText(s.url())
                 syncBottomBar()
             }
 

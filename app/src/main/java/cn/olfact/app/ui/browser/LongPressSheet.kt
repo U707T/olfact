@@ -39,6 +39,12 @@ object LongPressSheet {
     /** 当前显示的浮层：重复长按时先收起旧的。 */
     private var currentPopup: PopupWindow? = null
 
+    /** Activity 销毁时清掉静态引用。 */
+    fun dismiss() {
+        currentPopup?.takeIf { it.isShowing }?.dismiss()
+        currentPopup = null
+    }
+
     fun show(context: Context, url: String?, title: String?, onFind: (() -> Unit)? = null) {
         val target = url?.takeIf { it.isNotBlank() }
         val sheet = Sheet(context).title(title?.takeIf { it.isNotBlank() } ?: "页面操作")

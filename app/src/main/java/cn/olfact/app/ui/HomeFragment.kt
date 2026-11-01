@@ -48,6 +48,8 @@ class HomeFragment : Fragment(R.layout.fragment_home), ChromeAware {
     )
     private var quoteIndex = 0
     private var quoteHintShown = false
+    private var statsSignature = ""
+    private var recentSignature = ""
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val b = FragmentHomeBinding.bind(view)
@@ -66,8 +68,7 @@ class HomeFragment : Fragment(R.layout.fragment_home), ChromeAware {
         }
 
         buildShortcuts(b.shortcuts)
-        buildStats(b.statsCard)
-        renderRecent(b.recentList)
+        // 统计卡与最近访问交给 onResume：数据没变就不重建
 
         b.quoteText.text = quotes[quoteIndex].first
         b.quoteAuthor.text = quotes[quoteIndex].second
@@ -86,9 +87,22 @@ class HomeFragment : Fragment(R.layout.fragment_home), ChromeAware {
 
     override fun onResume() {
         super.onResume()
-        binding?.let {
-            buildStats(it.statsCard)
-            renderRecent(it.recentList)
+        val b = binding ?: return
+        // 只有数据真的变了才重建，避免每次回首页都 removeAllViews
+        val stats = listOf(
+            BookmarkStore.all().size,
+            cn.olfact.app.data.FavoriteStore.items.size,
+            OlfactServices.downloads?.tasks()?.size ?: 0,
+            OlfactServices.scriptStore?.all()?.size ?: 0
+        ).joinToString(",")
+        if (stats != statsSignature) {
+            statsSignature = stats
+            buildStats(b.statsCard)
+        }
+        val recent = HistoryStore.recent(3).joinToString("|") { it.url }
+        if (recent != recentSignature) {
+            recentSignature = recent
+            renderRecent(b.recentList)
         }
     }
 

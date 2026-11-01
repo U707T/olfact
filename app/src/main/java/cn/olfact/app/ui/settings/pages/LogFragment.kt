@@ -17,7 +17,13 @@ class LogFragment : Fragment(R.layout.fragment_page) {
 
     private var binding: FragmentPageBinding? = null
     private var minLevel = AppLog.Level.DEBUG
-    private val listener: () -> Unit = { render() }
+    private val renderHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val renderRunnable = Runnable { render() }
+    private val listener: () -> Unit = {
+        // 日志写入可能很频繁：200ms 合并一次重绘
+        renderHandler.removeCallbacks(renderRunnable)
+        renderHandler.postDelayed(renderRunnable, 200)
+    }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val b = FragmentPageBinding.bind(view)
@@ -61,7 +67,7 @@ class LogFragment : Fragment(R.layout.fragment_page) {
                 AppLog.Level.WARN -> it.level == AppLog.Level.WARN || it.level == AppLog.Level.ERROR
                 AppLog.Level.ERROR -> it.level == AppLog.Level.ERROR
             }
-        }
+        }.take(200)
 
         if (list.isEmpty()) {
             b.content.addView(TextView(ctx).apply {
@@ -90,6 +96,7 @@ class LogFragment : Fragment(R.layout.fragment_page) {
 
     override fun onDestroyView() {
         AppLog.unobserve(listener)
+        renderHandler.removeCallbacks(renderRunnable)
         binding = null
         super.onDestroyView()
     }

@@ -79,6 +79,7 @@ class TabsFragment : Fragment(R.layout.fragment_tabs), ChromeAware {
                     }
                 })
             }
+            syncBottomBar()
             return
         }
 
@@ -88,6 +89,12 @@ class TabsFragment : Fragment(R.layout.fragment_tabs), ChromeAware {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = ctx.dpF(6f) })
         }
+        syncBottomBar()
+    }
+
+    /** 标签增删后同步底栏的标签数角标。 */
+    private fun syncBottomBar() {
+        (activity as? cn.olfact.app.MainActivity)?.refreshBottomBar()
     }
 
     private fun buildRow(tab: Tab): View {

@@ -19,6 +19,12 @@ object AddDownloadSheet {
     /** 当前显示的对话框：重复点「新增下载」先收起旧的。 */
     private var current: AlertDialog? = null
 
+    /** Activity 销毁时清掉静态引用。 */
+    fun dismiss() {
+        current?.takeIf { it.isShowing }?.dismiss()
+        current = null
+    }
+
     fun show(context: Context, onConfirm: (url: String, name: String?) -> Unit) {
         current?.takeIf { it.isShowing }?.dismiss()
         val container = LinearLayout(context).apply {

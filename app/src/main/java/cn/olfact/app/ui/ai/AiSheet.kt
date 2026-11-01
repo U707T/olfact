@@ -71,6 +71,8 @@ class AiSheet(private val activity: Activity, title: String) {
     private val text = StringBuilder()
 
     init {
+        current?.dismiss()
+        current = this
         sheet.add(statusView)
         sheet.add(scroll)
         sheet.add(footer)
@@ -97,5 +99,11 @@ class AiSheet(private val activity: Activity, title: String) {
 
     fun dismiss() {
         runCatching { sheet.dismiss() }
+        if (current === this) current = null
+    }
+
+    companion object {
+        /** 同一时间只保留一个 AI 结果面板。 */
+        private var current: AiSheet? = null
     }
 }

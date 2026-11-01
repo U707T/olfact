@@ -103,6 +103,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        // 静态弹层可能持有 Activity，退出前统一收起
+        MainMenuSheet.dismiss()
+        cn.olfact.app.ui.player.SnifferSheet.dismiss()
+        cn.olfact.app.ui.download.AddDownloadSheet.dismiss()
+        cn.olfact.app.ui.browser.LongPressSheet.dismiss()
+
         // 「退出时清除数据」：只在本 Activity 真被销毁（返回键/划掉）时清，
         // 配置变更（旋转、切深色）不能误清。
         if (isFinishing && ::binding.isInitialized && AppSettings.get(K.PRIVACY_CLEAR_ON_EXIT)) {

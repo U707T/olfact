@@ -53,6 +53,12 @@ object MainMenuSheet {
         }
     }
 
+    /** Activity 销毁时清掉静态引用，避免 Dialog 持有已销毁的 Activity。 */
+    fun dismiss() {
+        currentSheet?.takeIf { it.isShowing }?.dismiss()
+        currentSheet = null
+    }
+
     fun show(activity: MainActivity) {
         val sheet = Sheet(activity)
         currentSheet = sheet

@@ -23,13 +23,21 @@ import cn.olfact.core.uikit.SettingItem
 class SettingsFragment : Fragment(R.layout.fragment_settings) {
 
     private var binding: FragmentSettingsBinding? = null
+    private val searchHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var pendingQuery = ""
+    private val searchRunnable = Runnable { render(pendingQuery) }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val b = FragmentSettingsBinding.bind(view)
         binding = b
         b.header.title = "设置"
         b.header.onBack = { Nav.pop() }
-        b.search.doOnTextChanged { text, _, _, _ -> render(text?.toString().orEmpty()) }
+        b.search.doOnTextChanged { text, _, _, _ ->
+            // 输入时 150ms 防抖，避免每按一个键就整页 removeAllViews
+            pendingQuery = text?.toString().orEmpty()
+            searchHandler.removeCallbacks(searchRunnable)
+            searchHandler.postDelayed(searchRunnable, 150)
+        }
         b.search.setOnEditorActionListener { v, actionId, _ ->
             if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH) {
                 val imm = requireContext().getSystemService(android.view.inputmethod.InputMethodManager::class.java)
@@ -149,6 +157,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     override fun onDestroyView() {
+        searchHandler.removeCallbacks(searchRunnable)
         binding = null
         super.onDestroyView()
     }

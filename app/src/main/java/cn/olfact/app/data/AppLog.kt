@@ -16,7 +16,13 @@ object AppLog {
     enum class Level { DEBUG, INFO, WARN, ERROR }
 
     data class Entry(val at: Long, val level: Level, val tag: String, val message: String) {
-        fun time(): String = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(at))
+        fun time(): String = formatTime(at)
+    }
+
+    /** 共享 formatter：日志页一次要渲染几百条，不能每条都 new 一个。 */
+    private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+    private fun formatTime(at: Long): String = synchronized(timeFormat) {
+        timeFormat.format(Date(at))
     }
 
     private const val CAPACITY = 300
