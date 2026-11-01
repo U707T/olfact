@@ -173,6 +173,10 @@ class SettingsPageFragment : Fragment(R.layout.fragment_settings_page) {
                 HistoryStore.trim(requireContext())
             }
 
+            K.PRIVACY_CLEAR_ON_EXIT.name -> {
+                if (value == true) Nav.toast("开启后，退出应用会清除历史等数据")
+            }
+
             // 这些设置只影响新页面：标记一下，浏览器下次回到前台自动 reload。
             "web.text_zoom", "web.no_image", "web.night", "web.desktop", "web.js" -> {
                 RuntimeFlags.reloadPagesOnResume = true
