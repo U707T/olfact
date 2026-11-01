@@ -66,6 +66,8 @@
                 android:id="@+id/url"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:ellipsize="middle"
+                android:maxLines="2"
                 android:padding="16dp"
                 android:textColor="@color/text_secondary"
                 android:textSize="13sp" />
@@ -74,6 +76,8 @@
                 android:id="@+id/path"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:ellipsize="middle"
+                android:maxLines="2"
                 android:paddingStart="16dp"
                 android:paddingEnd="16dp"
                 android:textColor="@color/text_secondary"
