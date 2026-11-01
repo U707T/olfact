@@ -173,14 +173,18 @@ class MainActivity : AppCompatActivity() {
         )
         binding.bottomBar.onSelect = { id ->
             when (id) {
-                "home" -> Nav.root(cn.olfact.app.ui.HomeFragment())
-                // 浏览器里是「刷新」，其它页面是「标签页」
+                "home" -> {
+                    val home = Nav.current() as? cn.olfact.app.ui.HomeFragment
+                    // 已在首页：回到顶部；否则重建根页面
+                    if (home != null) home.scrollToTop() else Nav.root(cn.olfact.app.ui.HomeFragment())
+                }
+                // 浏览器里是「刷新」，其它页面是「标签页」；再次点击标签页会收起
                 "action" -> {
                     val browser = Nav.current() as? cn.olfact.app.ui.browser.BrowserFragment
-                    if (browser != null) browser.reload() else Nav.push(cn.olfact.app.ui.TabsFragment())
+                    if (browser != null) browser.reload() else Nav.toggle(cn.olfact.app.ui.TabsFragment())
                 }
-                "main", "tabs" -> Nav.push(cn.olfact.app.ui.TabsFragment())
-                "menu" -> MainMenuSheet.show(this)
+                "main", "tabs" -> Nav.toggle(cn.olfact.app.ui.TabsFragment())
+                "menu" -> MainMenuSheet.toggle(this)
             }
         }
         refreshBottomBar()

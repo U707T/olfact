@@ -41,6 +41,20 @@ object Nav {
         ).replace(containerId, fragment).addToBackStack(fragment.javaClass.simpleName).commit()
     }
 
+    /**
+     * 点一下进入，再点一下退出。
+     *
+     * 当前页面已经匹配 [matcher] 就 [pop]（回到上一页），否则 [push]。
+     * 默认按类名匹配；带参数的页面（如设置子页）传自定义 matcher。
+     */
+    fun toggle(fragment: Fragment, matcher: (Fragment) -> Boolean = { it.javaClass == fragment.javaClass }) {
+        if (current()?.let(matcher) == true) {
+            pop()
+        } else {
+            push(fragment)
+        }
+    }
+
     fun root(fragment: Fragment) {
         val fm = host!!.supportFragmentManager
         if (fm.backStackEntryCount > 0) {
@@ -54,15 +68,32 @@ object Nav {
         if (fm.backStackEntryCount > 0) fm.popBackStack()
     }
 
+    /**
+     * 如果返回栈里的上一页就是 [clazz]（例如从浏览器进入标签页），pop 回去。
+     * @return true 表示已经 pop；调用方不要再 push/root。
+     */
+    fun popIfPreviousIs(clazz: Class<out Fragment>): Boolean {
+        val fm = host?.supportFragmentManager ?: return false
+        val previous = fm.backStackEntryCount - 2
+        if (previous >= 0 && fm.getBackStackEntryAt(previous).name == clazz.simpleName) {
+            pop()
+            return true
+        }
+        return false
+    }
+
     fun current(): Fragment? = host?.supportFragmentManager?.findFragmentById(containerId)
 
-    fun openHome() = root(HomeFragment())
+    fun openHome() {
+        if (current() is HomeFragment) return
+        root(HomeFragment())
+    }
 
-    fun openTabs() = push(TabsFragment())
+    fun openTabs() = toggle(TabsFragment())
 
-    fun openDownloads() = push(DownloadListFragment())
+    fun openDownloads() = toggle(DownloadListFragment())
 
-    fun openSettings() = push(SettingsFragment())
+    fun openSettings() = toggle(SettingsFragment())
 
     fun openBrowser(url: String?) {
         if (cn.olfact.app.data.BrowserSession.tabs.size >= cn.olfact.app.data.BrowserSession.MAX_TABS) {

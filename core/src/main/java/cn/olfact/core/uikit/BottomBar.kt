@@ -69,8 +69,8 @@ class BottomBar @JvmOverloads constructor(
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, 1)
             setBackgroundColor(ContextCompat.getColor(context, R.color.uikit_divider))
         })
-        // 原版底栏 50dp；图标 30dp，上下各留 10dp
-        addView(slotContainer, LayoutParams(LayoutParams.MATCH_PARENT, context.dpF(50f)))
+        // 底栏 52dp：图标 28dp，上下各留 12dp；比原来的 50/30 更松弛
+        addView(slotContainer, LayoutParams(LayoutParams.MATCH_PARENT, context.dpF(52f)))
     }
 
     fun configure(items: List<Item>, style: Style = Style.ICON_ONLY) {
@@ -87,7 +87,7 @@ class BottomBar @JvmOverloads constructor(
                 item.kind == Kind.COUNT -> buildCountSlot(item)
                 else -> buildIconSlot(item)
             }
-            val weight = if (item.kind == Kind.PILL && style == Style.PILL) 3.4f else 1f
+            val weight = if (item.kind == Kind.PILL && style == Style.PILL) 3.2f else 1f
             slotContainer.addView(slot, LayoutParams(0, LayoutParams.MATCH_PARENT, weight))
             slots[item.id] = slot
             slot.setOnClickListener { select(item.id, notify = true) }
@@ -100,7 +100,7 @@ class BottomBar @JvmOverloads constructor(
         val icon = ImageView(context).apply {
             setImageResource(item.icon)
             scaleType = ImageView.ScaleType.FIT_CENTER
-            layoutParams = FrameLayout.LayoutParams(context.dpF(30f), context.dpF(30f), Gravity.CENTER)
+            layoutParams = FrameLayout.LayoutParams(context.dpF(28f), context.dpF(28f), Gravity.CENTER)
         }
         container.addView(icon)
         icons[item.id] = icon
@@ -112,7 +112,7 @@ class BottomBar @JvmOverloads constructor(
         val container = FrameLayout(context)
         val box = View(context).apply {
             setBackgroundResource(R.drawable.uikit_bg_count)
-            layoutParams = FrameLayout.LayoutParams(context.dpF(26f), context.dpF(26f), Gravity.CENTER)
+            layoutParams = FrameLayout.LayoutParams(context.dpF(24f), context.dpF(24f), Gravity.CENTER)
         }
         val badge = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
@@ -133,12 +133,12 @@ class BottomBar @JvmOverloads constructor(
     private fun buildPill(item: Item): View {
         val pill = TextView(context).apply {
             text = item.label
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             setTypeface(typeface, Typeface.BOLD)
             gravity = Gravity.CENTER
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.MIDDLE
-            setPadding(context.dpF(16f), context.dpF(7f), context.dpF(16f), context.dpF(7f))
+            setPadding(context.dpF(14f), context.dpF(6f), context.dpF(14f), context.dpF(6f))
             background = ContextCompat.getDrawable(context, R.drawable.uikit_bg_pill)
             setTextColor(ContextCompat.getColor(context, R.color.uikit_text_primary))
             tag = "pill"

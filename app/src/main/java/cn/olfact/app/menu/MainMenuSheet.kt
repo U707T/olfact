@@ -34,6 +34,9 @@ import cn.olfact.core.uikit.dpF
  */
 object MainMenuSheet {
 
+    /** 当前显示的弹层：再次点「菜单」时先收起，而不是叠一层新的。 */
+    private var currentSheet: Sheet? = null
+
     private data class Item(
         val icon: Int,
         val label: String,
@@ -41,29 +44,50 @@ object MainMenuSheet {
         val action: (MainActivity) -> Unit
     )
 
+    fun toggle(activity: MainActivity) {
+        val sheet = currentSheet
+        if (sheet != null && sheet.isShowing) {
+            sheet.dismiss()
+        } else {
+            show(activity)
+        }
+    }
+
     fun show(activity: MainActivity) {
         val sheet = Sheet(activity)
+        currentSheet = sheet
+        sheet.setOnDismissListener {
+            if (currentSheet === sheet) currentSheet = null
+        }
         val grid = NineGrid(activity)
         val items = buildList {
             add(Item(R.drawable.orig_m_bookmark_add, "加书签") { addBookmark(it) })
-            add(Item(R.drawable.orig_m_bookmark, "书签") { Nav.push(BookmarksFragment()) })
-            add(Item(R.drawable.orig_m_history, "历史") { Nav.push(HistoryFragment()) })
-            add(Item(R.drawable.orig_m_download, "下载") { Nav.push(DownloadListFragment()) })
-            add(Item(R.drawable.orig_m_plugin, "插件") { Nav.push(ScriptFragment()) })
+            add(Item(R.drawable.orig_m_bookmark, "书签") { Nav.toggle(BookmarksFragment()) })
+            add(Item(R.drawable.orig_m_history, "历史") { Nav.toggle(HistoryFragment()) })
+            add(Item(R.drawable.orig_m_download, "下载") { Nav.toggle(DownloadListFragment()) })
+            add(Item(R.drawable.orig_m_plugin, "插件") { Nav.toggle(ScriptFragment()) })
             add(Item(R.drawable.orig_m_sniff, "嗅探结果") { SnifferSheet.show(it) })
-            add(Item(R.drawable.orig_m_ua, "UA标识") { Nav.push(SettingsPageFragment.newInstance("ua")) })
+            add(Item(R.drawable.orig_m_ua, "UA标识") {
+                Nav.toggle(SettingsPageFragment.newInstance("ua")) { f ->
+                    f is SettingsPageFragment && f.pageId == "ua"
+                }
+            })
             if (AppSettings.get(K.DEV_MODE)) {
-                add(Item(R.drawable.orig_m_log, "网络日志") { Nav.push(LogFragment()) })
+                add(Item(R.drawable.orig_m_log, "网络日志") { Nav.toggle(LogFragment()) })
             }
             add(Item(R.drawable.orig_m_refresh, "刷新") { reload() })
-            add(Item(R.drawable.orig_m_box, "工具箱") { Nav.push(cn.olfact.app.ui.tools.ToolsFragment()) })
+            add(Item(R.drawable.orig_m_box, "工具箱") { Nav.toggle(cn.olfact.app.ui.tools.ToolsFragment()) })
             add(Item(R.drawable.orig_m_incognito, "无痕模式") { openIncognito(it) })
             if (AppSettings.get(K.AI_SUMMARY)) {
                 add(Item(R.drawable.orig_m_ai, "AI 总结", tint = false) { AiActions.summarize(it) })
             }
             add(Item(R.drawable.orig_s_fullscreen, "全屏") { toggleFullscreen(it) })
             add(Item(R.drawable.orig_m_night, "夜间模式") { toggleNight(it) })
-            add(Item(R.drawable.orig_m_site, "网站配置") { Nav.push(SettingsPageFragment.newInstance("site")) })
+            add(Item(R.drawable.orig_m_site, "网站配置") {
+                Nav.toggle(SettingsPageFragment.newInstance("site")) { f ->
+                    f is SettingsPageFragment && f.pageId == "site"
+                }
+            })
         }
         grid.setItems(items.map { NineGrid.Item(it.icon, it.label, it.tint) }) { index ->
             sheet.dismiss()
@@ -85,7 +109,7 @@ object MainMenuSheet {
             },
             R.drawable.orig_m_settings to {
                 sheet.dismiss()
-                Nav.push(SettingsFragment())
+                Nav.toggle(SettingsFragment())
             }
         ).forEach { (icon, action) ->
             footer.addView(ImageView(activity).apply {
@@ -116,7 +140,8 @@ object MainMenuSheet {
 
     private fun openIncognito(activity: MainActivity) {
         val tab = BrowserSession.open(null, "无痕标签页", incognito = true)
-        Nav.push(BrowserFragment.newInstance(tab.id))
+        // root：不留返回栈，避免反复点「无痕模式」越叠越深
+        Nav.root(BrowserFragment.newInstance(tab.id))
     }
 
     private fun toggleFullscreen(activity: MainActivity) = activity.toggleFullscreen()

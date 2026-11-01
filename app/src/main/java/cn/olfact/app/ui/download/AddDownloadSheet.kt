@@ -16,7 +16,11 @@ import cn.olfact.core.uikit.dpF
  */
 object AddDownloadSheet {
 
+    /** 当前显示的对话框：重复点「新增下载」先收起旧的。 */
+    private var current: AlertDialog? = null
+
     fun show(context: Context, onConfirm: (url: String, name: String?) -> Unit) {
+        current?.takeIf { it.isShowing }?.dismiss()
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(context.dpF(20f), context.dpF(8f), context.dpF(20f), context.dpF(4f))
@@ -43,7 +47,7 @@ object AddDownloadSheet {
         container.addView(name)
         container.addView(ext)
 
-        AlertDialog.Builder(context)
+        val dialog = AlertDialog.Builder(context)
             .setTitle("添加下载")
             .setView(container)
             .setPositiveButton("开始下载") { _, _ ->
@@ -59,6 +63,9 @@ object AddDownloadSheet {
                 onConfirm(u, fileName)
             }
             .setNegativeButton("取消", null)
-            .show()
+            .create()
+        current = dialog
+        dialog.setOnDismissListener { if (current === dialog) current = null }
+        dialog.show()
     }
 }

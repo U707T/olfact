@@ -15,13 +15,19 @@ import cn.olfact.core.uikit.Sheet
 /** 嗅探结果列表：每个媒体一条，点开进播放页，右侧可下载。 */
 object SnifferSheet {
 
+    /** 当前显示的嗅探面板：重复点「嗅探结果」先收起旧的，避免叠层。 */
+    private var current: Sheet? = null
+
     fun show(activity: Activity) {
+        current?.takeIf { it.isShowing }?.dismiss()
         val pageUrl = BrowserSession.current()?.url.orEmpty()
         val real = SnifferFeed.forPage(pageUrl).ifEmpty { SnifferFeed.items }
         val list = if (real.isEmpty() && OlfactServices.sniffer == null) SnifferFeed.demo() else real
         val isDemo = real.isEmpty() && list.isNotEmpty()
 
         val sheet = Sheet(activity).title("嗅探结果")
+        current = sheet
+        sheet.setOnDismissListener { if (current === sheet) current = null }
         if (isDemo) sheet.subtitle("示例数据 · 尚未检测到真实媒体")
         if (list.isEmpty()) {
             sheet.subtitle("当前页面还没有嗅探到媒体，播放视频后会自动出现")

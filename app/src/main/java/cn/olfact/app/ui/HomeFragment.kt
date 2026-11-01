@@ -55,7 +55,15 @@ class HomeFragment : Fragment(R.layout.fragment_home), ChromeAware {
 
         b.urlBar.editable = false
         b.urlBar.setHint(getString(R.string.search_hint))
-        b.urlBar.onBarClick = { Nav.openBrowser(null) }
+        b.urlBar.onBarClick = {
+            // 已有标签就复用，不在每次点地址栏时新建 tab / 多叠一层浏览器
+            val current = cn.olfact.app.data.BrowserSession.current()
+            if (current != null) {
+                Nav.root(cn.olfact.app.ui.browser.BrowserFragment.newInstance(current.id))
+            } else {
+                Nav.openBrowser(null)
+            }
+        }
 
         buildShortcuts(b.shortcuts)
         buildStats(b.statsCard)
@@ -82,6 +90,11 @@ class HomeFragment : Fragment(R.layout.fragment_home), ChromeAware {
             buildStats(it.statsCard)
             renderRecent(it.recentList)
         }
+    }
+
+    /** 底栏已经在首页时再点「首页」：回到顶部，而不是重建整页。 */
+    fun scrollToTop() {
+        binding?.scroll?.smoothScrollTo(0, 0)
     }
 
     private fun buildShortcuts(container: LinearLayout) {

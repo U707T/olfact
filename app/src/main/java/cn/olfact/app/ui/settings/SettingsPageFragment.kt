@@ -29,6 +29,10 @@ class SettingsPageFragment : Fragment(R.layout.fragment_settings_page) {
 
     private var binding: FragmentSettingsPageBinding? = null
 
+    /** 当前设置子页 id（basic / appearance / …），用于导航 toggle 匹配。 */
+    val pageId: String
+        get() = requireArguments().getString(ARG_ID).orEmpty()
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val b = FragmentSettingsPageBinding.bind(view)
         binding = b

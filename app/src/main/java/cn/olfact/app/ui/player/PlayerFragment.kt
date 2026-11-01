@@ -116,7 +116,12 @@ class PlayerFragment : Fragment(R.layout.fragment_player) {
                 val added = FavoriteStore.add(requireContext(), title, url)
                 Nav.toast(if (added) "已收藏" else "已经在收藏里了")
             },
-            Action(R.drawable.ic_star, "我的收藏") { Nav.push(FavoritesFragment()) },
+            Action(R.drawable.ic_star, "我的收藏") {
+                // 从收藏页进播放时，再点「我的收藏」应回到收藏页，而不是再叠一层
+                if (!Nav.popIfPreviousIs(FavoritesFragment::class.java)) {
+                    Nav.push(FavoritesFragment())
+                }
+            },
             Action(R.drawable.ic_copy, "复制") {
                 val cm = requireContext().getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 cm.setPrimaryClip(android.content.ClipData.newPlainText("url", url))

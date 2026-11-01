@@ -15,9 +15,15 @@ import cn.olfact.app.databinding.FragmentTabsBinding
 import cn.olfact.app.nav.ChromeAware
 import cn.olfact.app.nav.Nav
 import cn.olfact.app.ui.browser.BrowserFragment
+import cn.olfact.app.ui.common.Dialogs
 import cn.olfact.core.uikit.dpF
 
-/** 标签页管理：两列卡片，点选切换、右上角关闭。 */
+/**
+ * 标签页管理：单列列表 + 当前项高亮 + 底部新建按钮。
+ *
+ * 点任意标签都走 `Nav.root`：标签页是浏览器的子页，切换后不应该在返回栈里
+ * 再叠一层浏览器；再次点底栏「标签」则会收起（见 MainActivity 的 toggle）。
+ */
 class TabsFragment : Fragment(R.layout.fragment_tabs), ChromeAware {
 
     override val showsBottomBar: Boolean = true
@@ -30,13 +36,17 @@ class TabsFragment : Fragment(R.layout.fragment_tabs), ChromeAware {
         binding = b
         b.header.title = "标签页"
         b.header.onBack = { Nav.pop() }
+        b.header.addAction(R.drawable.ic_trash, "关闭全部") {
+            val count = BrowserSession.tabs.size
+            if (count == 0) return@addAction
+            Dialogs.confirm(requireContext(), "关闭全部标签", "将关闭 $count 个标签页。", danger = true) {
+                BrowserSession.closeAll()
+                render()
+            }
+        }
         b.newTab.setOnClickListener {
             val tab = BrowserSession.open(null)
-            Nav.push(BrowserFragment.newInstance(tab.id))
-        }
-        b.closeAll.setOnClickListener {
-            BrowserSession.closeAll()
-            render()
+            Nav.root(BrowserFragment.newInstance(tab.id))
         }
         render()
     }
@@ -72,69 +82,77 @@ class TabsFragment : Fragment(R.layout.fragment_tabs), ChromeAware {
             return
         }
 
-        BrowserSession.tabs.chunked(2).forEach { pair ->
-            val row = LinearLayout(ctx).apply {
-                orientation = LinearLayout.HORIZONTAL
-                setPadding(0, 0, 0, ctx.dpF(10f))
-            }
-            pair.forEach { tab ->
-                row.addView(buildCard(tab), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    marginEnd = ctx.dpF(10f)
-                })
-            }
-            if (pair.size == 1) {
-                row.addView(View(ctx), LinearLayout.LayoutParams(0, 1, 1f).apply { marginEnd = ctx.dpF(10f) })
-            }
-            b.tabList.addView(row)
+        BrowserSession.tabs.forEach { tab ->
+            b.tabList.addView(buildRow(tab), LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = ctx.dpF(6f) })
         }
     }
 
-    private fun buildCard(tab: Tab): View {
+    private fun buildRow(tab: Tab): View {
         val ctx = requireContext()
         val selected = tab.id == BrowserSession.currentId
-        val card = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            background = ContextCompat.getDrawable(ctx, R.drawable.bg_tab_card)
-            setPadding(ctx.dpF(14f), ctx.dpF(12f), ctx.dpF(10f), ctx.dpF(12f))
-            isClickable = true
-        }
-        val top = LinearLayout(ctx).apply {
+
+        val row = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            setPadding(ctx.dpF(12f), ctx.dpF(12f), ctx.dpF(6f), ctx.dpF(12f))
+            background = if (selected) {
+                ContextCompat.getDrawable(ctx, R.drawable.bg_tab_selected)
+            } else {
+                ContextCompat.getDrawable(ctx, cn.olfact.core.R.drawable.uikit_ripple_row)
+            }
+            isClickable = true
+            setOnClickListener {
+                // 点当前标签：如果是从浏览器进来的，直接 pop 回去（保留滚动/表单）
+                if (tab.id == BrowserSession.currentId && Nav.popIfPreviousIs(BrowserFragment::class.java)) {
+                    return@setOnClickListener
+                }
+                // 其它情况：切换标签 = 重设浏览器根，避免返回栈越点越深
+                BrowserSession.select(tab.id)
+                Nav.root(BrowserFragment.newInstance(tab.id))
+            }
         }
-        top.addView(TextView(ctx).apply {
+
+        // 选中指示条
+        row.addView(View(ctx).apply {
+            setBackgroundColor(
+                ContextCompat.getColor(ctx, if (selected) R.color.brand else android.R.color.transparent)
+            )
+        }, LinearLayout.LayoutParams(ctx.dpF(3f), ctx.dpF(36f)).apply { marginEnd = ctx.dpF(12f) })
+
+        val texts = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        texts.addView(TextView(ctx).apply {
             text = tab.title.ifBlank { "新标签页" }
             setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f)
             setTextColor(ContextCompat.getColor(ctx, if (selected) R.color.text_accent else R.color.text_primary))
-            maxLines = 2
+            if (selected) setTypeface(typeface, android.graphics.Typeface.BOLD)
+            maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
-        }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        top.addView(ImageView(ctx).apply {
+        })
+        texts.addView(TextView(ctx).apply {
+            text = tab.url.ifBlank { "about:blank" }
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(0, ctx.dpF(4f), 0, 0)
+        })
+        row.addView(texts, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
+        row.addView(ImageView(ctx).apply {
             setImageResource(R.drawable.ic_close)
             imageTintList = ContextCompat.getColorStateList(ctx, R.color.text_hint)
-            // 40dp 热区（原来 26dp，低于 48dp 建议值的一半）
+            contentDescription = "关闭标签"
             setPadding(ctx.dpF(12f), ctx.dpF(12f), ctx.dpF(12f), ctx.dpF(12f))
             setOnClickListener {
                 BrowserSession.close(tab.id)
                 render()
             }
         }, LinearLayout.LayoutParams(ctx.dpF(40f), ctx.dpF(40f)))
-        card.addView(top)
-        card.addView(TextView(ctx).apply {
-            text = tab.url.ifBlank { "about:blank" }
-            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f)
-            setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
-            maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
-            setPadding(0, ctx.dpF(6f), 0, 0)
-        })
-        card.setOnClickListener {
-            // 目前仍是 push 新页面；真正的「复用同一个 surface」需要 per-tab WebView 池，
-            // 单独一条高风险改动，等真机回归时再做。
-            BrowserSession.select(tab.id)
-            Nav.push(BrowserFragment.newInstance(tab.id))
-        }
-        return card
+
+        return row
     }
 
     override fun onDestroyView() {

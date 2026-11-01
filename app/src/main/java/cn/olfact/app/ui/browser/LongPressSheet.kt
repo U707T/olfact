@@ -36,6 +36,9 @@ object LongPressSheet {
 
     private data class Action(val label: String, val action: () -> Unit)
 
+    /** 当前显示的浮层：重复长按时先收起旧的。 */
+    private var currentPopup: PopupWindow? = null
+
     fun show(context: Context, url: String?, title: String?, onFind: (() -> Unit)? = null) {
         val target = url?.takeIf { it.isNotBlank() }
         val sheet = Sheet(context).title(title?.takeIf { it.isNotBlank() } ?: "页面操作")
@@ -64,6 +67,7 @@ object LongPressSheet {
     ) {
         val items = actions(context, url, title, onFind)
         if (items.isEmpty()) return
+        currentPopup?.takeIf { it.isShowing }?.dismiss()
 
         val list = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -118,6 +122,8 @@ object LongPressSheet {
             isOutsideTouchable = true
             isFocusable = true
         }
+        currentPopup = popup
+        popup.setOnDismissListener { if (currentPopup === popup) currentPopup = null }
 
         val location = IntArray(2)
         anchor.getLocationOnScreen(location)
