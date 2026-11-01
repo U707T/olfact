@@ -44,7 +44,9 @@ class DownloadDetailFragment : Fragment(R.layout.fragment_download_detail) {
         b.progress.progress = task.progress
         b.size.text = "${DownloadListFragment.formatSize(task.doneBytes)} / ${DownloadListFragment.formatSize(task.totalBytes)}"
         b.url.text = task.url
+        b.url.setOnClickListener { copyText("下载地址", task.url) }
         b.path.text = task.savePath.ifBlank { "默认下载目录" }
+        b.path.setOnClickListener { copyText("文件路径", task.savePath) }
 
         b.actionPrimary.setOnClickListener {
             when (task.state) {
@@ -86,6 +88,16 @@ class DownloadDetailFragment : Fragment(R.layout.fragment_download_detail) {
                 Nav.pop()
             }
         }
+    }
+
+    private fun copyText(label: String, text: String) {
+        if (text.isBlank()) {
+            Nav.toast("没有可复制的$label")
+            return
+        }
+        val cm = requireContext().getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        cm.setPrimaryClip(android.content.ClipData.newPlainText(label, text))
+        Nav.toast("已复制$label")
     }
 
     /** 已下载文件：content:// 直接打开；绝对路径/公共 Downloads 走 FileProvider 分享。 */
