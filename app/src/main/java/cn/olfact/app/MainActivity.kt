@@ -272,7 +272,11 @@ class MainActivity : AppCompatActivity() {
         when (val f = Nav.current()) {
             is HomeFragment -> f.focusSearch()
             is BrowserFragment -> f.focusUrlBar()
-            else -> Nav.root(HomeFragment.newInstance(focusSearch = true))
+            else -> {
+                // 设置/下载等页面：pop 回首页（保留返回栈，用户按返回还能回来），再聚焦搜索框。
+                Nav.openHome()
+                (Nav.current() as? HomeFragment)?.focusSearch()
+            }
         }
     }
 
