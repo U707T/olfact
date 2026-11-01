@@ -72,6 +72,7 @@ object SettingsSpecs {
                                 danger = true
                             ) {
                                 AppSettings.reset()
+                                RuntimeFlags.reloadPagesOnResume = true
                                 // 夜间模式也要回到「跟随系统」，否则 delegate 还停留在旧值
                                 androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(
                                     androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
