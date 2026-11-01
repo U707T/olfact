@@ -68,7 +68,8 @@ class HomeFragment : Fragment(R.layout.fragment_home), ChromeAware {
         }
 
         buildShortcuts(b.shortcuts)
-        // 统计卡与最近访问交给 onResume：数据没变就不重建
+        // 首次进入立即填一次；之后 onResume 只在数据变化时重建
+        refreshHomeData()
 
         b.quoteText.text = quotes[quoteIndex].first
         b.quoteAuthor.text = quotes[quoteIndex].second
@@ -87,8 +88,12 @@ class HomeFragment : Fragment(R.layout.fragment_home), ChromeAware {
 
     override fun onResume() {
         super.onResume()
+        refreshHomeData()
+    }
+
+    /** 统计卡与最近访问：数据签名没变就不重建。 */
+    private fun refreshHomeData() {
         val b = binding ?: return
-        // 只有数据真的变了才重建，避免每次回首页都 removeAllViews
         val stats = listOf(
             BookmarkStore.all().size,
             cn.olfact.app.data.FavoriteStore.items.size,
@@ -147,6 +152,7 @@ class HomeFragment : Fragment(R.layout.fragment_home), ChromeAware {
         }
     }
 
+    /** 2×2 统计网格：数字大、标签小，和右侧风景图等高（约 112dp）。 */
     private fun buildStats(container: LinearLayout) {
         container.removeAllViews()
         val ctx = requireContext()
@@ -156,14 +162,34 @@ class HomeFragment : Fragment(R.layout.fragment_home), ChromeAware {
             Stat("文件下载", { OlfactServices.downloads?.tasks()?.size ?: 0 }) { Nav.push(DownloadListFragment()) },
             Stat("网页插件", { OlfactServices.scriptStore?.all()?.size ?: 0 }) { Nav.push(ScriptFragment()) }
         )
-        stats.forEach { stat ->
-            container.addView(ListRow(ctx).apply {
-                title = "${stat.label}：${stat.count()}"
-                onRowClick = stat.action
-                showChevron(true)
-                minimumHeight = dp(44)
-                setPadding(dp(16), 0, dp(12), 0)
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)))
+        stats.chunked(2).forEach { pair ->
+            val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+            pair.forEach { stat ->
+                val cell = LinearLayout(ctx).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER
+                    isClickable = true
+                    setOnClickListener { stat.action() }
+                    addView(TextView(ctx).apply {
+                        text = stat.count().toString()
+                        setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 20f)
+                        setTypeface(typeface, android.graphics.Typeface.BOLD)
+                        setTextColor(ContextCompat.getColor(ctx, R.color.text_primary))
+                        gravity = Gravity.CENTER
+                    })
+                    addView(TextView(ctx).apply {
+                        text = stat.label
+                        setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 11f)
+                        setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
+                        gravity = Gravity.CENTER
+                        setPadding(0, dp(2), 0, 0)
+                    })
+                }
+                row.addView(cell, LinearLayout.LayoutParams(0, dp(52), 1f))
+            }
+            container.addView(row, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(52)
+            ))
         }
     }
 

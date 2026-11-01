@@ -170,9 +170,9 @@ class MainActivity : AppCompatActivity() {
         binding.bottomBar.configure(
             listOf(
                 BottomBar.Item("home", R.drawable.orig_b_home),
-                BottomBar.Item("action", R.drawable.orig_b_tabs),
+                BottomBar.Item("action", R.drawable.ic_tabs),
                 BottomBar.Item("main", icon = R.drawable.orig_b_home, label = "主页", kind = BottomBar.Kind.PILL),
-                BottomBar.Item("tabs", R.drawable.orig_b_tabs, kind = BottomBar.Kind.COUNT),
+                BottomBar.Item("tabs", R.drawable.ic_tabs, kind = BottomBar.Kind.COUNT),
                 BottomBar.Item("menu", R.drawable.orig_b_menu)
             ),
             style
@@ -242,7 +242,7 @@ class MainActivity : AppCompatActivity() {
     fun refreshBottomBar() {
         if (!::binding.isInitialized) return
         val browser = Nav.current() as? cn.olfact.app.ui.browser.BrowserFragment
-        binding.bottomBar.setIcon("action", if (browser != null) R.drawable.orig_b_refresh else R.drawable.orig_b_tabs)
+        binding.bottomBar.setIcon("action", if (browser != null) R.drawable.orig_b_refresh else R.drawable.ic_tabs)
         binding.bottomBar.setPillText("main", browser?.currentTitle() ?: "主页")
         binding.bottomBar.setBadge("tabs", BrowserSession.tabs.size.coerceAtLeast(1))
     }

@@ -22,6 +22,8 @@ class SettingGroup @JvmOverloads constructor(
     init {
         orientation = VERTICAL
         background = ContextCompat.getDrawable(context, R.drawable.uikit_bg_card)
+        // 轻微阴影：白卡片叠在浅灰页面上更有层次
+        elevation = context.dpF(1f).toFloat()
         setPadding(0, context.dpF(4f), 0, context.dpF(4f))
     }
 
