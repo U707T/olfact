@@ -56,7 +56,15 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list), ChromeAw
         b.tabRunning.setOnClickListener { showRunning = true; render() }
         b.more.setOnClickListener { showMenu() }
         b.newTask.setOnClickListener { AddDownloadSheet.show(requireContext()) { url, name -> enqueue(url, name) } }
-        b.clearAll.setOnClickListener { clearCurrent() }
+        b.clearAll.setOnClickListener {
+            val title = if (showRunning) "清空下载中" else "清空已下载"
+            val message = if (showRunning) {
+                "将删除所有进行中的任务记录（不删除文件），继续？"
+            } else {
+                "将删除所有已完成任务的记录（不删除文件），继续？"
+            }
+            Dialogs.confirm(requireContext(), title, message, danger = true) { clearCurrent() }
+        }
 
         b.empty.setAction("新增下载") { AddDownloadSheet.show(requireContext()) { url, name -> enqueue(url, name) } }
         b.empty.setIcon(R.drawable.ic_download)
