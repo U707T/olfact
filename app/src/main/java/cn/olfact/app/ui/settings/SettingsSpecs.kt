@@ -227,8 +227,18 @@ object SettingsSpecs {
                         Nav.toast(if (freed > 0) "已清理 ${formatBytes(freed)} 缓存" else "缓存已是空的")
                     })
                     add(Row.Action("清除 Cookie") {
-                        val ok = runCatching { PrivacyCleaner(Core.context).clearCookies() }.getOrDefault(false)
-                        Nav.toast(if (ok) "Cookie 已清除，已打开的网页需刷新" else "清除失败，请稍后重试")
+                        val ctx = Nav.context()
+                        if (ctx != null) {
+                            Dialogs.confirm(
+                                ctx,
+                                "清除 Cookie",
+                                "所有网站都会退出登录，需要重新登录。继续？",
+                                danger = true
+                            ) {
+                                val ok = runCatching { PrivacyCleaner(Core.context).clearCookies() }.getOrDefault(false)
+                                Nav.toast(if (ok) "Cookie 已清除，已打开的网页需刷新" else "清除失败，请稍后重试")
+                            }
+                        }
                     })
                     add(Row.Action("系统权限管理") {
                         val intent = android.content.Intent(
