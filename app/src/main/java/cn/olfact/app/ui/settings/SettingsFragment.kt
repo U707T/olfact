@@ -50,12 +50,19 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         var added = 0
         groups().forEach { rows ->
             val filtered = if (query.isBlank()) rows else rows.filter { row ->
-                row.title.contains(query, ignoreCase = true) || hitInPage(row.pageId, query) != null
+                row.title.contains(query, ignoreCase = true) ||
+                    row.keywords.any { it.contains(query, ignoreCase = true) } ||
+                    hitInPage(row.pageId, query) != null
             }
             if (filtered.isEmpty()) return@forEach
             val group = SettingGroup(requireContext())
             filtered.forEach { row ->
-                val hit = if (query.isBlank()) null else hitInPage(row.pageId, query)
+                val hit = if (query.isBlank()) {
+                    null
+                } else {
+                    row.keywords.firstOrNull { it.contains(query, ignoreCase = true) }
+                        ?: hitInPage(row.pageId, query)
+                }
                 val item = SettingItem(requireContext()).apply {
                     title = row.title
                     if (row.rawIcon) setIconOriginal(row.icon) else setIcon(row.icon)
@@ -110,23 +117,23 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
             Row("基本设置", R.drawable.orig_s_basic, pageId = "basic") { Nav.push(SettingsPageFragment.newInstance("basic")) },
             Row("外观/手势", R.drawable.orig_s_appearance, pageId = "appearance") { Nav.push(SettingsPageFragment.newInstance("appearance")) },
             Row("下载相关", R.drawable.orig_s_download, pageId = "download") { Nav.push(SettingsPageFragment.newInstance("download")) },
-            Row("广告拦截", R.drawable.orig_s_shield) { Nav.push(AdBlockFragment()) },
+            Row("广告拦截", R.drawable.orig_s_shield, keywords = listOf("广告", "拦截", "订阅", "白名单", "规则")) { Nav.push(AdBlockFragment()) },
             Row("嗅探和播放器", R.drawable.orig_s_sniffer, pageId = "sniffer") { Nav.push(SettingsPageFragment.newInstance("sniffer")) }
         ),
         listOf(
-            Row("加密 DNS", R.drawable.orig_s_doh) { Nav.push(DohFragment()) },
-            Row("脚本管理", R.drawable.orig_m_plugin) { Nav.push(ScriptFragment()) },
-            Row("AI 供应商", R.drawable.orig_m_ai, rawIcon = true) { Nav.push(AiFragment()) },
+            Row("加密 DNS", R.drawable.orig_s_doh, keywords = listOf("DNS", "DoH", "加密", "上游")) { Nav.push(DohFragment()) },
+            Row("脚本管理", R.drawable.orig_m_plugin, keywords = listOf("脚本", "油猴", "userscript", "GM")) { Nav.push(ScriptFragment()) },
+            Row("AI 供应商", R.drawable.orig_m_ai, rawIcon = true, keywords = listOf("AI", "供应商", "总结", "翻译", "模型")) { Nav.push(AiFragment()) },
             Row("网站配置", R.drawable.orig_s_site, pageId = "site") { Nav.push(SettingsPageFragment.newInstance("site")) },
             Row("UA 管理", R.drawable.orig_s_ua, pageId = "ua") { Nav.push(SettingsPageFragment.newInstance("ua")) }
         ),
         listOf(
-            Row("数据备份", R.drawable.orig_s_backup) { Nav.push(BackupFragment()) },
+            Row("数据备份", R.drawable.orig_s_backup, keywords = listOf("备份", "恢复", "WebDAV")) { Nav.push(BackupFragment()) },
             Row("隐私与安全", R.drawable.orig_m_incognito, pageId = "privacy") { Nav.push(SettingsPageFragment.newInstance("privacy")) }
         ),
         listOf(
             Row("更多设置", R.drawable.orig_s_more, pageId = "more") { Nav.push(SettingsPageFragment.newInstance("more")) },
-            Row("关于与帮助", R.drawable.orig_s_about) { Nav.push(AboutFragment()) }
+            Row("关于与帮助", R.drawable.orig_s_about, keywords = listOf("版本", "协议", "反馈", "许可")) { Nav.push(AboutFragment()) }
         )
     )
 
@@ -135,6 +142,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         val icon: Int,
         val pageId: String? = null,
         val rawIcon: Boolean = false,
+        val keywords: List<String> = emptyList(),
         val action: () -> Unit
     )
 
