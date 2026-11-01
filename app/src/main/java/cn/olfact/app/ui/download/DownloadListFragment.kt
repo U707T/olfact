@@ -13,7 +13,6 @@ import cn.olfact.core.api.DownloadState
 import cn.olfact.core.api.DownloadTask
 import cn.olfact.core.api.OlfactServices
 import cn.olfact.core.uikit.EmptyView
-import cn.olfact.core.uikit.ListRow
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.launch
@@ -217,7 +216,7 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list) {
                             }
                         )
                     }.onFailure {
-                        Nav.toast("下载目录：${dir?.absolutePath ?: "应用专属目录"}")
+                        Nav.toast("下载目录：${dir.absolutePath}")
                     }
                 }
                 "显示时间" -> {

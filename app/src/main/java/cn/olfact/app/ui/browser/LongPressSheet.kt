@@ -90,7 +90,7 @@ object LongPressSheet {
                 list.addView(android.view.View(context).apply {
                     setBackgroundColor(ContextCompat.getColor(context, R.color.divider))
                 }, LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, context.dpF(1f).coerceAtLeast(1)
+                    ViewGroup.LayoutParams.MATCH_PARENT, context.dpF(1f)
                 ).apply { marginStart = context.dpF(20f) })
             }
             list.addView(TextView(context).apply {
@@ -112,7 +112,7 @@ object LongPressSheet {
 
         val scroller = ScrollView(context).apply { addView(list) }
         val metrics = context.resources.displayMetrics
-        val width = context.dpF(208f).toInt()
+        val width = context.dpF(208f)
 
         // 先量内容高度：PopupWindow 不能用 WRAP_CONTENT，固定 62% 屏高会在内容少时
         // 留一大片透明区域拦截点击。取「内容高度」和「最大 62% 屏高」的较小值。

@@ -129,7 +129,7 @@ class UrlSuggestPopup(
         }
         val maxHeight = activity.dpF(360f)
         popup.width = anchor.width
-        popup.height = space.coerceIn(activity.dpF(96f).toInt(), maxHeight)
+        popup.height = space.coerceIn(activity.dpF(96f), maxHeight)
 
         if (popup.isShowing) {
             popup.update(anchor, 0, 0, -1, -1)
