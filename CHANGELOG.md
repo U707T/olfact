@@ -63,8 +63,15 @@ rc11 之后的修复轮：重点是「删除/清空会动到文件」「设置�
   用户设的「强制夜间」会变回跟随系统、字体缩放不生效、关掉的广告拦截又打开。
 - DoH 隧道线程池拆分（处理池 64 + 独立转发池），每条隧道少占一个线程。
 - 上游竞速用 CAS 收口，避免并发跑两场。
+- 网络回调只在传输类型真的切换时才清缓存/重建隧道（之前信号变化也会触发）。
+- **lint 修到 0 error**（`core / download / player / web / ai / app` 六个模块全部跑过）：
+  - Android 14+ 前台服务补 `foregroundServiceType="dataSync"`：之前长下载会被系统掐断；
+  - TS remux 的 `TsExtractor(MODE_HLS)` 实际传的是 payload flags（模式仍是 SINGLE_PMT），
+    改为显式 `(MODE_HLS, 0, searchBytes)`；
+  - 通知前检查 `POST_NOTIFICATIONS`，无权限不再抛 SecurityException；
+  - player 的 Media3 `@UnstableApi` 用 `@androidx.annotation.OptIn` 标注。
 - 新增单测：`SpeedMeterTest`(7)、`FilesNameTest`(6)、`DownloadNamesTest`(8)、
-  `MediaProbeTest`(4)、`ScriptBackupSectionTest`(4)、`SearchEnginesTest`(8)。
+  `MediaProbeTest`(4)、`ScriptBackupSectionTest`(4)、`SearchEnginesTest`(10)。
 
 ## [1.0.0-rc11] - 2026-11-01
 

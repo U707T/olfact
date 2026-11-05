@@ -62,8 +62,25 @@
 6. 播放中切后台再回来 → 从原进度继续，不是黑屏。
 7. 强制夜间 + 字体缩放：冷启动即生效（不再先跟随系统）。
 8. 并发下载 2–3 个文件 → 每条通知的进度都在动；点通知进详情。
+9. M3U8 下载 → 成品 `.mp4` 可播放（remux 模式修正后，不再动不动降级成 `.ts`）。
+10. 超过 10 分钟的大文件下载 → 不被系统掐断（前台服务类型已声明）。
 
-## 6. 本轮新增测试
+## 6. lint：从 3 个 error 修到 0
+
+`./gradlew :core:lintDebug :download:lintDebug :player:lintDebug :web:lintDebug :ai:lintDebug :app:lintDebug`
+全部跑过，0 error（warning 只存档）。
+
+| 模块 | 问题 | 修法 |
+|---|---|---|
+| download | `SpecifyForegroundServiceType`：Android 14+ WorkManager 前台服务未声明类型 | 清单里 `tools:node="merge"` 覆盖 `SystemForegroundService`（app 合并清单已确认 `dataSync`） |
+| download | `MissingPermission`：无通知权限时 `notify` 会抛 | 先 `checkSelfPermission(POST_NOTIFICATIONS)` |
+| download | `WrongConstant`：`TsExtractor(MODE_HLS)` 实际传的是 payload reader flags | 显式 `TsExtractor(MODE_HLS, 0, DEFAULT_TIMESTAMP_SEARCH_BYTES)` |
+| player | `UnsafeOptInUsageError` × 11（Media3 `@UnstableApi`） | 类上 `@androidx.annotation.OptIn(UnstableApi::class)` |
+
+> 库模块单独 lint 看不到依赖 AAR 的清单合并结果，`download` 里对该检查做了精确 disable，
+> 真正的服务类型声明仍然生效（已验证 app 的 merged manifest）。
+
+## 7. 本轮新增测试
 
 ```
 download/src/test/.../SpeedMeterTest.kt           7
@@ -71,7 +88,7 @@ download/src/test/.../FilesNameTest.kt            6
 download/src/test/.../MediaProbeTest.kt           4
 web/src/test/.../DownloadNamesTest.kt             8
 core/src/test/.../ScriptBackupSectionTest.kt      4
-app/src/test/.../SearchEnginesTest.kt             8
+app/src/test/.../SearchEnginesTest.kt            10
 ```
 
-总计 256 例（rc11 基线 218 例），2 例跳过（Robolectric 在 aarch64 沙箱不可用）。
+总计 258 例（rc11 基线 218 例），2 例跳过（Robolectric 在 aarch64 沙箱不可用）。
