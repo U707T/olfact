@@ -27,11 +27,18 @@ class DownloadNotifier(
         createChannel()
     }
 
+    /**
+     * 每个任务各自节流。之前 lastProgressAt 是 companion 的单个值：
+     * 同时下 4 个文件时，只有最先到的那条能刷新通知，其余三条一直停在 0%。
+     */
+    private val lastProgressAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
     fun notifyProgress(record: DownloadRecord, force: Boolean = false) {
         if (!shouldNotify(record)) return
         val now = System.currentTimeMillis()
-        if (!force && now - lastProgressAt < PROGRESS_INTERVAL_MS) return
-        lastProgressAt = now
+        val last = lastProgressAt[record.id] ?: 0L
+        if (!force && now - last < PROGRESS_INTERVAL_MS) return
+        lastProgressAt[record.id] = now
 
         val text = buildString {
             append(record.progressPercent).append("%")
@@ -50,6 +57,7 @@ class DownloadNotifier(
     }
 
     fun notifyCompleted(record: DownloadRecord) {
+        lastProgressAt.remove(record.id)
         val notification = base(record)
             .setContentTitle("下载完成")
             .setContentText(record.spec.fileName.ifBlank { "文件已保存" })
@@ -61,6 +69,7 @@ class DownloadNotifier(
     }
 
     fun notifyFailed(record: DownloadRecord) {
+        lastProgressAt.remove(record.id)
         val notification = base(record)
             .setContentTitle("下载失败")
             .setContentText(record.error ?: record.spec.fileName.ifBlank { "未知错误" })
@@ -71,6 +80,7 @@ class DownloadNotifier(
     }
 
     fun cancel(recordId: String) {
+        lastProgressAt.remove(recordId)
         runCatching { manager.cancel(recordId.hashCode()) }
     }
 
@@ -124,6 +134,5 @@ class DownloadNotifier(
         const val CHANNEL_ID = "olfact_downloads"
         const val EXTRA_DOWNLOAD_ID = "cn.olfact.download.EXTRA_ID"
         private const val PROGRESS_INTERVAL_MS = 800L
-        private var lastProgressAt = 0L
     }
 }

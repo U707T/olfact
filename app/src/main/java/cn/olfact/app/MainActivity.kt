@@ -388,7 +388,11 @@ class MainActivity : AppCompatActivity() {
         val downloadId = intent.getStringExtra("cn.olfact.download.EXTRA_ID")
         if (!downloadId.isNullOrBlank()) {
             AppLog.i("intent", "打开下载详情 $downloadId")
-            Nav.push(cn.olfact.app.ui.download.DownloadDetailFragment.newInstance(downloadId))
+            // 连点通知不应该叠出两层一样的详情页。
+            val shown = (Nav.current() as? cn.olfact.app.ui.download.DownloadDetailFragment)?.shownTaskId()
+            if (shown != downloadId) {
+                Nav.push(cn.olfact.app.ui.download.DownloadDetailFragment.newInstance(downloadId))
+            }
             return true
         }
         when (intent.action) {

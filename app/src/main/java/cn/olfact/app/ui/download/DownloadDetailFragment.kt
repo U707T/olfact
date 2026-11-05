@@ -180,6 +180,9 @@ class DownloadDetailFragment : Fragment(R.layout.fragment_download_detail) {
         }
     }
 
+    /** 通知重复点击时用于判重：当前页已经显示这个任务就不再 push。 */
+    fun shownTaskId(): String? = arguments?.getString(ARG_ID)
+
     override fun onDestroyView() {
         binding = null
         latest = null
