@@ -55,6 +55,9 @@ class TunnelProxy(
     private var acceptThread: Thread? = null
     private var pool: ExecutorService? = null
 
+    /** 转发线程单独一个池：处理线程会阻塞等它，共用一个池在满负载时会自锁。 */
+    private var copyPool: ExecutorService? = null
+
     val port: Int get() = server?.localPort ?: -1
 
     fun isRunning(): Boolean =
@@ -68,9 +71,13 @@ class TunnelProxy(
         serverSocket.reuseAddress = true
         serverSocket.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), preferredPort), 64)
         server = serverSocket
-        // 固定池：cached 每连接一线程，资源多的页面会把线程数拉爆。
-        pool = Executors.newFixedThreadPool(32) { runnable ->
+        // 每条隧道至少占用 1 个处理线程 + 1 个上行线程；32 的固定池在真实网页
+        // （同域 6 条连接、多域并发）下很容易排满，表现就是「开了 DoH 后网页变慢」。
+        pool = Executors.newFixedThreadPool(POOL_SIZE) { runnable ->
             Thread(runnable, "olfact-tunnel").apply { isDaemon = true }
+        }
+        copyPool = Executors.newCachedThreadPool { runnable ->
+            Thread(runnable, "olfact-tunnel-copy").apply { isDaemon = true }
         }
         running.set(true)
         acceptThread = Thread({ acceptLoop(serverSocket) }, "olfact-tunnel-accept").apply {
@@ -91,6 +98,8 @@ class TunnelProxy(
         sockets.clear()
         pool?.shutdownNow()
         pool = null
+        copyPool?.shutdownNow()
+        copyPool = null
         onEvent("隧道已停止")
     }
 
@@ -255,14 +264,15 @@ class TunnelProxy(
     }
 
     private fun pipeBoth(client: Socket, clientIn: InputStream, upstream: Socket) {
-        val executor = pool ?: return
+        val executor = copyPool ?: return
         val upstreamIn = BufferedInputStream(upstream.getInputStream())
         val clientOut = client.getOutputStream()
         val upstreamOut = upstream.getOutputStream()
+        // 上行放转发池，下行直接在当前处理线程跑：每条隧道少占一个线程，
+        // 池子能撑住的并发隧道数直接翻倍；转发池与处理池分开，避免自锁。
         val upload = executor.submit { copy(clientIn, upstreamOut, upstream, true) }
-        val download = executor.submit { copy(upstreamIn, clientOut, client, false) }
-        runCatching { upload.get(10, TimeUnit.MINUTES) }
-        runCatching { download.get(10, TimeUnit.MINUTES) }
+        copy(upstreamIn, clientOut, client, false)
+        runCatching { upload.get(30, TimeUnit.SECONDS) }
         runCatching { upstream.close() }
         sockets.remove(upstream)
     }
@@ -320,5 +330,8 @@ class TunnelProxy(
 
     companion object {
         private const val MAX_HEADER_BYTES = 16 * 1024
+
+        /** 每条隧道约 2 个线程（处理 + 上行），留足网页并发所需。 */
+        private const val POOL_SIZE = 64
     }
 }
