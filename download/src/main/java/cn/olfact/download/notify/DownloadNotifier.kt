@@ -8,6 +8,7 @@ import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import cn.olfact.download.DownloadRecord
 import cn.olfact.download.R
 import cn.olfact.download.util.Files
@@ -110,7 +111,16 @@ class DownloadNotifier(
         )
     }
 
+    @android.annotation.SuppressLint("MissingPermission")
     private fun safeNotify(id: Int, notification: android.app.Notification) {
+        // Android 13+ 没有通知权限时 notify 会抛 SecurityException；先查再发，
+        // 用户拒绝通知也不该影响下载本身。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.POST_NOTIFICATIONS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (!granted) return
+        }
         runCatching { manager.notify(id, notification) }
     }
 

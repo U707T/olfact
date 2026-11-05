@@ -52,8 +52,9 @@ object ExternalDownloaders {
             }
         } else {
             Intent(Intent.ACTION_VIEW).apply {
-                data = uri
-                type = spec.mimeType ?: "application/octet-stream"
+                // setData 之后再 setType 会把 data 清掉：外部下载器拿到的是一张没有地址的
+                // 空 Intent。必须用 setDataAndType。
+                setDataAndType(uri, spec.mimeType ?: "application/octet-stream")
                 setPackage(target.packageName)
                 target.urlExtraKey?.let { putExtra(it, spec.url) }
                 spec.referer?.let { putExtra("referer", it) }
@@ -75,8 +76,10 @@ object ExternalDownloaders {
     /** 没有明确目标时弹系统选择器。 */
     fun launchChooser(context: Context, spec: DownloadSpec): Boolean {
         val intent = Intent(Intent.ACTION_VIEW).apply {
-            data = Uri.parse(spec.url)
-            type = spec.mimeType ?: "application/octet-stream"
+            setDataAndType(
+                Uri.parse(spec.url),
+                spec.mimeType ?: "application/octet-stream"
+            )
         }.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         if (intent.resolveActivity(context.packageManager) == null) return false
         return runCatching {

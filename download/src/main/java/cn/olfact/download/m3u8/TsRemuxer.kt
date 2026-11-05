@@ -44,7 +44,14 @@ object TsRemuxer {
         val muxer = Mp4Muxer.Builder(stream).build()
         try {
             val output2 = MuxerExtractorOutput(muxer)
-            val extractor: Extractor = TsExtractor(TsExtractor.MODE_HLS)
+            // 拼接后的 HLS 分片每段都有自己的 PAT/PMT，必须显式用 (mode, flags)。
+            // 注意单参构造函数是「payload reader flags」且已废弃：直接传 MODE_HLS
+            // 会被当成 FLAG_ALLOW_NON_IDR_KEYFRAMES，模式仍是 MODE_SINGLE_PMT。
+            val extractor: Extractor = TsExtractor(
+                TsExtractor.MODE_HLS,
+                0,
+                TsExtractor.DEFAULT_TIMESTAMP_SEARCH_BYTES
+            )
             extractor.init(output2)
             val input = DefaultExtractorInput(reader, 0, totalLength)
             val positionHolder = PositionHolder()

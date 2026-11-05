@@ -19,6 +19,14 @@ android {
     }
     buildFeatures { buildConfig = false }
     testOptions { unitTests.isReturnDefaultValues = true }
+
+    lint {
+        // WorkManager 的 SystemForegroundService 声明在 AAR 依赖里，库模块单独 lint 时
+        // 看不到「依赖清单合并后」的结果，会误报缺 foregroundServiceType。
+        // 实际覆盖写在 src/main/AndroidManifest.xml（tools:node="merge"），
+        // 最终 app 的合并清单里已确认带 android:foregroundServiceType="dataSync"。
+        disable += "SpecifyForegroundServiceType"
+    }
 }
 
 kotlin {
