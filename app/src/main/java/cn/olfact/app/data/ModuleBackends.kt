@@ -461,6 +461,8 @@ class ScriptAdapter(
         )
     }
 
+    override fun count(): Int = store.count()
+
     override fun save(script: UserScript) {
         val existing = store.find(script.id)
         val meta = cn.olfact.core.script.UserScript(
@@ -545,7 +547,7 @@ class DownloadAdapter(
 ) : DownloadCenter {
 
     override fun tasks(): List<DownloadTask> =
-        facade.queue.items.value.map { it.toTask() }
+        facade.queue.items.value.map { it.toTask(speed = facade.queue.speedOf(it.id)) }
 
     override fun enqueue(url: String, name: String?, pageUrl: String) {
         val file = name?.ifBlank { null }
@@ -568,18 +570,25 @@ class DownloadAdapter(
 
     override fun resume(id: String) = facade.resume(id)
 
+    /**
+     * 删除记录：删除的是**记录**，文件是否保留由 [deleteFile] 决定。
+     * 旧实现把 false 映射成 cancel()，结果记录没删、状态还变成「失败」。
+     */
     override fun remove(id: String, deleteFile: Boolean) {
-        if (deleteFile) facade.remove(id) else facade.cancel(id)
+        facade.remove(id, deleteFile)
     }
 
+    /** 「清空已下载」= 只删记录，绝不删用户已经下载好的文件。 */
     override fun clearFinished() {
-        facade.queue.items.value.filter { it.status.isTerminal }.forEach { facade.remove(it.id) }
+        facade.queue.items.value.filter { it.status.isTerminal }.forEach {
+            facade.remove(it.id, deleteFile = false)
+        }
     }
 
     override val changes: Flow<Unit> = facade.queue.items.map { }
 }
 
-internal fun cn.olfact.download.DownloadRecord.toTask(): DownloadTask = DownloadTask(
+internal fun cn.olfact.download.DownloadRecord.toTask(speed: Long = 0L): DownloadTask = DownloadTask(
     id = id,
     name = spec.fileName,
     url = spec.url,
@@ -593,7 +602,7 @@ internal fun cn.olfact.download.DownloadRecord.toTask(): DownloadTask = Download
     },
     totalBytes = totalBytes.coerceAtLeast(0L),
     doneBytes = bytesDownloaded.coerceAtLeast(0L),
-    speedBytesPerSec = 0L,
+    speedBytesPerSec = speed,
     createdAt = createdAt,
     finishedAt = if (status.isTerminal) updatedAt else 0L,
     pageUrl = spec.pageUrl.orEmpty(),

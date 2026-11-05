@@ -20,6 +20,13 @@ data class UserScript(
 /** 脚本管理面板的数据源。 */
 interface ScriptStore {
     fun all(): List<UserScript>
+
+    /**
+     * 脚本数量。首页统计只要个数，不应该为此把每个脚本体都从磁盘读出来
+     * （[all] 会读 code）；有轻量实现的模块覆盖它即可。
+     */
+    fun count(): Int = all().size
+
     fun save(script: UserScript)
     fun remove(id: String)
     fun setEnabled(id: String, enabled: Boolean)

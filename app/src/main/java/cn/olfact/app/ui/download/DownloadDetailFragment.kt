@@ -10,8 +10,6 @@ import cn.olfact.app.nav.Nav
 import cn.olfact.core.api.DownloadState
 import cn.olfact.core.api.DownloadTask
 import cn.olfact.core.api.OlfactServices
-import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.launch
 
 /**
@@ -26,7 +24,6 @@ class DownloadDetailFragment : Fragment(R.layout.fragment_download_detail) {
     private var taskId: String = ""
     private var latest: DownloadTask? = null
 
-    @OptIn(FlowPreview::class)
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val b = FragmentDownloadDetailBinding.bind(view)
         binding = b
@@ -43,7 +40,8 @@ class DownloadDetailFragment : Fragment(R.layout.fragment_download_detail) {
         bind()
         OlfactServices.downloads?.changes?.let { flow ->
             viewLifecycleOwner.lifecycleScope.launch {
-                flow.sample(500).collect { bind() }
+                // 队列侧已节流；不使用 sample()，否则最后一条「已完成」可能被丢掉。
+                flow.collect { bind() }
             }
         }
     }

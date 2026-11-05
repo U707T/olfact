@@ -113,14 +113,39 @@ object HistoryStore {
 
     fun record(context: Context, title: String, url: String) {
         if (url.isBlank() || url.startsWith("about:")) return
-        val limit = runCatching { AppSettings.get(K.HISTORY_LIMIT).toInt() }.getOrDefault(1000)
+        val limit = limit()
         synchronized(lock) {
             data.removeAll { it.url == url }
             data.add(0, HistoryEntry(title.ifBlank { url }, url))
-            while (data.size > limit) data.removeAt(data.size - 1)
+            trimLocked(limit)
         }
         // 800ms debounce：连续翻页只落盘最后一次，避免每页一次整表序列化。
         persist(context, delayMs = 800)
+    }
+
+    /**
+     * 导入一条历史（备份恢复用）：保留原始的访问时间与排序位置。
+     *
+     * 旧实现走 [record]，把 visitedAt 重置成「现在」——恢复几十条历史后
+     * 全部堆在「今天」，日期分组和「最近访问」的顺序都乱了。
+     */
+    fun importEntry(context: Context, entry: HistoryEntry) {
+        if (entry.url.isBlank() || entry.url.startsWith("about:")) return
+        val limit = limit()
+        synchronized(lock) {
+            data.removeAll { it.url == entry.url }
+            val index = data.indexOfFirst { it.visitedAt < entry.visitedAt }
+            if (index < 0) data.add(entry) else data.add(index, entry)
+            trimLocked(limit)
+        }
+        persist(context, delayMs = 150)
+    }
+
+    private fun limit(): Int =
+        runCatching { AppSettings.get(K.HISTORY_LIMIT).toInt() }.getOrDefault(1000)
+
+    private fun trimLocked(limit: Int) {
+        while (data.size > limit) data.removeAt(data.size - 1)
     }
 
     fun remove(context: Context, url: String) {
@@ -144,10 +169,8 @@ object HistoryStore {
 
     /** 设置里把「历史记录限制」调小后立即裁剪一次，不用等下一次记录。 */
     fun trim(context: Context) {
-        val limit = runCatching { AppSettings.get(K.HISTORY_LIMIT).toInt() }.getOrDefault(1000)
-        synchronized(lock) {
-            while (data.size > limit) data.removeAt(data.size - 1)
-        }
+        val limit = limit()
+        synchronized(lock) { trimLocked(limit) }
         persist(context, delayMs = 150)
     }
 

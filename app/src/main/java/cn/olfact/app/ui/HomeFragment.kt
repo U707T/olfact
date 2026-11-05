@@ -141,7 +141,7 @@ class HomeFragment : Fragment(R.layout.fragment_home), ChromeAware {
         val stats = listOf(
             BookmarkStore.all().size,
             OlfactServices.downloads?.tasks()?.size ?: 0,
-            OlfactServices.scriptStore?.all()?.size ?: 0
+            OlfactServices.scriptStore?.count() ?: 0
         ).joinToString(",")
         if (force || stats != statsSignature || b.statsCard.childCount == 0) {
             statsSignature = stats
@@ -255,7 +255,7 @@ class HomeFragment : Fragment(R.layout.fragment_home), ChromeAware {
         val stats = listOf(
             Stat("收藏书签", { BookmarkStore.all().size }) { Nav.push(BookmarksFragment()) },
             Stat("文件下载", { OlfactServices.downloads?.tasks()?.size ?: 0 }) { Nav.push(DownloadListFragment()) },
-            Stat("网页插件", { OlfactServices.scriptStore?.all()?.size ?: 0 }) { Nav.push(ScriptFragment()) }
+            Stat("网页插件", { OlfactServices.scriptStore?.count() ?: 0 }) { Nav.push(ScriptFragment()) }
         )
         stats.forEach { stat ->
             val row = LinearLayout(ctx).apply {

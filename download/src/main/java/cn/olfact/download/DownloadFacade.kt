@@ -49,7 +49,14 @@ class DownloadFacade private constructor(private val appContext: Context) {
     fun pause(id: String) = queue.pause(id)
     fun resume(id: String) = queue.resume(id)
     fun retry(id: String) = queue.retry(id)
-    fun remove(id: String) = queue.remove(id)
+
+    /**
+     * 删除任务记录。
+     *
+     * [deleteFile] = true 时连成品文件一起删；false 只删记录。默认 true 与旧调用点
+     * 「详情页删除」的语义一致，列表/清空这类「只删记录」的路径必须显式传 false。
+     */
+    fun remove(id: String, deleteFile: Boolean = true) = queue.remove(id, deleteFile)
     fun refresh() = queue.refresh()
 
     /** WorkManager 被用户禁用/未初始化时的兜底：前台直接跑。 */

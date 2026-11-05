@@ -57,6 +57,10 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
         val b = FragmentBrowserBinding.bind(view)
         binding = b
         boundTabId = requireArguments().getLong(ARG_TAB)
+        // 这两个状态是 Fragment 字段，View 重建后布局默认是 GONE，状态也必须一起重置；
+        // 否则「地址条开着时离开页面」再回来，第一次按返回会被一个已经隐藏的条吃掉。
+        addressVisible = false
+        findVisible = false
         buildAddressBar(b)
         buildSurface(b)
         buildFindBar(b)
@@ -480,6 +484,9 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
         surface?.destroy()
         surface = null
         binding = null
+        // 与 onViewCreated 的重置配对：View 没了，视觉状态也不该留着。
+        addressVisible = false
+        findVisible = false
         super.onDestroyView()
     }
 

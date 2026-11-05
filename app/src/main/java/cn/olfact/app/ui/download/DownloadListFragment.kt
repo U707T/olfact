@@ -13,8 +13,6 @@ import cn.olfact.core.api.DownloadState
 import cn.olfact.core.api.DownloadTask
 import cn.olfact.core.api.OlfactServices
 import cn.olfact.core.uikit.EmptyView
-import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.launch
 
 /**
@@ -38,7 +36,6 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list) {
         requireContext().getSharedPreferences("olfact_ui", android.content.Context.MODE_PRIVATE)
     }
 
-    @OptIn(FlowPreview::class)
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val b = FragmentDownloadListBinding.bind(view)
         binding = b
@@ -87,8 +84,9 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list) {
 
         OlfactServices.downloads?.changes?.let { flow ->
             viewLifecycleOwner.lifecycleScope.launch {
-                // 下载进度每秒可能推很多次；250ms 采样一次，避免整页 removeAllViews。
-                flow.sample(250).collect { render() }
+                // 队列侧已经把进度推送到 5 次/秒以内，这里直接渲染即可；
+                // 不再用 sample()：它会丢掉最后一条状态，导致列表卡在 99%。
+                flow.collect { render() }
             }
         }
         render()

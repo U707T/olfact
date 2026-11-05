@@ -199,7 +199,14 @@ object AppBackup {
                     skipped++
                     continue
                 }
-                HistoryStore.record(context, record.title, record.url)
+                HistoryStore.importEntry(
+                    context,
+                    HistoryEntry(
+                        title = record.title,
+                        url = record.url,
+                        visitedAt = record.visitedAt.takeIf { it > 0 } ?: System.currentTimeMillis()
+                    )
+                )
                 added++
             }
             return MergeReport("history", added, 0, skipped)

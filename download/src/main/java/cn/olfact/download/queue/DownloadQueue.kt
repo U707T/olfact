@@ -13,6 +13,7 @@ import cn.olfact.download.SystemDownloader
 import cn.olfact.download.m3u8.M3u8Downloader
 import cn.olfact.download.notify.DownloadNotifier
 import cn.olfact.download.util.Http
+import cn.olfact.download.util.SpeedMeter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -53,6 +54,12 @@ class DownloadQueue(
     /** 同一任务只允许一个执行者（WorkManager 与前台 kick 可能同时触发）。 */
     private val activeIds = ConcurrentHashMap.newKeySet<String>()
     private val lastProgressPush = ConcurrentHashMap<String, Long>()
+
+    /** 全局 UI 推送节流：进度回调可能每秒上百次，不能每次都重建整张列表。 */
+    @Volatile
+    private var lastUiPush: Long = 0L
+    /** 每个任务的实时速度（字节/秒）。只存在内存里，重启后从 0 重新估算。 */
+    private val speedMeter = SpeedMeter()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     init {
@@ -80,6 +87,7 @@ class DownloadQueue(
         val record = store.get(id) ?: return
         store.upsert(record.copy(status = DownloadStatus.CANCELED, updatedAt = now()))
         jobs.remove(id)?.cancel()
+        speedMeter.reset(id)
         record.systemDownloadId?.let { SystemDownloader(context).cancel(it) }
         notifierProvider()?.cancel(id)
         publish()
@@ -90,6 +98,7 @@ class DownloadQueue(
         if (record.status != DownloadStatus.RUNNING && record.status != DownloadStatus.QUEUED) return
         store.upsert(record.copy(status = DownloadStatus.PAUSED, updatedAt = now()))
         jobs.remove(id)?.cancel()
+        speedMeter.reset(id)
         // DownloadManager 没有"暂停"语义，只能取消（进度丢失），恢复时重新入队
         if (record.engine == DownloadEngine.SYSTEM) {
             record.systemDownloadId?.let { SystemDownloader(context).cancel(it) }
@@ -106,20 +115,38 @@ class DownloadQueue(
 
     fun retry(id: String) = resume(id)
 
-    fun remove(id: String) {
+    /**
+     * 删除一条任务记录。
+     *
+     * [deleteFile] = true：连已下载的成品文件一起删（详情页「删除下载」）；
+     * [deleteFile] = false：只删记录，保留成品文件（列表「删除记录 / 清空已下载」）。
+     *
+     * 之前的实现不管传什么都会删文件：`remove(id, false)` 被适配成 `cancel()`，
+     * 记录反而留着并显示成「失败」；`clearFinished()` 又把用户下载好的文件删了。
+     * 现在临时目录（part / 分片）总是清掉，成品文件只在明确要求时删。
+     */
+    fun remove(id: String, deleteFile: Boolean = true) {
         val record = store.get(id)
         if (record != null) {
             jobs.remove(id)?.cancel()
             record.systemDownloadId?.let { SystemDownloader(context).cancel(it) }
-            record.filePath?.let { runCatching { File(it).delete() } }
+            if (deleteFile) record.filePath?.let { runCatching { File(it).delete() } }
             runCatching { DownloadPaths.workDir(context, id).deleteRecursively() }
         }
+        speedMeter.reset(id)
+        lastProgressPush.remove(id)
         store.remove(id)
         notifierProvider()?.cancel(id)
         publish()
     }
 
     fun refresh() = publish()
+
+    /** 当前任务的实时速度（字节/秒）；不在下载中时返回 0。 */
+    fun speedOf(id: String): Long {
+        val record = store.get(id) ?: return 0L
+        return if (record.status == DownloadStatus.RUNNING) speedMeter.speedOf(id) else 0L
+    }
 
     /** 系统下载器在进程外继续跑：重新进入应用时把状态对齐。 */
     fun reconcile() {
@@ -210,6 +237,8 @@ class DownloadQueue(
                 DownloadEngine.CHUNKED -> runChunked(record, config)
                 DownloadEngine.M3U8 -> runM3U8(record, config)
             }
+            // 用户可能在下载结束前删掉了这条记录：别把结果写回去，否则任务会「复活」。
+            if (store.get(id) == null) return
             store.upsert(finished)
             publish()
             if (config.notifyProgress) notifierProvider()?.notifyCompleted(finished)
@@ -232,6 +261,8 @@ class DownloadQueue(
         } finally {
             jobs.remove(id)
             activeIds.remove(id)
+            // 任务结束（完成/失败/暂停/取消）后速度归零，避免 UI 停在最后一个瞬时值。
+            speedMeter.reset(id)
         }
     }
 
@@ -326,21 +357,32 @@ class DownloadQueue(
         )
     }
 
-    /** 进度写盘节流：UI 每次都更新，磁盘最多 800ms 一次。 */
+    /**
+     * 进度写盘节流：UI 最多 5 次/秒，磁盘最多 800ms 一次，通知同样按写盘节奏更新。
+     *
+     * 终态不经过这里：完成/失败/暂停会走 [publish]，因此 UI 一定收得到最后一条状态，
+     * 不会出现「卡在 99%」。
+     */
     private fun pushProgress(record: DownloadRecord) {
         val now = now()
+        // 速度只用于展示，不进持久化记录（进程重启后重新估算）。
+        speedMeter.sample(record.id, record.bytesDownloaded, now)
         val last = lastProgressPush[record.id] ?: 0L
-        if (now - last >= PROGRESS_PERSIST_INTERVAL_MS) {
+        val persist = now - last >= PROGRESS_PERSIST_INTERVAL_MS
+        if (persist) {
             lastProgressPush[record.id] = now
             store.upsert(record)
         }
-        _items.value = store.all().map { if (it.id == record.id) record else it }
-            .sortedByDescending { it.createdAt }
-        if (configProvider().notifyProgress) notifierProvider()?.notifyProgress(record)
+        if (now - lastUiPush >= UI_PUSH_INTERVAL_MS) {
+            lastUiPush = now
+            _items.value = store.all().map { if (it.id == record.id) record else it }
+                .sortedByDescending { it.createdAt }
+        }
+        if (persist && configProvider().notifyProgress) notifierProvider()?.notifyProgress(record)
     }
 
     private fun publish() {
-        _items.value = store.all()
+        _items.value = store.all().sortedByDescending { it.createdAt }
     }
 
     private fun chooseEngine(spec: DownloadSpec, config: DownloadConfig): DownloadEngine = when {
@@ -359,5 +401,6 @@ class DownloadQueue(
     companion object {
         private const val POLL_INTERVAL_MS = 1_000L
         private const val PROGRESS_PERSIST_INTERVAL_MS = 800L
+        private const val UI_PUSH_INTERVAL_MS = 200L
     }
 }
