@@ -2,7 +2,7 @@
 
 > 基线：`1.0.0-rc11` / versionCode 11（未改版本号，全部改动在「未发布」段）
 > 目标：把「会伤数据」和「设置改完不生效」两类问题清掉，并补上可回归的单元测试。
-> 本地验证：`./gradlew testDebugUnitTest`（256 例 / 0 失败 / 2 跳过）、
+> 本地验证：`./gradlew testDebugUnitTest`（266 例 / 0 失败 / 2 跳过）、
 > `:app:assembleDebug`（arm64 15.4 MB）通过。视觉与手势仍需真机复核（见 §5）。
 
 ## 1. 下载
@@ -88,9 +88,12 @@
 download/src/test/.../SpeedMeterTest.kt           7
 download/src/test/.../FilesNameTest.kt            6
 download/src/test/.../MediaProbeTest.kt           4
+download/src/test/.../ChunkPartNameTest.kt        4
 web/src/test/.../DownloadNamesTest.kt             8
 core/src/test/.../ScriptBackupSectionTest.kt      4
+core/src/test/.../ScriptStorePathTest.kt          3
 app/src/test/.../SearchEnginesTest.kt            10
+app/src/test/.../BrowserSessionTest.kt           11
 ```
 
-总计 258 例（rc11 基线 218 例），2 例跳过（Robolectric 在 aarch64 沙箱不可用）。
+总计 266 例（rc11 基线 218 例），2 例跳过（Robolectric 在 aarch64 沙箱不可用）。

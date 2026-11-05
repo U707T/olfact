@@ -6,7 +6,7 @@
 ## [未发布] - 2026-11-05
 
 rc11 之后的修复轮：重点是「删除/清空会动到文件」「设置改完不生效」两类会伤数据或
-让人以为功能坏了的问题。本地验证：`testDebugUnitTest` 256 例（rc11 时 218 例）0 失败、
+让人以为功能坏了的问题。本地验证：`testDebugUnitTest` 266 例（rc11 时 218 例）0 失败、
 `:app:assembleDebug` 通过。
 
 ### 下载：不再误删文件，删除就是删除
@@ -76,7 +76,8 @@ rc11 之后的修复轮：重点是「删除/清空会动到文件」「设置�
   - 通知前检查 `POST_NOTIFICATIONS`，无权限不再抛 SecurityException；
   - player 的 Media3 `@UnstableApi` 用 `@androidx.annotation.OptIn` 标注。
 - 新增单测：`SpeedMeterTest`(7)、`FilesNameTest`(6)、`DownloadNamesTest`(8)、
-  `MediaProbeTest`(4)、`ScriptBackupSectionTest`(4)、`SearchEnginesTest`(10)。
+  `MediaProbeTest`(4)、`ChunkPartNameTest`(4)、`ScriptBackupSectionTest`(4)、
+  `ScriptStorePathTest`(3)、`SearchEnginesTest`(10)、`BrowserSessionTest`(11)。
 
 ## [1.0.0-rc11] - 2026-11-01
 
