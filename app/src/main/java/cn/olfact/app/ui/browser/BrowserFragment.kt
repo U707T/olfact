@@ -422,7 +422,11 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
         binding?.blankPage?.visibility = View.GONE
         surface?.loadUrl(url)
         tab?.url = url
-        if (recordHistory) HistoryStore.record(requireContext(), url, url)
+        // 无痕标签不写历史：之前只有渲染层的 onPageVisited 判断了 incognito，
+        // 地址栏 / 快捷入口 / 书签走的这条 load() 照样落一条记录。
+        if (recordHistory && tab?.incognito != true) {
+            HistoryStore.record(requireContext(), url, url)
+        }
         binding?.urlBar?.setText(url)
         syncBottomBar()
     }

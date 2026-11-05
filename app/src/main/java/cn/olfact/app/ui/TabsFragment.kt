@@ -145,7 +145,11 @@ class TabsFragment : Fragment(R.layout.fragment_tabs) {
         }, LinearLayout.LayoutParams(ctx.dpF(32f), ctx.dpF(32f)))
 
         row.addView(TextView(ctx).apply {
-            text = tab.title.ifBlank { "新标签页" }
+            // 无痕标签在列表里要有可辨认的标记，否则用户分不清哪个窗口不记历史。
+            text = buildString {
+                if (tab.incognito) append("无痕 · ")
+                append(tab.title.ifBlank { "新标签页" })
+            }
             setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f)
             setTextColor(
                 ContextCompat.getColor(ctx, if (selected) R.color.text_accent else R.color.text_primary)
