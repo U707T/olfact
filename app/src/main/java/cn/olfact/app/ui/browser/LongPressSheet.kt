@@ -156,7 +156,13 @@ object LongPressSheet {
             out.add(Action("复制链接") { copy(context, target) })
             out.add(Action("下载") {
                 AddDownloadSheet.show(context) { u, name ->
-                    cn.olfact.core.api.OlfactServices.downloads?.enqueue(u, name)
+                    val page = BrowserSession.current()?.url.orEmpty()
+                    cn.olfact.core.api.OlfactServices.downloads?.enqueue(
+                        url = u,
+                        name = name,
+                        pageUrl = page,
+                        referer = page
+                    )
                     Nav.toast("已加入下载")
                 }
             })

@@ -101,7 +101,14 @@ class PlayerFragment : Fragment(R.layout.fragment_player) {
                 Action(R.drawable.ic_play, "播放") { startPlayback(url, title) },
                 Action(R.drawable.ic_list, "嗅探结果") { SnifferSheet.show(requireActivity()) },
                 Action(R.drawable.ic_download, "下载") {
-                    OlfactServices.downloads?.enqueue(url, title)
+                    // Referer 用当前页面地址：媒体直链通常有防盗链，缺 Referer 会 403。
+                    val page = BrowserSession.current()
+                    OlfactServices.downloads?.enqueue(
+                        url = url,
+                        name = title,
+                        pageUrl = page?.url.orEmpty(),
+                        referer = page?.url.orEmpty()
+                    )
                     Nav.toast("已加入下载")
                 }
             )

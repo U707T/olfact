@@ -22,6 +22,7 @@ import cn.olfact.web.browser.BrowserClient
 import cn.olfact.web.browser.BrowserConfig
 import cn.olfact.web.browser.BrowserEvents
 import cn.olfact.web.browser.BrowserView
+import cn.olfact.web.browser.DownloadNames
 import cn.olfact.web.browser.UaManager
 import cn.olfact.web.browser.UaMode
 import cn.olfact.web.doh.SessionSticky
@@ -92,7 +93,15 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
             host.onLongPressAt(target.url ?: target.imageUrl, view.title, x, y)
         }
         view.onDownload = { request ->
-            OlfactServices.downloads?.enqueue(request.url, null, request.pageUrl.orEmpty())
+            // Content-Disposition 里的文件名比 URL 末段靠谱得多（尤其是 /download?id=1 这种）。
+            OlfactServices.downloads?.enqueue(
+                url = request.url,
+                name = DownloadNames.fromContentDisposition(request.contentDisposition),
+                pageUrl = request.pageUrl.orEmpty(),
+                referer = request.pageUrl.orEmpty(),
+                userAgent = request.userAgent,
+                mimeType = request.mimeType
+            )
         }
 
         val sink: (String) -> Unit = { js -> view.evaluateJavascript(js, null) }

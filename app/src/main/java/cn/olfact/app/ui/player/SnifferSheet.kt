@@ -54,10 +54,20 @@ object SnifferSheet {
                 Nav.push(PlayerFragment.newInstance(item.url, item.title.orEmpty()))
                 SnifferFeed.add(item)
             }
-            // 长按直接下载
+            // 长按直接下载：把嗅探到的请求头（Referer / Cookie / UA）一并带下去，
+            // 否则防盗链站点的直链只能下到一个 403 页面。
             setOnLongClickListener {
                 sheet.dismiss()
-                OlfactServices.downloads?.enqueue(item.url, item.title?.ifBlank { null }, item.pageUrl.orEmpty())
+                OlfactServices.downloads?.enqueue(
+                    url = item.url,
+                    name = item.title?.ifBlank { null },
+                    pageUrl = item.pageUrl.orEmpty(),
+                    referer = item.pageUrl.orEmpty(),
+                    userAgent = item.headers.entries
+                        .firstOrNull { it.key.equals("User-Agent", true) }?.value,
+                    mimeType = item.mimeType,
+                    headers = item.headers
+                )
                 Nav.toast("已加入下载")
                 true
             }

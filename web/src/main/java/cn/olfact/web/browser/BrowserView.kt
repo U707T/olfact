@@ -79,7 +79,9 @@ class BrowserView @JvmOverloads constructor(
                     contentDisposition = contentDisposition,
                     mimeType = mimeType,
                     contentLength = contentLength,
-                    pageUrl = url
+                    // 页面地址 = 当前正在看的页面，不是下载地址本身：
+                    // 下载器要拿它当 Referer，填成下载地址会让防盗链站点直接 403。
+                    pageUrl = this@BrowserView.url ?: lastUrl ?: url
                 )
             )
         }

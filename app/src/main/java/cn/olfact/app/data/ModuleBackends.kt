@@ -549,7 +549,15 @@ class DownloadAdapter(
     override fun tasks(): List<DownloadTask> =
         facade.queue.items.value.map { it.toTask(speed = facade.queue.speedOf(it.id)) }
 
-    override fun enqueue(url: String, name: String?, pageUrl: String) {
+    override fun enqueue(
+        url: String,
+        name: String?,
+        pageUrl: String,
+        referer: String,
+        userAgent: String?,
+        mimeType: String?,
+        headers: Map<String, String>
+    ) {
         val file = name?.ifBlank { null }
             ?: url.substringBefore('?').substringAfterLast('/').ifBlank { "download-${UUID.randomUUID()}" }
         scope.launch {
@@ -558,8 +566,12 @@ class DownloadAdapter(
                     DownloadSpec(
                         url = url,
                         fileName = file,
+                        mimeType = mimeType,
+                        userAgent = userAgent,
+                        // 页面地址优先当 Referer；没有页面地址时不要瞎填成下载地址本身。
+                        referer = referer.ifBlank { pageUrl }.ifBlank { null },
                         pageUrl = pageUrl.ifBlank { null },
-                        referer = pageUrl.ifBlank { null }
+                        headers = headers
                     )
                 )
             }
