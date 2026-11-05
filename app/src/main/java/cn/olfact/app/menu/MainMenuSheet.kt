@@ -221,7 +221,8 @@ object MainMenuSheet {
                     }
                 }
                 else -> cn.olfact.app.ui.common.Dialogs.confirm(
-                    activity, "清除全部窗口", "将关闭所有标签页，保留一个空白页。", danger = true
+                    activity, "清除全部窗口", "将关闭所有标签页，保留一个空白页。",
+                    danger = true, positiveLabel = "清除"
                 ) {
                     BrowserSession.closeAll()
                     Nav.goHome()

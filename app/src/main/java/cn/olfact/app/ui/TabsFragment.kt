@@ -36,7 +36,10 @@ class TabsFragment : Fragment(R.layout.fragment_tabs) {
 
         b.clearAll.setOnClickListener {
             val count = BrowserSession.tabs.size
-            Dialogs.confirm(requireContext(), "关闭全部标签", "将关闭 $count 个标签页。", danger = true) {
+            Dialogs.confirm(
+                requireContext(), "关闭全部标签", "将关闭 $count 个标签页。",
+                danger = true, positiveLabel = "关闭"
+            ) {
                 BrowserSession.closeAll()
                 render()
             }

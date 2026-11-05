@@ -29,7 +29,10 @@ class HistoryFragment : Fragment(R.layout.fragment_entry_list) {
         b.header.title = "历史"
         b.header.onBack = { Nav.pop() }
         b.header.addAction(R.drawable.ic_trash, "清空历史") {
-            Dialogs.confirm(requireContext(), "清空历史", "将删除全部浏览记录，不可恢复", danger = true) {
+            Dialogs.confirm(
+                requireContext(), "清空历史", "将删除全部浏览记录，不可恢复",
+                danger = true, positiveLabel = "清空"
+            ) {
                 HistoryStore.clear(requireContext())
                 render()
             }

@@ -55,7 +55,7 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list) {
             } else {
                 "将删除所有已完成任务的记录（不删除文件），继续？"
             }
-            Dialogs.confirm(requireContext(), title, message, danger = true) { clearCurrent() }
+            Dialogs.confirm(requireContext(), title, message, danger = true, positiveLabel = "清空") { clearCurrent() }
         }
 
         b.empty.setAction("新增下载") { AddDownloadSheet.show(requireContext()) { url, name -> enqueue(url, name) } }

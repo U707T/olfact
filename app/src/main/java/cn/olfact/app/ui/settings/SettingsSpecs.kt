@@ -242,7 +242,8 @@ object SettingsSpecs {
                                 ctx,
                                 "清除 Cookie",
                                 "所有网站都会退出登录，需要重新登录。继续？",
-                                danger = true
+                                danger = true,
+                                positiveLabel = "清除"
                             ) {
                                 val ok = runCatching { PrivacyCleaner(Core.context).clearCookies() }.getOrDefault(false)
                                 Nav.toast(if (ok) "Cookie 已清除，已打开的网页需刷新" else "清除失败，请稍后重试")

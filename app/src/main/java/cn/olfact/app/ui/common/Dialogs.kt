@@ -41,7 +41,16 @@ object Dialogs {
             this.hint = hint
             inputType = if (multiline) InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
             else InputType.TYPE_CLASS_TEXT
-            minLines = if (multiline) 4 else 1
+            minLines = if (multiline) 6 else 1
+            // 脚本 / 规则可能很长：给一个上限并在内部滚动，别让对话框撑出屏幕。
+            maxLines = if (multiline) 14 else 1
+            if (multiline) {
+                gravity = android.view.Gravity.TOP or android.view.Gravity.START
+                setHorizontallyScrolling(false)
+                isVerticalScrollBarEnabled = true
+                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f)
+                setSelection(text.length)
+            }
             setPadding(context.dpF(20f), context.dpF(8f), context.dpF(20f), context.dpF(8f))
         }
         val wrapper = LinearLayout(context).apply { addView(edit) }
@@ -53,11 +62,24 @@ object Dialogs {
             .show()
     }
 
-    fun confirm(context: Context, title: String, message: String, danger: Boolean = false, onConfirm: () -> Unit) {
+    /**
+     * 二次确认。
+     *
+     * [danger] 只决定按钮是否是危险色；[positiveLabel] 用来把按钮文案说对
+     * （「清空」「关闭」「取消收藏」不要再一律显示成「删除」）。
+     */
+    fun confirm(
+        context: Context,
+        title: String,
+        message: String,
+        danger: Boolean = false,
+        positiveLabel: String? = null,
+        onConfirm: () -> Unit
+    ) {
         AlertDialog.Builder(context)
             .setTitle(title)
             .setMessage(message)
-            .setPositiveButton(if (danger) "删除" else "确定") { _, _ -> onConfirm() }
+            .setPositiveButton(positiveLabel ?: if (danger) "删除" else "确定") { _, _ -> onConfirm() }
             .setNegativeButton("取消", null)
             .show()
     }

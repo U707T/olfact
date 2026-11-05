@@ -61,7 +61,8 @@ export ANDROID_HOME=/opt/android-sdk ANDROID_SDK_ROOT=/opt/android-sdk
 
 | 文件 | 内容 |
 |---|---|
-| [`docs/audit/2026-11-01-rc11-status.md`](docs/audit/2026-11-01-rc11-status.md) | **当前状态**：已修项、剩余项、真机复核清单 |
+| [`docs/audit/2026-11-05-post-rc11-fixes.md`](docs/audit/2026-11-05-post-rc11-fixes.md) | **当前状态**：rc11 之后的修复轮（下载误删 / 备份顺序 / 设置不生效 / 启动默认值）+ 真机复核清单 |
+| [`docs/audit/2026-11-01-rc11-status.md`](docs/audit/2026-11-01-rc11-status.md) | rc11 的逐屏对齐记录（历史对照） |
 | [`docs/audit/archive/`](docs/audit/archive/) | 历史审计（rc4 / rc6 基线，不再更新） |
 | [`docs/TECH-PLAN.md`](docs/TECH-PLAN.md) | 范围、选型、模块划分、DoH 设计 |
 | [`docs/tasks/README.md`](docs/tasks/README.md) | 五批并行的切分、接口契约、交付说明（历史） |

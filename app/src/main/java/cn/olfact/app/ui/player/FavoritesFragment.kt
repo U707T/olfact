@@ -37,7 +37,7 @@ class FavoritesFragment : Fragment(R.layout.fragment_entry_list) {
 
     private fun confirmDelete(favorite: Favorite) {
         val ctx = requireContext()
-        Dialogs.confirm(ctx, "取消收藏", favorite.title, danger = true) {
+        Dialogs.confirm(ctx, "取消收藏", favorite.title, danger = true, positiveLabel = "取消收藏") {
             FavoriteStore.remove(ctx, favorite.id)
             render()
             Snackbar.make(requireView(), "已取消收藏", Snackbar.LENGTH_LONG)

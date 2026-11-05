@@ -42,8 +42,8 @@ class UpstreamPool(
     private val latencies = ConcurrentHashMap<String, Long>()
     private val failures = ConcurrentHashMap<String, AtomicInteger>()
 
-    @Volatile
-    private var racing = false
+    /** 同一时刻只允许一场竞速；reraceAsync 的「先检查再启动」有窗口期，用 CAS 收口。 */
+    private val racing = java.util.concurrent.atomic.AtomicBoolean(false)
 
     fun currentDomestic(): DohUpstream? = domesticBest
 
@@ -65,7 +65,7 @@ class UpstreamPool(
      * 阻塞式竞速，5 路并发，最慢 2.5s 出结果。返回每个池子的冠军。
      */
     fun raceAndSelect(): Selection {
-        racing = true
+        if (!racing.compareAndSet(false, true)) return selection()
         try {
             val results = runBlocking {
                 upstreams.map { upstream ->
@@ -103,12 +103,12 @@ class UpstreamPool(
             )
             return selection()
         } finally {
-            racing = false
+            racing.set(false)
         }
     }
 
     fun reraceAsync() {
-        if (racing) return
+        if (racing.get()) return
         scope.launch { runCatching { raceAndSelect() } }
     }
 
@@ -137,9 +137,4 @@ class UpstreamPool(
         latencies[upstream.id] = latency
         latency
     }.getOrNull()
-
-    companion object {
-        /** 单次竞速最多等这么久，超过即视为该上游失败。 */
-        const val RACE_TIMEOUT_MS = 3_000L
-    }
 }
