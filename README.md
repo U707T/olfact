@@ -42,6 +42,7 @@ ai        供应商管理、SSE 流式、网页总结、整页翻译
 export ANDROID_HOME=/opt/android-sdk ANDROID_SDK_ROOT=/opt/android-sdk
 ./gradlew :app:assembleDebug            # 产物：app/build/outputs/apk/debug/*.apk
 ./gradlew testDebugUnitTest             # 六个模块的 JVM 单测
+./gradlew :app:lintDebug                # 0 error 才放行（CI 只在 PR / 手动 / 每周跑，本地提交前自己跑）
 ./gradlew :app:assembleRelease          # 需仓库根的 keystore.properties（见下）
 ```
 

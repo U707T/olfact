@@ -12,6 +12,9 @@ on:
         description: "同时编 libadblock_ffi.so（需要 B4 的 rust crate 已入库）"
         type: boolean
         default: false
+  # 每周一 03:00 UTC 跑一次完整 CI（含 lint）
+  schedule:
+    - cron: "0 3 * * 1"
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -61,12 +64,14 @@ jobs:
           if-no-files-found: ignore
 
   # ── 静态检查：Android Lint（0 error 才放行；warning 只存档不拦）──────────
+  # AGP 9 的 :app:lintDebug 在 GitHub runner 冷缓存下要 60 分钟以上（6 个模块全量分析），
+  # 每次 push 都跑会把整条流水线拖到一个小时。改为 PR / 手动 / 每周定时跑；
+  # push 仍保留单测 + assembleDebug。本地提交前请自己跑一遍（见 README「构建」）。
   lint:
     name: lint
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
-    # AGP 9 的 :app:lintDebug 在 GitHub runner 上实测 33–40 分钟；
-    # 原来 40 分钟的上限会把 job 掐成 cancelled（看起来像被取消，其实是超时）。
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
