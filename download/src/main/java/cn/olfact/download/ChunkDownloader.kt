@@ -55,7 +55,9 @@ class ChunkDownloader(
         }
 
         val ranges = ChunkPlanner.plan(total, chunkSize)
-        val parts = ranges.map { range -> File(workDir, "${spec.fileName}.part${range.index}") }
+        // part 文件名必须过滤：fileName 可能来自网页标题 / Content-Disposition，
+        // 带 `../` 时 File(workDir, ...) 会写到 workDir 外面。
+        val parts = ranges.map { range -> File(workDir, partName(spec.fileName, range.index)) }
         workDir.mkdirs()
 
         val downloaded = AtomicLong(parts.sumOf { if (it.exists()) it.length() else 0L })
@@ -185,5 +187,9 @@ class ChunkDownloader(
         private const val MAX_ATTEMPTS = 3
         private const val RETRY_BASE_DELAY_MS = 800L
         private const val BUFFER = 64 * 1024
+
+        /** 分块文件名：文件名部分按落盘规则清洗，杜绝 `../` 之类的路径穿越。 */
+        internal fun partName(fileName: String, index: Int): String =
+            "${cn.olfact.download.util.Files.sanitizeFileName(fileName, "download")}.part$index"
     }
 }
