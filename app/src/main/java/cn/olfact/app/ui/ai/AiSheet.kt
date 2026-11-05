@@ -69,6 +69,20 @@ class AiSheet(private val activity: Activity, title: String) {
     }
 
     private val text = StringBuilder()
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var flushPending = false
+
+    /**
+     * 流式增量可能几十毫秒就来一段；每段都 setText 会整块重新排版。
+     * 80ms 合并一次，既跟得上又不会把主线程压满。
+     */
+    private val flush = object : Runnable {
+        override fun run() {
+            flushPending = false
+            bodyView.text = text.toString()
+            scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
+        }
+    }
 
     init {
         current?.dismiss()
@@ -89,15 +103,20 @@ class AiSheet(private val activity: Activity, title: String) {
 
     fun append(delta: String) {
         text.append(delta)
-        bodyView.text = text.toString()
-        scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
+        if (!flushPending) {
+            flushPending = true
+            handler.postDelayed(flush, 80L)
+        }
     }
 
     fun finish(status: String) {
+        handler.removeCallbacks(flush)
+        if (flushPending || bodyView.text.isNullOrEmpty()) flush.run()
         statusView.text = status
     }
 
     fun dismiss() {
+        handler.removeCallbacks(flush)
         runCatching { sheet.dismiss() }
         if (current === this) current = null
     }
@@ -105,5 +124,11 @@ class AiSheet(private val activity: Activity, title: String) {
     companion object {
         /** 同一时间只保留一个 AI 结果面板。 */
         private var current: AiSheet? = null
+
+        /** Activity 销毁时收起，避免静态引用持有已销毁的 Activity。 */
+        fun dismissCurrent() {
+            current?.dismiss()
+            current = null
+        }
     }
 }

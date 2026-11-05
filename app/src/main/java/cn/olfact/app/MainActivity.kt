@@ -116,6 +116,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         // 静态弹层可能持有 Activity，退出前统一收起
         MainMenuSheet.dismiss()
+        cn.olfact.app.ui.ai.AiSheet.dismissCurrent()
         cn.olfact.app.ui.player.SnifferSheet.dismiss()
         cn.olfact.app.ui.download.AddDownloadSheet.dismiss()
         cn.olfact.app.ui.browser.LongPressSheet.dismiss()
