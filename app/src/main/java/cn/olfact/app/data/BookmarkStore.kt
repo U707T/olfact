@@ -72,6 +72,30 @@ object BookmarkStore {
 
     fun all(): List<Bookmark> = items
 
+    /**
+     * 批量导入（备份恢复）：保留原始 id / 创建时间 / 文件夹，并按备份里的顺序追加。
+     *
+     * 旧实现逐条调用 [add]，每条都插到列表头部 —— 恢复完成后整个书签列表顺序是反的。
+     * 这里一次性更新内存并只落盘一次。
+     *
+     * @return 实际新增的条数（重复 URL 会被跳过）。
+     */
+    fun importAll(context: Context, list: List<Bookmark>): Int {
+        var added = 0
+        synchronized(lock) {
+            val known = data.mapTo(mutableSetOf()) { it.url }
+            list.forEach { b ->
+                if (b.url.isBlank() || !known.add(b.url)) return@forEach
+                val id = if (data.any { it.id == b.id }) nextId++ else b.id
+                data.add(Bookmark(id, b.title, b.url, b.folder, b.createdAt))
+                if (id >= nextId) nextId = id + 1
+                added++
+            }
+        }
+        if (added > 0) persist(context, delayMs = 0)
+        return added
+    }
+
     fun contains(url: String): Boolean = synchronized(lock) { data.any { it.url == url } }
 
     /** 进程退到后台时立即落盘，避免 debounce 窗口内被杀丢最后一次改动。 */
@@ -123,26 +147,30 @@ object HistoryStore {
         persist(context, delayMs = 800)
     }
 
-    /**
-     * 导入一条历史（备份恢复用）：保留原始的访问时间与排序位置。
-     *
-     * 旧实现走 [record]，把 visitedAt 重置成「现在」——恢复几十条历史后
-     * 全部堆在「今天」，日期分组和「最近访问」的顺序都乱了。
-     */
-    fun importEntry(context: Context, entry: HistoryEntry) {
-        if (entry.url.isBlank() || entry.url.startsWith("about:")) return
-        val limit = limit()
-        synchronized(lock) {
-            data.removeAll { it.url == entry.url }
-            val index = data.indexOfFirst { it.visitedAt < entry.visitedAt }
-            if (index < 0) data.add(entry) else data.add(index, entry)
-            trimLocked(limit)
-        }
-        persist(context, delayMs = 150)
-    }
-
     private fun limit(): Int =
         runCatching { AppSettings.get(K.HISTORY_LIMIT).toInt() }.getOrDefault(1000)
+
+    /**
+     * 批量导入（备份恢复）：保留访问时间，按时间倒序合并，重复 URL 跳过。
+     * 逐条 [record] 会把所有条目的时间重置为「现在」，日期分组全挤在今天。
+     */
+    fun importAll(context: Context, entries: List<HistoryEntry>): Int {
+        var added = 0
+        synchronized(lock) {
+            val known = data.mapTo(mutableSetOf()) { it.url }
+            entries.forEach { e ->
+                if (e.url.isBlank() || e.url.startsWith("about:") || !known.add(e.url)) return@forEach
+                data.add(e)
+                added++
+            }
+            if (added > 0) {
+                data.sortByDescending { it.visitedAt }
+                trimLocked(limit())
+            }
+        }
+        if (added > 0) persist(context, delayMs = 0)
+        return added
+    }
 
     private fun trimLocked(limit: Int) {
         while (data.size > limit) data.removeAt(data.size - 1)

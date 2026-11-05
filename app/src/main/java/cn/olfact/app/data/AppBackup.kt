@@ -170,18 +170,19 @@ object AppBackup {
         }
 
         override fun importItems(items: List<BookmarkRecord>, options: MergeOptions): MergeReport {
-            var added = 0
-            var skipped = 0
-            val known = BookmarkStore.all().mapTo(mutableSetOf()) { it.url }
-            for (record in items) {
-                if (record.url.isBlank() || !known.add(record.url)) {
-                    skipped++
-                    continue
-                }
-                BookmarkStore.add(context, record.title, record.url, record.folderId ?: "默认")
-                added++
-            }
-            return MergeReport("bookmarks", added, 0, skipped)
+            val imported = BookmarkStore.importAll(
+                context,
+                items.map {
+                    Bookmark(
+                        id = it.id.toLongOrNull() ?: 0L,
+                        title = it.title,
+                        url = it.url,
+                        folder = it.folderId ?: "默认",
+                        createdAt = it.createdAt
+                    )
+                }.filter { it.url.isNotBlank() }
+            )
+            return MergeReport("bookmarks", imported, 0, items.size - imported)
         }
     }
 
@@ -191,25 +192,18 @@ object AppBackup {
         }
 
         override fun importItems(items: List<HistoryRecord>, options: MergeOptions): MergeReport {
-            var added = 0
-            var skipped = 0
-            val known = HistoryStore.items.mapTo(mutableSetOf()) { it.url }
-            for (record in items) {
-                if (record.url.isBlank() || !known.add(record.url)) {
-                    skipped++
-                    continue
-                }
-                HistoryStore.importEntry(
-                    context,
+            val now = System.currentTimeMillis()
+            val imported = HistoryStore.importAll(
+                context,
+                items.map {
                     HistoryEntry(
-                        title = record.title,
-                        url = record.url,
-                        visitedAt = record.visitedAt.takeIf { it > 0 } ?: System.currentTimeMillis()
+                        title = it.title,
+                        url = it.url,
+                        visitedAt = it.visitedAt.takeIf { at -> at > 0 } ?: now
                     )
-                )
-                added++
-            }
-            return MergeReport("history", added, 0, skipped)
+                }
+            )
+            return MergeReport("history", imported, 0, items.size - imported)
         }
     }
 
@@ -219,18 +213,18 @@ object AppBackup {
         }
 
         override fun importItems(items: List<FavoriteRecord>, options: MergeOptions): MergeReport {
-            var added = 0
-            var skipped = 0
-            val known = FavoriteStore.items.mapTo(mutableSetOf()) { it.url }
-            for (record in items) {
-                if (record.url.isBlank() || !known.add(record.url)) {
-                    skipped++
-                    continue
+            val imported = FavoriteStore.importAll(
+                context,
+                items.map {
+                    FavoriteStore.Favorite(
+                        id = it.id.toLongOrNull() ?: 0L,
+                        title = it.title,
+                        url = it.url,
+                        at = it.createdAt
+                    )
                 }
-                FavoriteStore.add(context, record.title, record.url)
-                added++
-            }
-            return MergeReport("favorites", added, 0, skipped)
+            )
+            return MergeReport("favorites", imported, 0, items.size - imported)
         }
     }
 
