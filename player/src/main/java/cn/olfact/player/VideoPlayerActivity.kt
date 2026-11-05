@@ -52,6 +52,8 @@ class VideoPlayerActivity : Activity(), PlayerControlsView.Listener, PlayerGestu
     private var videoAspect: Pair<Int, Int>? = null
     private var startPositionMs = 0L
     private var lastError: PlaybackException? = null
+    /** onStop 时释放过播放器：回前台要按进度重建，否则只剩一块黑屏。 */
+    private var releasedInBackground = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -339,6 +341,8 @@ class VideoPlayerActivity : Activity(), PlayerControlsView.Listener, PlayerGestu
         setIntent(intent)
         val newSource = PlaybackIntents.readSource(intent) ?: return
         if (newSource.url == source.url) return
+        // 换片之前先把当前片的进度落盘，否则「看到一半点另一个视频」会丢进度。
+        savePosition()
         source = newSource
         options = PlaybackIntents.readOptions(intent)
         startPositionMs = resolveStartPosition()
@@ -351,9 +355,23 @@ class VideoPlayerActivity : Activity(), PlayerControlsView.Listener, PlayerGestu
         hideSystemBars()
     }
 
+    override fun onStart() {
+        super.onStart()
+        // 之前 onStop 把播放器释放了（切后台、打开外部播放器…）：
+        // 回前台必须按上次进度重建，不能留一个没有 player 的 PlayerView。
+        if (releasedInBackground) {
+            releasedInBackground = false
+            startPositionMs = resolveStartPosition()
+            preparePlayer(startPositionMs)
+        }
+    }
+
     override fun onStop() {
         savePosition()
-        if (!isInPictureInPictureModeCompat()) releasePlayer()
+        if (!isInPictureInPictureModeCompat()) {
+            releasePlayer()
+            releasedInBackground = true
+        }
         super.onStop()
     }
 
