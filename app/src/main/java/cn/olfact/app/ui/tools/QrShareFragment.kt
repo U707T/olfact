@@ -37,12 +37,23 @@ class QrShareFragment : Fragment(R.layout.fragment_page) {
 
         b.content.gravity = Gravity.CENTER_HORIZONTAL
         b.content.setPadding(0, dp(24), 0, dp(24))
-        b.content.addView(ImageView(ctx).apply {
-            setImageBitmap(qr)
-            layoutParams = LinearLayout.LayoutParams(dp(240), dp(240))
-            contentDescription = "页面二维码"
-            setBackgroundResource(cn.olfact.core.R.drawable.uikit_bg_card)
-        })
+        if (qr == null) {
+            // 地址过长（二维码容量上限）或为空时不要再摆一个空白方块。
+            b.content.addView(TextView(ctx).apply {
+                text = if (url.isBlank()) "当前没有可分享的地址" else "地址过长，无法生成二维码"
+                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
+                setTextColor(ContextCompat.getColor(ctx, R.color.text_secondary))
+                gravity = Gravity.CENTER
+                setPadding(dp(24), dp(12), dp(24), dp(12))
+            })
+        } else {
+            b.content.addView(ImageView(ctx).apply {
+                setImageBitmap(qr)
+                layoutParams = LinearLayout.LayoutParams(dp(240), dp(240))
+                contentDescription = "页面二维码"
+                setBackgroundResource(cn.olfact.core.R.drawable.uikit_bg_card)
+            })
+        }
         b.content.addView(TextView(ctx).apply {
             text = url.ifBlank { "当前没有可分享的地址" }
             setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f)
