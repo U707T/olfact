@@ -110,4 +110,30 @@ class ChunkDownloaderTest {
         assertArrayEquals(payload, result.file.readBytes())
         assertTrue("应该只补缺失的字节，而不是重下整块", server.requestCount >= 2)
     }
+
+    @Test
+    fun `服务器谎报 Range 时失败而不是产出坏文件`() = kotlinx.coroutines.runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                if (request.method == "HEAD") {
+                    // 声称支持 Range
+                    return MockResponse()
+                        .addHeader("Accept-Ranges", "bytes")
+                        .addHeader("Content-Length", payload.size)
+                }
+                // 真正 GET 时无视 Range，直接回 200 + 整个文件
+                return MockResponse().setBody(Buffer().write(payload))
+            }
+        }
+        val work = temp.newFolder("parts4")
+        val target = File(temp.root, "bad.bin")
+        val spec = DownloadSpec(url = server.url("/bad.bin").toString(), fileName = "bad.bin")
+
+        val failure = runCatching {
+            ChunkDownloader(OkHttpClient(), work).download(spec, target, threadCount = 2, chunkSize = 256L)
+        }
+
+        assertTrue("应该失败而不是继续合并", failure.isFailure)
+        assertFalse("不能产出大小不对的文件", target.exists())
+    }
 }

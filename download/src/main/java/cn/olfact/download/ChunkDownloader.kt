@@ -80,6 +80,8 @@ class ChunkDownloader(
         val expected = total
         val actual = merged.length()
         if (actual != expected) {
+            // 大小不对的文件不能留给用户：删掉再报错，任务会显示失败而不是「已完成但打不开」。
+            runCatching { merged.delete() }
             throw IOException("分块合并后大小不一致：期望 $expected，实际 $actual")
         }
         return DownloadResult(merged, actual, DownloadEngine.CHUNKED)
@@ -126,6 +128,12 @@ class ChunkDownloader(
                     }
                     if (written == 0L && already + written < range.length) {
                         throw IOException("分块 ${range.index} 没有收到数据")
+                    }
+                    // 服务器忽略 Range 时会回 200 + 整个文件：每个分块都把整份数据写进来，
+                    // 合并后必然对不上。删掉这块再报错，否则重试会把它当成「已下完」直接跳过。
+                    if (part.length() > range.length) {
+                        runCatching { part.delete() }
+                        throw IOException("分块 ${range.index} 收到 ${part.length()} 字节，超出范围 ${range.length}（服务器忽略 Range）")
                     }
                     return@withContext
                 }
