@@ -182,6 +182,18 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
         web?.clearHistory()
     }
 
+    /**
+     * 设置变化后重新读取并应用配置。
+     *
+     * 之前配置只在 createView 时应用一次：改完「无图 / 夜间 / 字号 / 桌面 UA / JS」
+     * 回到浏览器，页面虽然 reload 了，WebView 仍在用旧配置——看起来就是设置没生效。
+     */
+    override fun refreshConfig() {
+        val view = web ?: return
+        view.applyConfig(configSnapshot())
+        view.applyUserAgent(view.url)
+    }
+
     override fun title(): String? = web?.title
 
     override fun url(): String? = web?.url

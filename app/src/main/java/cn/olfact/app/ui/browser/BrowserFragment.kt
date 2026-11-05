@@ -91,9 +91,10 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
             return
         }
         syncBottomBar()
-        // 设置页改了夜间网页/无图/字号/UA/JS：回到浏览器时自动刷新当前页。
+        // 设置页改了夜间网页/无图/字号/UA/JS：回到浏览器时重新应用配置并刷新当前页。
         if (RuntimeFlags.reloadPagesOnResume) {
             RuntimeFlags.reloadPagesOnResume = false
+            surface?.refreshConfig()
             surface?.reload()
         }
     }

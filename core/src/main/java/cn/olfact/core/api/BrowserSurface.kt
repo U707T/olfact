@@ -25,6 +25,14 @@ interface BrowserSurface {
     fun destroy()
 
     /**
+     * 设置页改了会影响网页渲染的项（无图 / 夜间 / 字号 / JS / UA）之后调用：
+     * 重新读取设置并应用到当前 WebView，然后再 [reload]。
+     *
+     * 默认空实现：兜底渲染器 / 无配置的渲染器不需要。
+     */
+    fun refreshConfig() {}
+
+    /**
      * 在页面里执行一段 JS 并把结果回传（AI 总结抓正文、划词翻译取选区用）。
      *
      * 默认空实现：兜底渲染器可以不支持；实现方返回的是 `evaluateJavascript` 的原始串

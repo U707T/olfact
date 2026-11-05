@@ -41,6 +41,14 @@ class DohFragment : Fragment(R.layout.fragment_page) {
 
     private var binding: FragmentPageBinding? = null
 
+    /**
+     * 规则编辑区的草稿。
+     *
+     * render() 会整页重建（切模式/开关都会触发），如果不记住用户正在输入的文本，
+     * 一次点击就会把没保存的规则全清掉。
+     */
+    private var rulesDraft: String? = null
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val b = FragmentPageBinding.bind(view)
         binding = b
@@ -205,24 +213,47 @@ class DohFragment : Fragment(R.layout.fragment_page) {
 
         b.content.addView(sectionTitle("分流规则"))
         val rules = EditText(ctx).apply {
-            setText(AppSettings.get(K.DOH_RULES))
+            setText(rulesDraft ?: AppSettings.get(K.DOH_RULES))
             setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f)
             setBackgroundResource(R.drawable.bg_round_12)
             setPadding(24, 20, 24, 20)
             minLines = 8
             gravity = android.view.Gravity.TOP or android.view.Gravity.START
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    rulesDraft = s?.toString().orEmpty()
+                }
+                override fun afterTextChanged(s: android.text.Editable?) = Unit
+            })
         }
         b.content.addView(rules, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ))
         b.content.addView(settingGroup(
             setting("保存规则") {
-                AppSettings.set(K.DOH_RULES, rules.text.toString())
-                Nav.toast("已保存 ${rules.text.toString().lines().count { it.isNotBlank() }} 条规则")
+                val text = rules.text.toString()
+                AppSettings.set(K.DOH_RULES, text)
+                val mode = DohMode.of(AppSettings.get(K.DOH_MODE))
+                val engine = OlfactServices.doh as? DohAdapter
+                if (engine != null && AppSettings.get(K.DOH_ENABLED)) {
+                    // 之前只写 DataStore，引擎还在用旧规则，必须重启才生效。
+                    viewLifecycleOwner.lifecycleScope.launch {
+                        runCatching {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                engine.applyRules(text, mode)
+                            }
+                        }.onFailure { Nav.toast("规则已保存，但应用失败：${it.message}") }
+                        rulesDraft = null
+                        render()
+                    }
+                } else {
+                    rulesDraft = null
+                    Nav.toast("已保存 ${text.lines().count { it.isNotBlank() }} 条规则")
+                    render()
+                }
             },
-            setting("导入 / 导出", "txt 一行一条") {
-                Nav.toast("复制到剪贴板即可导出；导入走粘贴")
-            }
+            setting("导入 / 导出", "导出到剪贴板，或从剪贴板粘贴导入") { importExport(rules) }
         ).also { cardBottomMargin(it) })
 
         b.content.addView(note(
@@ -269,7 +300,52 @@ class DohFragment : Fragment(R.layout.fragment_page) {
     private fun pick(mode: DohMode, id: String) {
         AppSettings.set(K.DOH_MODE, id)
         Nav.toast("已切换为「${if (mode == DohMode.SMART) "智能分流" else if (mode == DohMode.INCLUDE) "仅指定域名" else "仅排除域名"}」")
-        render()
+        val engine = OlfactServices.doh as? DohAdapter
+        if (engine != null && AppSettings.get(K.DOH_ENABLED)) {
+            // 只写 DataStore 的话，引擎仍在用旧模式；这里让规则表按新模式重解析。
+            viewLifecycleOwner.lifecycleScope.launch {
+                runCatching {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        engine.applyMode(mode)
+                    }
+                }.onFailure { Nav.toast("模式已保存，引擎应用失败：${it.message}") }
+                render()
+            }
+        } else {
+            render()
+        }
+    }
+
+    /** 导入 / 导出：走剪贴板，导出的是编辑区当前内容（含未保存修改）。 */
+    private fun importExport(rules: EditText) {
+        val ctx = requireContext()
+        Dialogs.choose(ctx, "导入 / 导出", listOf("导出到剪贴板", "从剪贴板导入"), 0) { index ->
+            val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                as? android.content.ClipboardManager
+            if (cm == null) {
+                Nav.toast("当前环境没有剪贴板")
+                return@choose
+            }
+            if (index == 0) {
+                val text = rules.text.toString()
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("doh-rules", text))
+                Nav.toast("已复制 ${text.lines().count { it.isNotBlank() }} 条规则")
+            } else {
+                val clip = cm.primaryClip
+                val text = if (clip != null && clip.itemCount > 0) {
+                    clip.getItemAt(0).coerceToText(ctx).toString()
+                } else {
+                    ""
+                }
+                if (text.isBlank()) {
+                    Nav.toast("剪贴板里没有规则")
+                    return@choose
+                }
+                rules.setText(text)
+                rules.setSelection(rules.text.length)
+                Nav.toast("已粘贴，点「保存规则」生效")
+            }
+        }
     }
 
     private fun banner(text: String) = android.widget.TextView(requireContext()).apply {

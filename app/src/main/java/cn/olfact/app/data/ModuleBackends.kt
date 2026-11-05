@@ -318,6 +318,23 @@ class DohAdapter(
         )
     }
 
+    /**
+     * 只切分流模式，规则文本不变：立即重建规则表，不用重启应用。
+     * 设置页的三个模式选项之前只写了 DataStore，引擎仍在用旧模式。
+     */
+    fun applyMode(mode: DohMode) {
+        val current = impl.rules()
+        impl.updateRules(DnsRules.parse(current.toText(), mode.toWeb()))
+        settings.set(K.DOH_MODE, mode.id)
+    }
+
+    /** 保存规则文本并立即生效（「保存规则」按钮之前只写 DataStore）。 */
+    fun applyRules(text: String, mode: DohMode) {
+        impl.updateRules(DnsRules.parse(text, mode.toWeb()))
+        settings.set(K.DOH_RULES, text)
+        settings.set(K.DOH_MODE, mode.id)
+    }
+
     override fun stop() = impl.stop()
 
     override fun status(): DohStatus {
@@ -354,15 +371,14 @@ class DohAdapter(
     }
 
     override fun save(cfg: DohConfig) {
-        impl.updateRules(DnsRules.parse(cfg.rules.joinToString("\n"), cfg.mode.toWeb()))
-        settings.set(K.DOH_MODE, cfg.mode.id)
+        // 统一走 applyRules：规则与模式一起落到引擎和 DataStore，避免只写一半。
+        applyRules(cfg.rules.joinToString("\n"), cfg.mode)
         if (!cfg.enabled) impl.stop()
     }
 
     override fun importRules(lines: List<String>) {
         val text = lines.joinToString("\n")
-        impl.updateRules(DnsRules.parse(text, impl.rules().mode))
-        settings.set(K.DOH_RULES, text)
+        applyRules(text, impl.rules().mode.toCore())
     }
 
     override fun exportRules(): String = impl.rules().toText().lines()
