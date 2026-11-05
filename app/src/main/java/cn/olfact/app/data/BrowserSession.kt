@@ -129,9 +129,17 @@ object BrowserSession {
         currentId = open(null).id
     }
 
+    /**
+     * 落盘用的标签列表：**排除无痕标签**。
+     *
+     * 无痕窗口的 URL 不该出现在 SharedPreferences 里，否则「无痕」只是不写历史，
+     * 下次冷启动还能从 prefs 把地址读出来。
+     */
+    internal fun persistable(): List<Tab> = tabs.filterNot { it.incognito }
+
     fun save(context: Context) {
         val arr = JSONArray()
-        tabs.forEach { t ->
+        persistable().forEach { t ->
             arr.put(JsonStore.objOf("id" to t.id, "url" to t.url, "title" to t.title, "incognito" to t.incognito))
         }
         JsonStore.writeArray(context, KEY, arr)
@@ -167,6 +175,8 @@ object BrowserSession {
         for (i in 0 until arr.length()) {
             if (tabs.size >= MAX_TABS) break
             val o: JSONObject = arr.optJSONObject(i) ?: continue
+            // 旧版本会把无痕标签一起落盘：恢复时直接丢弃，别把地址再读出来。
+            if (o.optBoolean("incognito", false)) continue
             val id = o.optLong("id", nextId)
             if (tabs.any { it.id == id }) continue
             val tab = Tab(id, o.optString("url"), o.optString("title"), o.optBoolean("incognito"))

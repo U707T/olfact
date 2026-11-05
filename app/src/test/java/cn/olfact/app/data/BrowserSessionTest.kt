@@ -112,4 +112,15 @@ class BrowserSessionTest {
         assertEquals("https://new.example", BrowserSession.current()?.url)
         assertTrue(BrowserSession.tabs.none { it.url == "https://s0.example" })
     }
+
+    @Test
+    fun `incognito tabs are never persisted`() {
+        BrowserSession.open("https://normal.example")
+        BrowserSession.open("https://secret.example", incognito = true)
+
+        val persisted = BrowserSession.persistable()
+        assertEquals(1, persisted.size)
+        assertEquals("https://normal.example", persisted.single().url)
+        assertTrue(persisted.none { it.incognito })
+    }
 }
