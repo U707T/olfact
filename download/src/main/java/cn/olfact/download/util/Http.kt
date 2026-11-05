@@ -25,6 +25,23 @@ object Http {
 
     fun request(spec: DownloadSpec, url: String = spec.url, rangeHeader: String? = null): Request {
         val builder = Request.Builder().url(url).get()
+        applyHeaders(builder, spec, rangeHeader)
+        return builder.build()
+    }
+
+    /**
+     * 探测用的 HEAD 请求。
+     *
+     * 之前 MediaProbe 声称「先 HEAD」，实际调用的是 [request]（GET）——等于为了看响应头
+     * 先发一次完整的 GET，大文件上既慢又可能被服务端当成真实下载。
+     */
+    fun headRequest(spec: DownloadSpec, url: String = spec.url): Request {
+        val builder = Request.Builder().url(url).head()
+        applyHeaders(builder, spec, null)
+        return builder.build()
+    }
+
+    private fun applyHeaders(builder: Request.Builder, spec: DownloadSpec, rangeHeader: String?) {
         val ua = spec.userAgent
             ?: spec.headers.entries.firstOrNull { it.key.equals("User-Agent", true) }?.value
         if (!ua.isNullOrBlank()) builder.header("User-Agent", ua)
@@ -38,7 +55,6 @@ object Http {
             }
         }
         if (rangeHeader != null) builder.header("Range", rangeHeader)
-        return builder.build()
     }
 
     /** 可取消的同步请求：协程取消时真正 cancel 掉 socket，而不是等超时。 */

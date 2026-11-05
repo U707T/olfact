@@ -18,8 +18,10 @@ data class ProbeResult(
 object MediaProbe {
 
     suspend fun probe(client: OkHttpClient, spec: DownloadSpec): ProbeResult {
+        // 真的用 HEAD：只拿响应头，不触发一次完整 GET。
         val head = runCatching {
-            client.newCall(Http.request(spec)).execute().use { response ->
+            client.newCall(Http.headRequest(spec)).execute().use { response ->
+                if (response.code !in 200..299) error("HEAD ${response.code}")
                 ProbeResult(
                     contentLength = response.header("Content-Length")?.toLongOrNull() ?: -1L,
                     rangeSupported = response.header("Accept-Ranges")?.contains("bytes", true) == true,
