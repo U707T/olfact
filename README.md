@@ -76,3 +76,20 @@ export ANDROID_HOME=/opt/android-sdk ANDROID_SDK_ROOT=/opt/android-sdk
 - `libadblock_ffi.so` 默认由手动触发的 CI job 产出，缺失时降级 Kotlin 引擎（规则上限 2 万条）。
 - 仅中文资源，未提供英文。
 - 下载列表「文件管理」只尝试拉起系统文件管理器，未接 SAF 目录选择器（失败时提示下载目录路径）。
+
+---
+
+## 本地构建缓存（沙箱）
+
+> 沙箱里 `dl.google.com` / `maven.google.com` 基本不通，**Gradle 依赖重下不回来**。删任何缓存前先看 `/workspace/AI通用说明.md` §2。
+
+| 路径 | 现状（2026-11-04） | 怎么办 |
+|---|---|---|
+| `app/build/intermediates` | 约 200 MB | **别删**（增量编译的底子；删了下次 2 min 全量） |
+| 根目录 `build/` | 147 KB | 空壳，可删 |
+| `~/.gradle/caches/modules-2` | 全局 3.4 GB | **别删**，全项目共享 |
+| `~/.gradle/caches/9.7.0` | 全局，数 GB | **别删**（本项目用的就是这个版本） |
+| `~/.gradle/daemon/9.7.0/*.log` | 每次构建一份 DEBUG 日志 | 可删，只留最近 3 个 |
+
+- 本地节奏：`:app:assembleDebug` 增量约 30 s；`testDebugUnitTest`（六模块）约 20 s。
+- debug APK 正常 **14.7 MB**（arm64 单 ABI）。发版仍交 CI，别在本地 `assembleRelease`。
