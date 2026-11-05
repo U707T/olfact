@@ -24,6 +24,16 @@ class NetworkWatcher(
     private var callback: ConnectivityManager.NetworkCallback? = null
     private var pendingReason: String? = null
 
+    /**
+     * 上一次的传输类型。
+     *
+     * `onCapabilitiesChanged` 并不是只在「换网」时回调：信号强弱、带宽估计变化都会触发。
+     * 之前每来一次就清缓存 + 重新竞速 + 重建隧道，DoH 用户会看到隧道反复抖动。
+     * 只有 WLAN/移动网络真的切换了才处理。
+     */
+    @Volatile
+    private var lastTransport: String? = null
+
     private val dispatch = Runnable {
         val reason = pendingReason ?: return@Runnable
         pendingReason = null
@@ -39,9 +49,22 @@ class NetworkWatcher(
             override fun onLost(network: Network) = schedule("网络断开")
 
             override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-                val wifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
-                val cellular = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
-                if (wifi) schedule("切换到 Wi-Fi") else if (cellular) schedule("切换到移动网络")
+                val type = when {
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+                    else -> "other"
+                }
+                if (type == lastTransport) return
+                lastTransport = type
+                schedule(
+                    when (type) {
+                        "wifi" -> "切换到 Wi-Fi"
+                        "cellular" -> "切换到移动网络"
+                        "ethernet" -> "切换到有线网络"
+                        else -> "网络变化"
+                    }
+                )
             }
         }
         runCatching { manager.registerDefaultNetworkCallback(networkCallback) }
@@ -55,6 +78,7 @@ class NetworkWatcher(
         callback = null
         handler.removeCallbacks(dispatch)
         pendingReason = null
+        lastTransport = null
     }
 
     private fun schedule(reason: String) {
