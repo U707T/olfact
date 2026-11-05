@@ -64,7 +64,9 @@ jobs:
   lint:
     name: lint
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # AGP 9 的 :app:lintDebug 在 GitHub runner 上实测 33–40 分钟；
+    # 原来 40 分钟的上限会把 job 掐成 cancelled（看起来像被取消，其实是超时）。
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
