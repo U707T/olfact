@@ -2,6 +2,11 @@
 <!--
   浏览器页：对齐原版 activity_browser.xml —— **没有常驻顶栏**，
   网页全屏铺满，地址/搜索是贴在底栏上方的覆盖条（原版 search_bg / view_stub_main_search）。
+
+  覆盖条必须放在 surfaceContainer 里（layout_gravity=bottom）：
+  之前和网页是 LinearLayout 的上下兄弟，展开地址栏会把 WebView 压矮 52dp，
+  页面跟着重排/跳滚动位置，看起来就是「点一下地址栏，网页抖一下」。
+
   底栏（首页 / 刷新 / 标题胶囊 / 标签数 / 菜单）由 MainActivity 统一提供。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -54,94 +59,98 @@
                 android:layout_marginTop="28dp"
                 android:orientation="vertical" />
         </LinearLayout>
-    </FrameLayout>
 
-    <!-- 地址/搜索覆盖条（原版 search_bg：白底 52dp，在底栏之上，默认收起） -->
-    <LinearLayout
-        android:id="@+id/addressBar"
-        android:layout_width="match_parent"
-        android:layout_height="52dp"
-        android:background="@color/card"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="8dp"
-        android:paddingEnd="4dp"
-        android:visibility="gone">
+        <!-- 地址/搜索覆盖条（原版 search_bg：白底 52dp，浮在网页之上、底栏之上） -->
+        <LinearLayout
+            android:id="@+id/addressBar"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_gravity="bottom"
+            android:background="@color/card"
+            android:elevation="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="8dp"
+            android:paddingEnd="4dp"
+            android:visibility="gone">
 
-        <cn.olfact.core.uikit.UrlBar
-            android:id="@+id/urlBar"
-            android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_weight="1" />
+            <cn.olfact.core.uikit.UrlBar
+                android:id="@+id/urlBar"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1" />
 
-        <ImageView
-            android:id="@+id/addressClose"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:contentDescription="收起地址栏"
-            android:padding="10dp"
-            android:src="@drawable/ic_close" />
-    </LinearLayout>
+            <ImageView
+                android:id="@+id/addressClose"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:contentDescription="收起地址栏"
+                android:padding="10dp"
+                android:src="@drawable/ic_close" />
+        </LinearLayout>
 
-    <!-- 页内查找（原版 view_stub_main_search：白底 44dp，同样贴在底栏上方） -->
-    <LinearLayout
-        android:id="@+id/findBar"
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:background="@color/card"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="12dp"
-        android:paddingEnd="4dp"
-        android:visibility="gone">
-
-        <EditText
-            android:id="@+id/findInput"
-            android:layout_width="0dp"
-            android:layout_height="36dp"
-            android:layout_weight="1"
-            android:background="@drawable/bg_round_12"
-            android:hint="页内查找"
-            android:imeOptions="actionSearch"
+        <!-- 页内查找（原版 view_stub_main_search：白底 44dp，同样浮在网页之上） -->
+        <LinearLayout
+            android:id="@+id/findBar"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_gravity="bottom"
+            android:background="@color/card"
+            android:elevation="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
             android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:singleLine="true"
-            android:textColor="@color/text_primary"
-            android:textColorHint="@color/text_hint"
-            android:textSize="14sp" />
+            android:paddingEnd="4dp"
+            android:visibility="gone">
 
-        <TextView
-            android:id="@+id/findCount"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:padding="8dp"
-            android:textColor="@color/text_secondary"
-            android:textSize="12sp" />
+            <EditText
+                android:id="@+id/findInput"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_round_12"
+                android:hint="页内查找"
+                android:imeOptions="actionSearch"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:singleLine="true"
+                android:textColor="@color/text_primary"
+                android:textColorHint="@color/text_hint"
+                android:textSize="14sp" />
 
-        <ImageView
-            android:id="@+id/findPrev"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:contentDescription="上一个"
-            android:padding="9dp"
-            android:rotation="90"
-            android:src="@drawable/ic_chevron_right" />
+            <TextView
+                android:id="@+id/findCount"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:padding="8dp"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
 
-        <ImageView
-            android:id="@+id/findNext"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:contentDescription="下一个"
-            android:padding="9dp"
-            android:rotation="-90"
-            android:src="@drawable/ic_chevron_right" />
+            <ImageView
+                android:id="@+id/findPrev"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:contentDescription="上一个"
+                android:padding="9dp"
+                android:rotation="90"
+                android:src="@drawable/ic_chevron_right" />
 
-        <ImageView
-            android:id="@+id/findClose"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:contentDescription="@string/close"
-            android:padding="10dp"
-            android:src="@drawable/ic_close" />
-    </LinearLayout>
+            <ImageView
+                android:id="@+id/findNext"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:contentDescription="下一个"
+                android:padding="9dp"
+                android:rotation="-90"
+                android:src="@drawable/ic_chevron_right" />
+
+            <ImageView
+                android:id="@+id/findClose"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:contentDescription="@string/close"
+                android:padding="10dp"
+                android:src="@drawable/ic_close" />
+        </LinearLayout>
+    </FrameLayout>
 </LinearLayout>

@@ -253,8 +253,11 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
                 LongPressSheet.showAt(requireContext(), url, title, b.surfaceContainer, x, y) { showFind() }
             }
         }
+        // 插到最底层：地址条 / 页内查找 / 空白页都是它的上层覆盖条，
+        // 直接 addView（追加到末尾）会让 WebView 盖住它们。
         b.surfaceContainer.addView(
             s.createView(host),
+            0,
             ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         )
     }
@@ -316,8 +319,10 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
         })
         box.addView(actions)
 
+        // 放在 WebView 之上、覆盖条之下：错误页不应挡住地址栏/页内查找。
         b.surfaceContainer.addView(
             box,
+            1,
             ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         )
         errorView = box
