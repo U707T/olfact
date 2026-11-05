@@ -27,13 +27,32 @@ class PrivacyCleaner(private val context: Context) {
         val extraItems: Int = 0
     )
 
-    fun cacheSize(): Long = dirSize(context.cacheDir) + dirSize(File(context.filesDir, "webview_cache"))
+    /**
+     * 可清理的缓存目录。
+     *
+     * 排除进行中的任务目录：
+     * - `cache/downloads`：分块 / m3u8 分片的临时文件，删了等于把正在下的任务打断；
+     * - `cache/backup-work`：备份流水线的临时目录。
+     */
+    private fun cacheChildren(): List<File> =
+        context.cacheDir.listFiles()?.filterNot { it.name in PROTECTED_DIRS } ?: emptyList()
+
+    fun cacheSize(): Long =
+        cacheChildren().sumOf { dirSize(it) } + dirSize(File(context.filesDir, "webview_cache"))
 
     fun clearCache(): Long {
-        val before = cacheSize()
-        deleteChildren(context.cacheDir)
-        runCatching { android.webkit.WebView(context).clearCache(true) }
-            .onFailure { B4Log.w(TAG, "WebView.clearCache 失败", it) }
+        val targets = cacheChildren()
+        val before = targets.sumOf { dirSize(it) }
+        targets.forEach { file -> runCatching { file.deleteRecursively() } }
+        // WebView 实例用完要 destroy：创建了不销毁会一直占着一份渲染资源。
+        runCatching {
+            val probe = android.webkit.WebView(context)
+            try {
+                probe.clearCache(true)
+            } finally {
+                probe.destroy()
+            }
+        }.onFailure { B4Log.w(TAG, "WebView.clearCache 失败", it) }
         return before
     }
 
@@ -82,13 +101,10 @@ class PrivacyCleaner(private val context: Context) {
         return dir.listFiles()?.sumOf { dirSize(it) } ?: 0
     }
 
-    private fun deleteChildren(dir: File) {
-        dir.listFiles()?.forEach { file ->
-            runCatching { file.deleteRecursively() }
-        }
-    }
-
     companion object {
         private const val TAG = "Privacy"
+
+        /** 这些目录里是进行中任务的中间文件，清缓存不能碰。 */
+        private val PROTECTED_DIRS = setOf("downloads", "backup-work")
     }
 }
