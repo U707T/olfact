@@ -91,15 +91,20 @@ class BottomBar @JvmOverloads constructor(
         slots.clear(); icons.clear(); counts.clear(); pills.clear()
 
         items.forEach { item ->
-            // 纯图标模式没有标题胶囊：整槽省略，用四个等宽图标铺满。
-            if (item.kind == Kind.PILL && style == Style.ICON_ONLY) return@forEach
-
-            val slot = when (item.kind) {
-                Kind.PILL -> buildPill(item)
-                Kind.COUNT -> buildCountSlot(item)
-                Kind.ICON -> buildIconSlot(item)
+            // 纯图标模式没有标题胶囊：把它收缩成一个「搜索/地址」图标。
+            // 直接省略会让这个模式完全没有输入网址的入口（只能先回首页）。
+            val effective = if (item.kind == Kind.PILL && style == Style.ICON_ONLY) {
+                item.copy(kind = Kind.ICON, icon = R.drawable.uikit_ic_search, description = "地址与搜索")
+            } else {
+                item
             }
-            val lp = if (item.kind == Kind.PILL || style == Style.ICON_ONLY) {
+
+            val slot = when (effective.kind) {
+                Kind.PILL -> buildPill(effective)
+                Kind.COUNT -> buildCountSlot(effective)
+                Kind.ICON -> buildIconSlot(effective)
+            }
+            val lp = if (effective.kind == Kind.PILL || style == Style.ICON_ONLY) {
                 LayoutParams(0, LayoutParams.MATCH_PARENT, 1f)
             } else {
                 LayoutParams(context.dpF(36f), LayoutParams.MATCH_PARENT)
