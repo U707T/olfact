@@ -291,8 +291,14 @@ object SettingsSpecs {
                     Row.Value("自定义模板", value = {
                         AppSettings.get(K.SEARCH_CUSTOM).ifBlank { "https://example.com/search?q=%s" }
                     }, onClick = {
-                        Dialogs.input(Nav.context()!!, "搜索模板", AppSettings.get(K.SEARCH_CUSTOM), "https://…/search?q=%s") {
-                            AppSettings.set(K.SEARCH_CUSTOM, it)
+                        Dialogs.input(Nav.context()!!, "搜索模板", AppSettings.get(K.SEARCH_CUSTOM), "https://…/search?q=%s") { raw ->
+                            val template = raw.trim()
+                            // 没有 %s 的模板会把关键词直接拼在末尾（得到一个废链接），当场拒绝。
+                            if (template.isNotEmpty() && !template.contains("%s")) {
+                                Nav.toast("模板必须包含 %s，例如 https://…/search?q=%s")
+                                return@input
+                            }
+                            AppSettings.set(K.SEARCH_CUSTOM, template)
                             Nav.pop()
                         }
                     })

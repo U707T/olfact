@@ -114,16 +114,19 @@ object SearchEngines {
     fun byId(id: String): Engine = all.firstOrNull { it.id == id } ?: all.first()
 
     /** 输入框内容 → 可打开地址：像网址就直接开，否则走搜索。 */
-    fun urlFor(input: String, engineId: String? = null): String {
+    fun urlFor(input: String, engineId: String? = null, customTemplate: String? = null): String {
         val text = input.trim()
         if (text.isEmpty()) return "about:blank"
         if (LinkExtractor.looksLikeUrl(text)) return LinkExtractor.normalize(text)
         val id = engineId ?: cn.olfact.app.data.AppSettings.get(cn.olfact.app.data.K.SEARCH_ENGINE)
+        val fallback = all.first().template
         val template = if (id == "custom") {
-            cn.olfact.app.data.AppSettings.get(cn.olfact.app.data.K.SEARCH_CUSTOM)
-                .ifBlank { all.first().template }
+            (customTemplate ?: cn.olfact.app.data.AppSettings.get(cn.olfact.app.data.K.SEARCH_CUSTOM))
+                .trim()
+                .takeIf { it.contains("%s") }
+                ?: fallback
         } else {
-            byId(id).template
+            byId(id).template.ifBlank { fallback }
         }
         val encoded = URLEncoder.encode(text, "UTF-8")
         return if (template.contains("%s")) template.replace("%s", encoded) else template + encoded
