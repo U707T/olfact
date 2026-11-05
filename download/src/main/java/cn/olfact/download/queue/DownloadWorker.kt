@@ -86,7 +86,8 @@ class DownloadWorker(
         private const val CHANNEL_ID = "olfact_download_service"
         private const val NOTIFICATION_ID = 0x0F01
 
-        fun schedule(context: Context, config: DownloadConfig) {
+        /** @return false 表示 WorkManager 不可用（未初始化 / 被禁用），调用方应退回前台执行。 */
+        fun schedule(context: Context, config: DownloadConfig): Boolean {
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(
                     if (config.wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
@@ -96,13 +97,13 @@ class DownloadWorker(
             val request = OneTimeWorkRequestBuilder<DownloadWorker>()
                 .setConstraints(constraints)
                 .build()
-            runCatching {
+            return runCatching {
                 WorkManager.getInstance(context).enqueueUniqueWork(
                     UNIQUE_NAME,
                     ExistingWorkPolicy.APPEND_OR_REPLACE,
                     request,
                 )
-            }
+            }.isSuccess
         }
     }
 }

@@ -29,6 +29,9 @@ class SettingsPageFragment : Fragment(R.layout.fragment_settings_page) {
 
     private var binding: FragmentSettingsPageBinding? = null
 
+    /** 首次 onResume 紧跟 onViewCreated，不需要重复渲染。 */
+    private var renderedOnce = false
+
     /** 当前设置子页 id（basic / appearance / …），用于导航 toggle 匹配。 */
     val pageId: String
         get() = requireArguments().getString(ARG_ID).orEmpty()
@@ -41,8 +44,29 @@ class SettingsPageFragment : Fragment(R.layout.fragment_settings_page) {
         val spec = SettingsSpecs.build(id)
         b.header.title = spec.title
         b.header.onBack = { Nav.pop() }
-        b.sections.removeAllViews()
+        renderSpec(spec)
+    }
 
+    /**
+     * 从弹窗 / 子页返回时重画一次：`Row.Value`（自定义 UA、搜索模板…）是构建时读的快照，
+     * 不重画就会一直显示旧值。内容高度不变，滚动位置不受影响。
+     */
+    override fun onResume() {
+        super.onResume()
+        val b = binding ?: return
+        if (!renderedOnce) {
+            renderedOnce = true
+            return
+        }
+        val id = requireArguments().getString(ARG_ID).orEmpty()
+        val spec = SettingsSpecs.build(id)
+        b.header.title = spec.title
+        renderSpec(spec)
+    }
+
+    private fun renderSpec(spec: Spec) {
+        val b = binding ?: return
+        b.sections.removeAllViews()
         spec.sections.forEach { section ->
             section.title?.let { b.sections.addView(sectionLabel(it)) }
             val group = SettingGroup(requireContext())
@@ -200,6 +224,7 @@ class SettingsPageFragment : Fragment(R.layout.fragment_settings_page) {
 
     override fun onDestroyView() {
         binding = null
+        renderedOnce = false
         super.onDestroyView()
     }
 }

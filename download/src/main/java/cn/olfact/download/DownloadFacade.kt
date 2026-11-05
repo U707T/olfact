@@ -41,7 +41,9 @@ class DownloadFacade private constructor(private val appContext: Context) {
     fun enqueue(spec: DownloadSpec, engine: DownloadEngine? = null): DownloadRecord {
         val record = queue.enqueue(spec, engine)
         // 只交给 WorkManager：约束（仅 WiFi / 充电）由它保证，不能在这里 kick 绕过。
-        DownloadWorker.schedule(appContext, settings.snapshot())
+        // WorkManager 起不来（未初始化 / 被 ROM 禁用）时才退回前台队列，否则任务会一直排队。
+        val scheduled = DownloadWorker.schedule(appContext, settings.snapshot())
+        if (!scheduled) scheduleFallback()
         return record
     }
 
