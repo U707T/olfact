@@ -67,7 +67,17 @@ class ScriptStore(
         }.onFailure { B4Log.e(TAG, "写入 index.json 失败", it) }
     }
 
-    fun bodyFile(id: String): File = File(scriptsDir, "$id.user.js")
+    fun bodyFile(id: String): File = File(scriptsDir, "${fileId(id)}.user.js")
+
+    /**
+     * 文件名用的 id：只保留字母数字与 `-` `_`。
+     *
+     * id 可能来自备份文件（`restoreOne`）或界面传入，带 `/` 或 `..` 时
+     * `File(scriptsDir, "$id.user.js")` 会写到脚本目录外面。
+     * 与备份写入端的 sanitizeId 保持同一规则，保证读写一致。
+     */
+    private fun fileId(id: String): String =
+        id.filter { it.isLetterOrDigit() || it == '-' || it == '_' }.ifEmpty { "script" }
 
     fun body(id: String): String? = StoreFiles.readText(bodyFile(id))
 

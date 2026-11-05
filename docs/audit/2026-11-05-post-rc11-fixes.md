@@ -29,6 +29,8 @@
 - `PrivacyCleaner.clearCache()` 跳过 `cache/downloads` 与 `cache/backup-work`，
   避免「清缓存」把进行中的分片删掉；探测用 WebView 用完 `destroy()`。
 - `FavoriteStore` 补锁（播放页、备份恢复、列表页可能并发）。
+- 路径硬化：分块 part 名、任务临时目录、脚本 id 都做字符清洗；
+  「删除下载」只允许删下载目录内的文件（queue.json 损坏也不会误删别处）。
 
 ## 3. 设置与浏览器行为
 

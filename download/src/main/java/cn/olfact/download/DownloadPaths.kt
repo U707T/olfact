@@ -31,7 +31,17 @@ object DownloadPaths {
         return plain
     }
 
-    fun workDir(context: Context, recordId: String): File = File(tempRoot(context), recordId)
+    /**
+     * 单个任务的临时目录。
+     *
+     * recordId 来自 queue.json（可能损坏），直接拼进路径的话，
+     * `remove()` 里的 `deleteRecursively()` 会顺着 `../..` 删到应用私有目录外面。
+     */
+    fun workDir(context: Context, recordId: String): File =
+        File(tempRoot(context), safeId(recordId))
+
+    private fun safeId(id: String): String =
+        id.filter { it.isLetterOrDigit() || it == '-' || it == '_' }.ifEmpty { "task" }
 
     /**
      * 把记录里的 filePath 还原成可删除的文件。

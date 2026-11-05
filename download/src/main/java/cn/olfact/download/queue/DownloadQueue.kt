@@ -139,15 +139,19 @@ class DownloadQueue(
         publish()
     }
 
-    /** 删除成品文件：content:// 走 ContentResolver，普通路径还要处理「相对 Download/」的系统下载记录。 */
+    /** 删除成品文件：content:// 走 ContentResolver，普通路径只允许删下载目录内的文件。 */
     private fun deleteArtifact(record: DownloadRecord) {
         val path = record.filePath ?: return
         runCatching {
             if (path.startsWith("content://")) {
                 context.contentResolver.delete(android.net.Uri.parse(path), null, null)
-            } else {
-                DownloadPaths.resolveExisting(context, path)?.delete()
+                return
             }
+            val file = DownloadPaths.resolveExisting(context, path) ?: return
+            val root = DownloadPaths.downloadsRoot(context).canonicalFile
+            val target = file.canonicalFile
+            // queue.json 损坏时 filePath 可能是任意路径：只删下载目录里的文件。
+            if (target.path.startsWith(root.path + java.io.File.separator)) target.delete()
         }
     }
 
