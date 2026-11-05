@@ -52,13 +52,13 @@ class ScriptBackupSection(private val store: ScriptStore) : ListSection<ScriptRe
         for (record in items) {
             val existing = store.find(record.meta.id)
             if (existing == null) {
-                store.install(record.body, record.meta.sourceUrl)?.let {
-                    store.setEnabled(record.meta.id, record.meta.enabled)
-                }
+                // 直接写「元数据 + 脚本体」，不要走 install()：
+                // install 需要 ==UserScript== 头，而内置编辑器保存的脚本可以没有头，
+                // 解析失败会让恢复「看起来成功、脚本却不在」。
+                store.restoreOne(record.meta, record.body)
                 added++
             } else if (options.preferIncoming && record.meta.updatedAt > existing.updatedAt) {
-                store.install(record.body, record.meta.sourceUrl)
-                store.setEnabled(record.meta.id, record.meta.enabled)
+                store.restoreOne(record.meta, record.body)
                 updated++
             } else {
                 skipped++

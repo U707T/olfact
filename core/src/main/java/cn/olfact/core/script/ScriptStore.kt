@@ -137,6 +137,26 @@ class ScriptStore(
         return item
     }
 
+    /**
+     * 备份恢复专用：把「元数据 + 脚本体」原样写回。
+     *
+     * 与 [save] 的区别：保留备份里的 installedAt / updatedAt / enabled，
+     * 不把「更新时间」改成 now——否则恢复后所有脚本都变成「刚刚更新」，
+     * 之后再按时间合并时永远分不出新旧。
+     */
+    @Synchronized
+    fun restoreOne(meta: UserScript, code: String): UserScript {
+        val item = meta.copy(
+            installedAt = meta.installedAt.takeIf { it > 0 } ?: System.currentTimeMillis()
+        )
+        StoreFiles.writeAtomic(bodyFile(item.id), code)
+        val items = _scripts.value.toMutableList()
+        val idx = items.indexOfFirst { it.id == item.id }
+        if (idx >= 0) items[idx] = item else items.add(item)
+        saveLocked(items.sortedBy { it.name.lowercase() })
+        return item
+    }
+
     @Synchronized
     fun setEnabled(id: String, enabled: Boolean): Boolean {
         val items = _scripts.value.toMutableList()
