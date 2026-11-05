@@ -84,7 +84,8 @@ class AiFragment : Fragment(R.layout.fragment_page) {
     private fun mask(key: String): String = when {
         key.isEmpty() -> "未填 key"
         key.length <= 8 -> "••••"
-        else -> key.take(4) + "••••" + key.takeLast(4)
+        // 不回显 key 的前缀：列表里只露末 4 位足够辨认，也避免截图泄漏。
+        else -> "••••" + key.takeLast(4)
     }
 
     private fun edit(existing: AiProvider?) {
@@ -103,7 +104,11 @@ class AiFragment : Fragment(R.layout.fragment_page) {
         val name = field("名称，如 DeepSeek", existing?.name ?: "")
         val base = field("Base URL，如 https://api.deepseek.com/v1", existing?.baseUrl ?: "https://api.openai.com/v1")
         val model = field("模型，如 deepseek-chat", existing?.model ?: "gpt-4o-mini")
-        val key = field("API Key", existing?.apiKey ?: "")
+        // 编辑时不再把明文 key 填进输入框：留空即保持原 key（适配层 apiKey 为 null 时不覆盖）。
+        val key = field(if (existing == null) "API Key" else "API Key（留空保持不变）", "").apply {
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
         listOf(name, base, model, key).forEach { container.addView(it) }
 
         AlertDialog.Builder(ctx)
