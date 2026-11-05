@@ -2,6 +2,7 @@ package cn.olfact.player
 
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -10,6 +11,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
  * 把 [PlaybackSource] 变成 Media3 的 MediaItem + DataSource。
  * UA / Referer / 自定义头都在这里落地——很多站点的 m3u8 少了 Referer 直接 403。
  */
+@androidx.annotation.OptIn(UnstableApi::class)
 class MediaItemFactory(private val defaultUserAgent: String? = null) {
 
     fun httpDataSourceFactory(source: PlaybackSource): DefaultHttpDataSource.Factory {

@@ -21,6 +21,7 @@ import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -32,6 +33,7 @@ import cn.olfact.player.ui.PlayerControlsView
  * 内置播放页。刻意不继承 AppCompatActivity：player 模块不依赖 appcompat，
  * 主题用平台 Material（见 res/values/themes.xml），这样模块可以单独编译、单独测。
  */
+@androidx.annotation.OptIn(UnstableApi::class)
 class VideoPlayerActivity : Activity(), PlayerControlsView.Listener, PlayerGestureController.Host {
 
     private lateinit var playerView: PlayerView
