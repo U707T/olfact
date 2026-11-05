@@ -81,7 +81,7 @@ object ExternalDownloaders {
                 spec.mimeType ?: "application/octet-stream"
             )
         }.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        if (intent.resolveActivity(context.packageManager) == null) return false
+        // 不用 resolveActivity 当门禁：Android 11+ 没有 <queries> 时会误判成「没有应用」。
         return runCatching {
             context.startActivity(Intent.createChooser(intent, "选择下载器").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             true

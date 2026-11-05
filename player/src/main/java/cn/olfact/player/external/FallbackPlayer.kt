@@ -84,7 +84,8 @@ object FallbackPlayer {
         val intent = buildIntent(context, source, null)
         val chooser = Intent.createChooser(intent, "选择播放器")
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        if (intent.resolveActivity(context.packageManager) == null) return false
+        // 不要用 resolveActivity 当门禁：Android 11+ 没有 <queries> 时它返回 null，
+        // 明明能弹选择器也会被判成「没有可用播放器」。直接尝试启动，失败再返回 false。
         return runCatching { context.startActivity(chooser); true }.getOrDefault(false)
     }
 
