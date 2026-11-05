@@ -205,7 +205,12 @@ class PlayerFragment : Fragment(R.layout.fragment_player) {
 
     private fun speedDialog() {
         val options = listOf("0.75x", "1.0x", "1.25x", "1.5x", "2.0x")
-        Dialogs.choose(requireContext(), "播放速度", options, 1) { index ->
+        val current = AppSettings.get(K.PLAYER_SPEED).toFloatOrNull() ?: 1f
+        // 默认选中当前倍速，而不是永远停在 1.0x。
+        val checked = options.indexOfFirst {
+            kotlin.math.abs(it.removeSuffix("x").toFloatOrNull()?.minus(current) ?: 9f) < 0.01f
+        }.coerceAtLeast(0)
+        Dialogs.choose(requireContext(), "播放速度", options, checked) { index ->
             AppSettings.set(K.PLAYER_SPEED, options[index].removeSuffix("x"))
             Nav.toast("默认倍速：${options[index]}")
         }

@@ -140,7 +140,8 @@ class HomeFragment : Fragment(R.layout.fragment_home), ChromeAware {
         val b = binding ?: return
         val stats = listOf(
             BookmarkStore.all().size,
-            OlfactServices.downloads?.tasks()?.size ?: 0,
+            // 「文件下载」统计的是已完成的文件数；把失败/排队中的也算进去会虚高。
+            OlfactServices.downloads?.tasks()?.count { it.state == cn.olfact.core.api.DownloadState.DONE } ?: 0,
             OlfactServices.scriptStore?.count() ?: 0
         ).joinToString(",")
         if (force || stats != statsSignature || b.statsCard.childCount == 0) {
@@ -254,7 +255,10 @@ class HomeFragment : Fragment(R.layout.fragment_home), ChromeAware {
         val ctx = requireContext()
         val stats = listOf(
             Stat("收藏书签", { BookmarkStore.all().size }) { Nav.push(BookmarksFragment()) },
-            Stat("文件下载", { OlfactServices.downloads?.tasks()?.size ?: 0 }) { Nav.push(DownloadListFragment()) },
+            Stat("文件下载", {
+                OlfactServices.downloads?.tasks()
+                    ?.count { it.state == cn.olfact.core.api.DownloadState.DONE } ?: 0
+            }) { Nav.push(DownloadListFragment()) },
             Stat("网页插件", { OlfactServices.scriptStore?.count() ?: 0 }) { Nav.push(ScriptFragment()) }
         )
         stats.forEach { stat ->
