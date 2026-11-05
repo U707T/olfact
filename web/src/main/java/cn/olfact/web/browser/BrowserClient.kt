@@ -33,6 +33,11 @@ class BrowserClient(
     private val onPageFinished: (String) -> Unit = {},
     private val onError: (Int, String, String) -> Unit = { _, _, _ -> },
     private val onExternalScheme: (String) -> Boolean = { false },
+    /**
+     * 主框架即将开始导航（点链接 / JS 跳转）时回调。
+     * document-start 脚本必须在文档开始加载**之前**注册，否则只对下一次导航生效。
+     */
+    private val onBeforeNavigate: (String) -> Unit = {},
     /** 渲染进程被杀（OOM/崩溃）：返回 true 表示我们处理了，避免整个应用被带走。 */
     private val onRenderProcessGone: (WebView) -> Unit = {}
 ) : WebViewClient() {
@@ -108,7 +113,12 @@ class BrowserClient(
 
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         val uri = request.url ?: return false
-        return when (uri.scheme?.lowercase()) {
+        val scheme = uri.scheme?.lowercase()
+        if ((scheme == "http" || scheme == "https") && request.isForMainFrame) {
+            // 在导航开始前注册 document-start 脚本，避免「点链接进的页面不执行脚本」。
+            runCatching { onBeforeNavigate(uri.toString()) }
+        }
+        return when (scheme) {
             "http", "https", "about", "file", "data", "blob" -> false
             null -> false
             else -> onExternalScheme(uri.toString())

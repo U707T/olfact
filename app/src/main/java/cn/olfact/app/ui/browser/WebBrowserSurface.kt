@@ -78,6 +78,7 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
                 injectLateScripts(view, url)
             },
             onExternalScheme = { url -> cn.olfact.app.data.openExternal(context, url) },
+            onBeforeNavigate = { url -> injectScripts(view, url) },
             onError = { code, description, url -> host.onError(code, description, url) },
             onRenderProcessGone = { dead ->
                 // 渲染进程被系统杀掉：拆掉这个 WebView，提示用户重新加载，别让整个应用跟着崩
@@ -155,7 +156,10 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
     }
 
     override fun loadUrl(url: String) {
-        web?.loadUrl(url)
+        val view = web ?: return
+        // 地址栏 / 书签 / 首页搜索都走这里：先注册 document-start 脚本，再加载。
+        injectScripts(view, url)
+        view.loadUrl(url)
     }
 
     override fun reload() {
