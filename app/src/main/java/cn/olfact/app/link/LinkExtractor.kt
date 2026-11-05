@@ -36,6 +36,14 @@ object LinkExtractor {
     /** 只判断「整段就是一个 http(s) URL」，与 [FULL_URL] 的「从文本里找」不同。 */
     private val HTTP_URL_ONLY = Regex("""(?i)^https?://\S+$""")
 
+    /** IPv4（可带端口/路径）与 localhost：这类输入是地址，不该扔进搜索引擎。 */
+    private val IPV4 = Regex("""^\d{1,3}(\.\d{1,3}){3}(:\d{1,5})?(/\S*)?$""")
+    private val LOCALHOST = Regex("""(?i)^localhost(:\d{1,5})?(/\S*)?$""")
+
+    /** 调试用的内网地址：直接访问，不补 https（自建服务通常没有证书）。 */
+    private fun isLocalAddress(text: String): Boolean =
+        IPV4.matches(text) || LOCALHOST.matches(text)
+
     /** `scheme://` 前缀，用于 [normalize] 判断是否要补 https。 */
     private val SCHEME = Regex("(?i)^[a-z][a-z0-9+.-]*://")
 
@@ -78,14 +86,17 @@ object LinkExtractor {
         val s = input.trim()
         if (s.isEmpty() || s.contains(' ')) return false
         if (HTTP_URL_ONLY.matches(s)) return true
+        // `192.168.1.1:8080` / `localhost:3000` 是地址，不是关键词。
+        if (isLocalAddress(s)) return true
         return BARE_DOMAIN.matches(s) &&
             s.substringAfterLast('.').substringBefore('/').substringBefore(':').lowercase() !in FILE_EXT
     }
 
-    /** 补 scheme；`www.x.com` → `https://www.x.com`。 */
+    /** 补 scheme；`www.x.com` → `https://www.x.com`，IP / localhost 用 http。 */
     fun normalize(raw: String): String {
         val s = trimTrailing(raw.trim())
-        return if (SCHEME.containsMatchIn(s)) s else "https://$s"
+        if (SCHEME.containsMatchIn(s)) return s
+        return if (isLocalAddress(s)) "http://$s" else "https://$s"
     }
 
     fun hostOf(url: String): String = runCatching {

@@ -58,4 +58,15 @@ class SearchEnginesTest {
         val url = SearchEngines.urlFor("hello world", "bing")
         assertEquals(true, url.startsWith("https://www.bing.com/search?q="))
     }
+
+    @Test
+    fun `IP 地址直接打开而不是搜索`() {
+        assertEquals("http://192.168.1.1", SearchEngines.urlFor("192.168.1.1", "baidu"))
+        assertEquals("http://192.168.1.1:8080/admin", SearchEngines.urlFor("192.168.1.1:8080/admin", "baidu"))
+    }
+
+    @Test
+    fun `localhost 直接打开而不是搜索`() {
+        assertEquals("http://localhost:3000", SearchEngines.urlFor("localhost:3000", "baidu"))
+    }
 }
