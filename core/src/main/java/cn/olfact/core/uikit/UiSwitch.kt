@@ -81,6 +81,14 @@ class UiSwitch @JvmOverloads constructor(
         )
     }
 
+    /** 让 TalkBack 把它当成一个「开关」播报，而不是一个无名 View。 */
+    override fun onInitializeAccessibilityNodeInfo(info: android.view.accessibility.AccessibilityNodeInfo) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        info.className = "android.widget.Switch"
+        info.isCheckable = true
+        info.isChecked = isChecked
+    }
+
     override fun onDraw(canvas: Canvas) {
         val d = resources.displayMetrics.density
         val h = heightDp * d
