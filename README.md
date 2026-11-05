@@ -74,6 +74,10 @@ export ANDROID_HOME=/opt/android-sdk ANDROID_SDK_ROOT=/opt/android-sdk
 - 沙箱无 KVM/adb，视觉与真机冒烟用例需在真机补跑（见 `docs/tasks/B5-SMOKE.md`）。
 - **标签切换复用同一个 `BrowserFragment`，但 WebView 会换页**：per-tab surface 池 + host
   重绑未做，网页内的滚动/表单/视频进度在切标签时仍会丢；Fragment 与返回栈、首页不再被重建。
+- **无痕标签与普通标签共用同一个 WebView 的 Cookie/缓存**（同一时刻只有一个 WebView）：
+  只保证不写历史、标签 URL 不落盘；用完请手动清 Cookie。
+- 打开设置/下载等页面会 `replace` 掉浏览器 Fragment，返回时网页会重新加载（同样需要 per-tab
+  surface 池才能彻底解决）。
 - `libadblock_ffi.so` 默认由手动触发的 CI job 产出，缺失时降级 Kotlin 引擎（规则上限 2 万条）。
 - 仅中文资源，未提供英文。
 - 下载列表「文件管理」只尝试拉起系统文件管理器，未接 SAF 目录选择器（失败时提示下载目录路径）。
