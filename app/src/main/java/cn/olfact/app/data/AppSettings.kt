@@ -4,6 +4,7 @@ import android.content.Context
 import cn.olfact.core.Core
 import cn.olfact.core.api.SettingsKey
 import cn.olfact.core.api.SettingsRepository
+import cn.olfact.core.storage.DataStoreSettingsRepository
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -128,8 +129,15 @@ object AppSettings {
         // 统一走 core 的 DataStore 单例：备份、各模块、界面读的是同一份设置，
         // 不再维护第二套 SharedPreferences（会分裂数据源）。
         Core.init(context)
-        repo = Core.settings
-        cn.olfact.core.api.OlfactServices.settings = repo
+        val store = Core.settings
+        repo = store
+        cn.olfact.core.api.OlfactServices.settings = store
+        // DataStore 的首次读取是异步的：不在这里等一下，Application.onCreate / attachBaseContext
+        // 里读到的全是默认值——「强制夜间」会变回跟随系统、字体缩放不生效、
+        // 关掉的广告拦截又会自己打开。等一次（通常几十毫秒，上限 1s）。
+        (store as? DataStoreSettingsRepository)?.let {
+            kotlinx.coroutines.runBlocking { it.awaitLoaded(1_000) }
+        }
     }
 
     fun <T> get(key: SettingsKey<T>): T = repo.get(key)
