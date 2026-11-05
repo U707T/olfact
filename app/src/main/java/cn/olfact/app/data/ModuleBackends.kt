@@ -138,15 +138,16 @@ object ModuleBackends {
         if (OlfactServices.scriptStore != null && OlfactServices.scripts != null) return
         val store = cn.olfact.core.script.ScriptStore(File(app.filesDir, "userscripts"))
         scriptStore = store
+        val gmValues = GmValueStore(File(app.filesDir, "gm"))
         val bridge = GmBridge(
-            values = GmValueStore(File(app.filesDir, "gm")),
+            values = gmValues,
             http = GmBridge.defaultClient(),
             emit = { js -> InjectionBus.evaluate(js) },
             gmEnabled = { AppSettings.get(K.SCRIPT_GM_BRIDGE) }
         )
         val source: ScriptSource = ScriptSourceImpl(store, bridge)
         OlfactServices.scripts = source
-        OlfactServices.scriptStore = ScriptAdapter(store)
+        OlfactServices.scriptStore = ScriptAdapter(store, gmValues)
     }
 
     // ---------------------------------------------------------------- AI (B3)
@@ -460,7 +461,9 @@ class AdBlockAdapter(private val manager: AdBlockManager) : AdBlockController {
 
 /** `core/api` 脚本面板 → B4 的 `core.script.ScriptStore`。 */
 class ScriptAdapter(
-    private val store: cn.olfact.core.script.ScriptStore
+    private val store: cn.olfact.core.script.ScriptStore,
+    /** 删除脚本时一并清掉它的 GM_* 存储，避免残留（重装同名脚本会读到旧值）。 */
+    private val gmValues: GmValueStore? = null
 ) : ScriptStore {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -495,6 +498,7 @@ class ScriptAdapter(
 
     override fun remove(id: String) {
         store.delete(id)
+        gmValues?.clear(id)
     }
 
     override fun setEnabled(id: String, enabled: Boolean) {
