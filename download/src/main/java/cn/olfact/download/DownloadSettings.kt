@@ -53,6 +53,11 @@ class DownloadSettings(context: Context) {
         get() = repo?.get(DownloadKeys.NOTIFY) ?: prefs.getBoolean(KEY_NOTIFY, true)
         set(value) = putBoolean(DownloadKeys.NOTIFY, KEY_NOTIFY, value)
 
+    /** true = 普通文件交给系统 DownloadManager；false = 走内置多线程分块引擎。 */
+    var preferSystemDownloader: Boolean
+        get() = repo?.get(DownloadKeys.PREFER_SYSTEM) ?: prefs.getBoolean(KEY_PREFER_SYSTEM, true)
+        set(value) = putBoolean(DownloadKeys.PREFER_SYSTEM, KEY_PREFER_SYSTEM, value)
+
     fun snapshot(): DownloadConfig = DownloadConfig(
         wifiOnly = wifiOnly,
         chargingOnly = chargingOnly,
@@ -61,6 +66,7 @@ class DownloadSettings(context: Context) {
         chunkSizeBytes = chunkSizeBytes,
         adFilter = AdFilterConfig(enabled = adFilterEnabled),
         notifyProgress = notifyProgress,
+        preferSystemDownloader = preferSystemDownloader,
     )
 
     private fun putBoolean(key: cn.olfact.core.api.SettingsKey<Boolean>, prefKey: String, value: Boolean) {
@@ -77,6 +83,7 @@ class DownloadSettings(context: Context) {
         private const val KEY_CHUNK = "chunk_size"
         private const val KEY_AD_FILTER = "ad_filter"
         private const val KEY_NOTIFY = "notify_progress"
+        private const val KEY_PREFER_SYSTEM = "prefer_system"
         private const val MIN_CHUNK = 256L * 1024
 
         @Volatile

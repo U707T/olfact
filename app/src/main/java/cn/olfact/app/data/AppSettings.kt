@@ -53,6 +53,7 @@ object K {
     val DL_NOTIFY = cn.olfact.download.DownloadKeys.NOTIFY
     val DL_AUTO_RENAME = cn.olfact.download.DownloadKeys.AUTO_RENAME
     val DL_M3U8_MERGE = cn.olfact.download.DownloadKeys.M3U8_MERGE
+    val DL_PREFER_SYSTEM = cn.olfact.download.DownloadKeys.PREFER_SYSTEM
 
     // 嗅探/播放
     val SNIFF_ENABLED = SettingsKey("sniff.enabled", true)

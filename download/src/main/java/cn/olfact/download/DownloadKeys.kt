@@ -20,4 +20,12 @@ object DownloadKeys {
     /** 0 = 用 [ChunkPlanner.DEFAULT_CHUNK_SIZE]。 */
     val CHUNK_SIZE = SettingsKey("dl.chunk_size", 0L)
     val AD_FILTER = SettingsKey("dl.ad_filter", true)
+
+    /**
+     * 单文件优先交给系统 DownloadManager。
+     *
+     * 之前这个开关只存在于 [DownloadConfig] 里、永远是默认值 true，
+     * 结果「单任务线程数 / 分块大小」对普通文件完全不起作用（只有 M3U8 用得上）。
+     */
+    val PREFER_SYSTEM = SettingsKey("dl.prefer_system", true)
 }

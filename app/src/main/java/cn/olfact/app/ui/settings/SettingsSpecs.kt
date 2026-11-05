@@ -129,6 +129,11 @@ object SettingsSpecs {
                 listOf(
                     Row.IntChoice(K.DL_THREADS, "单任务线程数", listOf(1 to "1", 2 to "2", 4 to "4", 8 to "8")),
                     Row.IntChoice(K.DL_CONCURRENT, "同时下载任务数", listOf(1 to "1", 2 to "2", 3 to "3", 5 to "5")),
+                    Row.Toggle(
+                        K.DL_PREFER_SYSTEM,
+                        "优先使用系统下载器",
+                        "关闭后普通文件走内置多线程引擎（线程数/分块大小才生效）"
+                    ),
                     Row.Toggle(K.DL_WIFI_ONLY, "仅 Wi-Fi 下载"),
                     Row.Toggle(K.DL_NOTIFY, "下载通知（进度/完成/失败）")
                 )
