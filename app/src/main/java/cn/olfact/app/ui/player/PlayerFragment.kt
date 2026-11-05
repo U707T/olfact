@@ -58,14 +58,22 @@ class PlayerFragment : Fragment(R.layout.fragment_player) {
     /** 起播交给 B3 的 Media3 播放器（独立 Activity，支持 PiP / 倍速 / 断点续播）。 */
     private fun startPlayback(url: String, title: String) {
         if (url.isBlank()) return
+        // 嗅探到的媒体可能带 Cookie / Authorization / 专用 UA，丢了就会 403。
+        // SnifferFeed 是进程内的，按 URL 取回同一条记录即可。
+        val sniffed = SnifferFeed.items.firstOrNull { it.url == url }
         val page = BrowserSession.current()
+        val referer = sniffed?.pageUrl?.takeIf { it.isNotBlank() } ?: page?.url
+        val headers = buildMap {
+            putAll(sniffed?.headers.orEmpty())
+            referer?.takeIf { it.isNotBlank() }?.let { put("Referer", it) }
+        }
         val source = PlaybackSource(
             url = url,
             title = title.ifBlank { null },
-            pageUrl = page?.url,
-            pageTitle = page?.title,
-            referer = page?.url,
-            headers = page?.url?.let { mapOf("Referer" to it) }.orEmpty(),
+            pageUrl = page?.url ?: sniffed?.pageUrl,
+            pageTitle = page?.title ?: sniffed?.pageTitle,
+            referer = referer,
+            headers = headers,
             live = url.substringBefore('?').endsWith(".m3u8")
         )
         val speed = AppSettings.get(K.PLAYER_SPEED).toFloatOrNull()?.coerceIn(0.5f, 2.0f) ?: 1f

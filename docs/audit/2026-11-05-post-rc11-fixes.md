@@ -45,6 +45,8 @@
 
 - `AppSettings.init` 等 `awaitLoaded(1s)`：修冷启动夜间模式、字体缩放、广告开关回落默认值。
 - 播放器 `onStart` 重建被 `onStop` 释放的播放器；`onNewIntent` 换片前保存进度。
+- 播放页起播按 URL 从 `SnifferFeed` 取回嗅探到的请求头（Cookie / Authorization / UA），
+  不再只补 Referer；`SnifferSheet` 也改为先记入 Feed 再打开播放页。
 - DoH 隧道：处理池 32→64，转发线程独立池，每条隧道 2 线程（原 3）。
 - `UpstreamPool` 用 `AtomicBoolean` 保证同一时刻只有一场竞速。
 - 确认对话框新增 `positiveLabel`：清空/关闭/取消收藏不再一律显示「删除」。

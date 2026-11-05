@@ -51,8 +51,10 @@ object SnifferSheet {
             trailing = "下载"
             onRowClick = {
                 sheet.dismiss()
-                Nav.push(PlayerFragment.newInstance(item.url, item.title.orEmpty()))
+                // 先入 SnifferFeed 再开播放页：PlayerFragment 会按 URL 取回这条记录里的
+                // Referer / Cookie，丢掉就会 403。
                 SnifferFeed.add(item)
+                Nav.push(PlayerFragment.newInstance(item.url, item.title.orEmpty()))
             }
             // 长按直接下载：把嗅探到的请求头（Referer / Cookie / UA）一并带下去，
             // 否则防盗链站点的直链只能下到一个 403 页面。
