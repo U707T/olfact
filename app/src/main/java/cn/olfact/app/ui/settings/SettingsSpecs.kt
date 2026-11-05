@@ -73,6 +73,16 @@ object SettingsSpecs {
                             ) {
                                 AppSettings.reset()
                                 RuntimeFlags.reloadPagesOnResume = true
+                                // DataStore 回到默认值只是第一步：模块里还有缓存状态。
+                                // 广告拦截的 enabled、DoH 引擎是否在跑、定时备份的排程
+                                // 不跟着复位的话，用户会看到「已恢复默认」但行为没变。
+                                cn.olfact.app.data.ModuleBackends.adBlockManager
+                                    ?.setEnabled(AppSettings.get(K.AD_ENABLED))
+                                val doh = OlfactServices.doh as? cn.olfact.app.data.DohAdapter
+                                kotlin.concurrent.thread(isDaemon = true, name = "olfact-reset-defaults") {
+                                    runCatching { if (doh != null && !AppSettings.get(K.DOH_ENABLED)) doh.stop() }
+                                    runCatching { cn.olfact.app.data.AppBackup.syncSchedule(ctx) }
+                                }
                                 // 夜间模式也要回到「跟随系统」，否则 delegate 还停留在旧值
                                 androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(
                                     androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
