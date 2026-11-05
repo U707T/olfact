@@ -30,7 +30,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import okhttp3.OkHttpClient
-import java.io.File
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 
@@ -130,7 +129,7 @@ class DownloadQueue(
         if (record != null) {
             jobs.remove(id)?.cancel()
             record.systemDownloadId?.let { SystemDownloader(context).cancel(it) }
-            if (deleteFile) record.filePath?.let { runCatching { File(it).delete() } }
+            if (deleteFile) deleteArtifact(record)
             runCatching { DownloadPaths.workDir(context, id).deleteRecursively() }
         }
         speedMeter.reset(id)
@@ -138,6 +137,18 @@ class DownloadQueue(
         store.remove(id)
         notifierProvider()?.cancel(id)
         publish()
+    }
+
+    /** 删除成品文件：content:// 走 ContentResolver，普通路径还要处理「相对 Download/」的系统下载记录。 */
+    private fun deleteArtifact(record: DownloadRecord) {
+        val path = record.filePath ?: return
+        runCatching {
+            if (path.startsWith("content://")) {
+                context.contentResolver.delete(android.net.Uri.parse(path), null, null)
+            } else {
+                DownloadPaths.resolveExisting(context, path)?.delete()
+            }
+        }
     }
 
     fun refresh() = publish()
@@ -280,13 +291,24 @@ class DownloadQueue(
         store.upsert(current)
         publish()
 
+        // 系统里的任务可能被清理/丢失：progressOf 返回 null 时不能无限 continue，
+        // 否则这条记录会永远停在「下载中」，每秒轮询一次直到进程结束。
+        var missingPolls = 0
         while (true) {
             delay(POLL_INTERVAL_MS)
             if (store.get(record.id)?.status == DownloadStatus.CANCELED) {
                 downloader.cancel(systemId)
                 throw CancellationException("已取消")
             }
-            val progress = downloader.progressOf(systemId) ?: continue
+            val progress = downloader.progressOf(systemId)
+            if (progress == null) {
+                missingPolls++
+                if (missingPolls >= MAX_MISSING_POLLS) {
+                    throw IOException("系统下载任务已丢失（可能被系统清理）")
+                }
+                continue
+            }
+            missingPolls = 0
             when {
                 progress.isComplete -> return current.copy(
                     status = DownloadStatus.COMPLETED,
@@ -402,5 +424,8 @@ class DownloadQueue(
         private const val POLL_INTERVAL_MS = 1_000L
         private const val PROGRESS_PERSIST_INTERVAL_MS = 800L
         private const val UI_PUSH_INTERVAL_MS = 200L
+
+        /** 系统任务连续查不到这么多次（≈5s）就判定丢失，避免无限轮询。 */
+        private const val MAX_MISSING_POLLS = 5
     }
 }

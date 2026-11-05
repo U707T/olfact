@@ -33,6 +33,20 @@ object DownloadPaths {
 
     fun workDir(context: Context, recordId: String): File = File(tempRoot(context), recordId)
 
+    /**
+     * 把记录里的 filePath 还原成可删除的文件。
+     *
+     * 三形态：
+     * - `content://…`：系统 DownloadManager 的产物，要用 ContentResolver 删；
+     * - 绝对路径：自研下载器写的成品；
+     * - 相对路径（如 `olfact/video.mp4`）：系统下载器入队时用的 subPath，
+     *   相对于外部 `Download/` 目录。
+     */
+    fun resolveExisting(context: Context, path: String): File? {
+        if (path.isBlank()) return null
+        return if (path.startsWith("/")) File(path) else File(downloadsRoot(context).parentFile, path)
+    }
+
     fun plannedName(spec: DownloadSpec): String {
         val extension = Files.extensionOf(spec.url, spec.mimeType)
         val base = Files.sanitizeFileName(spec.fileName.ifBlank { "video" }, "video")
