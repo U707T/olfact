@@ -68,6 +68,10 @@ class AdBlockManager(private val config: AdBlockConfig) : AdBlockHook, Closeable
     private val started = AtomicBoolean(false)
     private val lastStatsPublish = AtomicLong(0L)
 
+    /** 上次成功构建/更新规则的时间。开关、白名单变化不能刷新它（设置页会显示「刚刚更新」）。 */
+    @Volatile
+    private var lastRefreshAt: Long = 0L
+
     // ------------------------------------------------------------ lifecycle
 
     fun start() {
@@ -113,6 +117,7 @@ class AdBlockManager(private val config: AdBlockConfig) : AdBlockHook, Closeable
         val old = engine
         engine = created
         old?.close()
+        if (created != null) lastRefreshAt = System.currentTimeMillis()
         B4Log.d(TAG, "引擎就绪：${created?.kind} / ${created?.ruleCount ?: 0} 条 / $usedLists 个订阅")
         publish(lastError = if (created == null) "没有可用规则" else null)
         created != null
@@ -285,7 +290,7 @@ class AdBlockManager(private val config: AdBlockConfig) : AdBlockHook, Closeable
             subscriptions = store.items.value,
             whitelist = whitelist.all().toSet(),
             stats = stats.snapshot(),
-            lastRefreshAt = System.currentTimeMillis(),
+            lastRefreshAt = lastRefreshAt,
             lastError = lastError
         )
     }
