@@ -128,9 +128,15 @@ class DownloadQueue(
         val record = store.get(id)
         if (record != null) {
             jobs.remove(id)?.cancel()
-            record.systemDownloadId?.let { SystemDownloader(context).cancel(it) }
-            if (deleteFile) deleteArtifact(record)
-            runCatching { DownloadPaths.workDir(context, id).deleteRecursively() }
+            // 记录先消失（UI 立刻有反馈），产物删除丢到 IO 线程：
+            // 分片目录里可能躺着上千个 part，在调用线程（多半是主线程）deleteRecursively 会直接 ANR。
+            scope.launch {
+                runCatching {
+                    record.systemDownloadId?.let { SystemDownloader(context).cancel(it) }
+                    if (deleteFile) deleteArtifact(record)
+                    DownloadPaths.workDir(context, id).deleteRecursively()
+                }.onFailure { android.util.Log.w("olfact", "删除下载产物失败 id=$id", it) }
+            }
         }
         speedMeter.reset(id)
         lastProgressPush.remove(id)
@@ -206,15 +212,9 @@ class DownloadQueue(
      */
     suspend fun processQueue(): Int = coroutineScope {
         val config = configProvider()
-        // 上次进程被杀时处于 RUNNING 的任务：
-        // - 自研引擎：part 文件还在，重新排队续传；
-        // - 系统下载器：DownloadManager 可能还在下，保留 id 继续跟踪，绝不重复入队。
-        store.all()
-            .filter { it.status == DownloadStatus.RUNNING }
-            .filterNot { it.engine == DownloadEngine.SYSTEM && it.systemDownloadId != null }
-            .forEach {
-                store.upsert(it.copy(status = DownloadStatus.QUEUED, error = "进程重启，自动续传", updatedAt = now()))
-            }
+        // 上次进程被杀时处于 RUNNING 的任务：自研引擎重新排队续传；系统下载器保留 id 继续跟踪。
+        // 本进程正在跑的不算「上次进程留下的」，见 [requeueCandidates]。
+        requeueCandidates(store.all(), activeIds).forEach { store.upsert(it.copy(updatedAt = now())) }
         publish()
 
         val queued = store.all().filter { it.status == DownloadStatus.QUEUED }.sortedBy { it.createdAt }
@@ -244,7 +244,13 @@ class DownloadQueue(
         store.upsert(record)
         publish()
         if (config.notifyProgress) notifierProvider()?.notifyProgress(record, force = true)
-        jobs[id] = kotlinx.coroutines.currentCoroutineContext()[Job] ?: return
+        val job = kotlinx.coroutines.currentCoroutineContext()[Job]
+        if (job == null) {
+            // 理论上不会发生；真发生也要把占位还回去，否则这条任务以后再也调不动。
+            activeIds.remove(id)
+            return
+        }
+        jobs[id] = job
 
         try {
             val finished = when (record.engine) {
@@ -265,6 +271,12 @@ class DownloadQueue(
             publish()
             throw e
         } catch (e: Exception) {
+            // 记录可能已经被 remove() 删掉了（先删记录、再取消 Job，取消是协作式的，
+            // 阻塞中的 OkHttp 调用仍会抛 IOException）：这时候写回失败状态＝任务复活。
+            if (store.get(id) == null) {
+                publish()
+                return
+            }
             val failed = record.copy(
                 status = DownloadStatus.FAILED,
                 error = e.message ?: e.javaClass.simpleName,
@@ -433,3 +445,20 @@ class DownloadQueue(
         private const val MAX_MISSING_POLLS = 5
     }
 }
+
+/**
+ * 上次进程留下的 RUNNING 记录 → 重新排队续传。
+ *
+ * 两个例外：
+ * - 系统下载器任务（有 [DownloadRecord.systemDownloadId]）：DownloadManager 可能还在下，
+ *   保留 RUNNING 继续跟踪，绝不重新入队；
+ * - 本进程正在跑的任务（[active] 里的 id）：WorkManager 与前台 `kick()` 会同时调
+ *   `processQueue()`，若把在跑的记录改回 QUEUED，UI 会一直显示「排队中」，
+ *   而 `runOne` 又因为 `activeIds` 已被占用直接跳过，这条任务到下载结束前都是错的。
+ */
+internal fun requeueCandidates(records: List<DownloadRecord>, active: Set<String>): List<DownloadRecord> =
+    records
+        .filter { it.status == DownloadStatus.RUNNING }
+        .filterNot { it.engine == DownloadEngine.SYSTEM && it.systemDownloadId != null }
+        .filterNot { it.id in active }
+        .map { it.copy(status = DownloadStatus.QUEUED, error = "进程重启，自动续传") }
