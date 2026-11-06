@@ -4,8 +4,8 @@
 原版（含规则引擎、迅雷 SDK、磁力、投屏等）只作为视觉与行为参照，范围见
 [`docs/TECH-PLAN.md`](docs/TECH-PLAN.md)。
 
-**当前版本：`1.0.0-rc11`（versionCode 11）** ·
-[Release](https://github.com/U707T/olfact/releases/tag/v1.0.0-rc11)
+**当前版本：`1.0.0-rc12`（versionCode 12）** ·
+[Release](https://github.com/U707T/olfact/releases/tag/v1.0.0-rc12)
 
 - **minSdk 24 / targetSdk 37**，Gradle 9.7.0 + AGP 9.0.1 + Kotlin 2.3.20，JDK 21
 - 纯 View 体系（不引 Compose），release 开 R8 + 资源压缩 + ABI split
@@ -54,7 +54,7 @@ export ANDROID_HOME=/opt/android-sdk ANDROID_SDK_ROOT=/opt/android-sdk
 
 1. 改 `app/build.gradle.kts` 的 `versionName`（`versionCode` 递增）
 2. `CHANGELOG.md` 顶部加同版本段落（CI 会把它贴进 Release）
-3. push 打 tag：`git tag v1.0.0-rc11 && git push origin v1.0.0-rc11`
+3. push 打 tag：`git tag v1.0.0-rc12 && git push origin v1.0.0-rc12`
 4. CI 跑单测 / lint / debug → 签 `assembleRelease` → 上传 APK 并创建 Release
    （`-rc` / `-beta` 自动标 prerelease）
 
