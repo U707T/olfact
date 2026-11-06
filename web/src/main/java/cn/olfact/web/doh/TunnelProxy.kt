@@ -241,20 +241,23 @@ class TunnelProxy(
         return try {
             val addresses = resolver(host)
             if (addresses.isEmpty()) return null
-            val socket = Socket()
-            socket.tcpNoDelay = true
-            socket.soTimeout = idleTimeoutMs
             var lastError: Exception? = null
             for (address in addresses.take(2)) {
+                // 每个地址一个 socket：connect() 失败后 Socket 实例不可复用（
+                // 之前是把同一个 socket 连着 connect 两次，第二个地址必然失败，
+                // 多 A 记录里第一条挂了就等于整条隧道挂了）。
+                val socket = Socket()
                 try {
+                    socket.tcpNoDelay = true
+                    socket.soTimeout = idleTimeoutMs
                     socket.connect(InetSocketAddress(address, port), connectTimeoutMs)
                     sockets.add(socket)
                     return socket
                 } catch (e: Exception) {
                     lastError = e
+                    runCatching { socket.close() }
                 }
             }
-            runCatching { socket.close() }
             if (lastError != null) onEvent("连接 $host:$port 失败: ${lastError.message}")
             null
         } catch (e: Exception) {
@@ -272,7 +275,8 @@ class TunnelProxy(
         // 池子能撑住的并发隧道数直接翻倍；转发池与处理池分开，避免自锁。
         val upload = executor.submit { copy(clientIn, upstreamOut, upstream, true) }
         copy(upstreamIn, clientOut, client, false)
-        runCatching { upload.get(30, TimeUnit.SECONDS) }
+        // 上行没及时收尾就取消它，别让任务挂着继续往已关闭的流里写。
+        runCatching { upload.get(30, TimeUnit.SECONDS) }.onFailure { upload.cancel(true) }
         runCatching { upstream.close() }
         sockets.remove(upstream)
     }
