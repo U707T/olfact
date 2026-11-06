@@ -81,7 +81,8 @@ export ANDROID_HOME=/opt/android-sdk ANDROID_SDK_ROOT=/opt/android-sdk
   surface 池才能彻底解决）。
 - `libadblock_ffi.so` 默认由手动触发的 CI job 产出，缺失时降级 Kotlin 引擎（规则上限 2 万条）。
 - 仅中文资源，未提供英文。
-- 下载列表「文件管理」只尝试拉起系统文件管理器，未接 SAF 目录选择器（失败时提示下载目录路径）。
+- 下载列表「文件管理」提供「复制目录路径 / 尝试打开系统文件管理器」；未接 SAF 目录选择器
+  （下载目录在 `Android/data` 下，Android 11+ 的第三方文件管理器看不到）。
 
 ---
 

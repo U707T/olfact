@@ -75,7 +75,7 @@ object AiActions {
      */
     fun translatePage(activity: ComponentActivity) {
         if (!cn.olfact.app.data.AppSettings.get(cn.olfact.app.data.K.AI_TRANSLATE)) {
-            Nav.toast("已在设置里关闭「整页双语对照」")
+            Nav.toast("已在设置里关闭「整页翻译」")
             return
         }
         val ctx = prepare(activity) ?: return

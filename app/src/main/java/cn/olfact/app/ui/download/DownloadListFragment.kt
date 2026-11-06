@@ -199,24 +199,7 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list) {
                         }
                     }
                 }
-                "文件管理" -> {
-                    val dir = java.io.File(
-                        requireContext().getExternalFilesDir(null),
-                        "Download/olfact"
-                    )
-                    runCatching {
-                        startActivity(
-                            android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-                                setDataAndType(
-                                    android.net.Uri.parse("content://com.android.externalstorage.documents/root/primary"),
-                                    "resource/folder"
-                                )
-                            }
-                        )
-                    }.onFailure {
-                        Nav.toast("下载目录：${dir.absolutePath}")
-                    }
-                }
+                "文件管理" -> fileManager()
                 "显示时间" -> {
                     showTime = !showTime
                     uiPrefs.edit().putBoolean("dl_show_time", showTime).apply()
@@ -227,6 +210,39 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list) {
                     render()
                 }
                 "更多设置" -> Nav.push(cn.olfact.app.ui.settings.SettingsPageFragment.newInstance("download"))
+            }
+        }
+    }
+
+    /**
+     * 「文件管理」：下载目录在 Android/data 下，系统文件管理器（Android 11+）看不到，
+     * 所以给两个真实可用的出口——复制路径（粘给 MT 管理器之类）/ 尝试拉起系统文件管理器。
+     */
+    private fun fileManager() {
+        val ctx = requireContext()
+        val dir = java.io.File(ctx.getExternalFilesDir(null), "Download/olfact")
+        Dialogs.choose(ctx, "文件管理", listOf("复制目录路径", "尝试打开系统文件管理器"), 0) { index ->
+            if (index == 0) {
+                val cm = ctx.getSystemService(android.content.ClipboardManager::class.java)
+                cm?.setPrimaryClip(
+                    android.content.ClipData.newPlainText("download-dir", dir.absolutePath)
+                )
+                Nav.toast("目录路径已复制")
+                return@choose
+            }
+            val opened = runCatching {
+                startActivity(
+                    android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                        setDataAndType(
+                            android.net.Uri.parse("content://com.android.externalstorage.documents/root/primary"),
+                            "vnd.android.document/directory"
+                        )
+                    }
+                )
+                true
+            }.getOrDefault(false)
+            if (!opened) {
+                Nav.toast("系统文件管理器打不开该目录，路径：${dir.absolutePath}")
             }
         }
     }

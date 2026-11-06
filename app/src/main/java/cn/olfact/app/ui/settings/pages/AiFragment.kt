@@ -53,7 +53,7 @@ class AiFragment : Fragment(R.layout.fragment_page) {
         b.content.addView(sectionTitle("功能开关"))
         b.content.addView(settingGroup(
             toggle("网页总结", AppSettings.get(K.AI_SUMMARY), "Readability 抽正文 + 分块摘要") { AppSettings.set(K.AI_SUMMARY, it) },
-            toggle("整页双语对照", AppSettings.get(K.AI_TRANSLATE), "逐段注入译文") { AppSettings.set(K.AI_TRANSLATE, it) }
+            toggle("整页翻译", AppSettings.get(K.AI_TRANSLATE), "把当前页正文翻译后显示在结果面板") { AppSettings.set(K.AI_TRANSLATE, it) }
         ).also { cardBottomMargin(it) })
 
         b.content.addView(sectionTitle("供应商 ${providers.size}"))

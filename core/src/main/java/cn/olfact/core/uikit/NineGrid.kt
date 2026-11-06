@@ -13,7 +13,7 @@ import android.widget.TextView
 import androidx.core.content.ContextCompat
 
 /**
- * 主菜单九宫格（原版是 5 列 × 4 行，见 docs/refs/09-主菜单九宫格.jpg）。
+ * 主菜单九宫格（原版是 5 列 × 3 行、共 15 格，见 docs/refs/09-主菜单九宫格.jpg）。
  */
 class NineGrid @JvmOverloads constructor(
     context: Context,

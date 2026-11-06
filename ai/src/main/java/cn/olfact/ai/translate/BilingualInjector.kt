@@ -6,6 +6,10 @@ package cn.olfact.ai.translate
  * 2. 调 [Translator] 批量翻译；
  * 3. [applyTranslationsScript] 把译文插到每段后面；
  * 4. [clearScript] 一键还原。
+ *
+ * ⚠️ 当前**未接入**界面：`AiActions.translatePage` 走的是「整页文本 → 结果面板」，
+ * 设置里的开关也叫「整页翻译」。要做真正的逐段注入，需要先把下面四步串进
+ * BrowserSurface（以及回答多条段落时的分批与对齐策略）。
  */
 object BilingualInjector {
 
