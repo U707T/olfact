@@ -56,8 +56,14 @@ class BackupPipeline(
                 is BackupTarget.Local -> {
                     StoreFiles.ensureDir(target.dir)
                     val file = File(target.dir, name)
-                    // 流式写 zip：备份包可能几十 MB，不再先拼进 ByteArrayOutputStream。
-                    java.io.FileOutputStream(file).use { out -> writer.write(data, out, appVersion) }
+                    // 先写 .tmp 再改名：写到一半被系统杀掉会留下半个 zip，
+                    // 而备份列表把目录里任何 .zip 都当成可恢复的备份，用户会拿它去恢复并失败。
+                    val tmp = File(target.dir, "$name.tmp")
+                    java.io.FileOutputStream(tmp).use { out -> writer.write(data, out, appVersion) }
+                    if (!tmp.renameTo(file)) {
+                        tmp.copyTo(file, overwrite = true)
+                        tmp.delete()
+                    }
                     size = file.length()
                     pruneLocal(target.dir, target.retention)
                     file.absolutePath

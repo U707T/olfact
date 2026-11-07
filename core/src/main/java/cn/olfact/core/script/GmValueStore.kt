@@ -22,7 +22,16 @@ class GmValueStore(
 
     private val cache = HashMap<String, MutableMap<String, String>>()
 
-    private fun fileFor(scriptId: String): File = File(dir, "$scriptId.json")
+    /**
+     * 文件名用的 id：与 [ScriptStore] 的 `fileId` 同一规则，只留字母数字与 `-` `_`。
+     *
+     * scriptId 来自页面上跑的 .user.js（`@name`/`@namespace` 派生的 id），是外部输入。
+     * 之前直接 `File(dir, "$scriptId.json")`，id 里带 `../` 就能把 GM 存储写到 gm 目录外面。
+     */
+    private fun fileId(scriptId: String): String =
+        scriptId.filter { it.isLetterOrDigit() || it == '-' || it == '_' }.ifEmpty { "script" }
+
+    private fun fileFor(scriptId: String): File = File(dir, "${fileId(scriptId)}.json")
 
     @Synchronized
     private fun mapFor(scriptId: String): MutableMap<String, String> = cache.getOrPut(scriptId) {
