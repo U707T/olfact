@@ -28,6 +28,7 @@ import cn.olfact.app.link.SearchEngines
 import cn.olfact.app.menu.MainMenuSheet
 import cn.olfact.app.nav.ChromeAware
 import cn.olfact.app.nav.Nav
+import cn.olfact.app.ui.BottomBarSlots
 import cn.olfact.app.ui.HomeFragment
 import cn.olfact.app.ui.TabsFragment
 import cn.olfact.app.ui.browser.BrowserFragment
@@ -186,49 +187,9 @@ class MainActivity : AppCompatActivity() {
         currentBottomVariant = variant
         // 五槽对齐原版 view_stub_browser_bottom1..4：间距/尺寸照抄，
         // 只按设置切换槽位顺序（原版就是用 4 份 layout 表达 4 种底栏）。
-        val items = when (variant) {
-            // 原版 bottom3：第一格后退、第二格前进（阅读/沉浸场景）
-            "back" -> listOf(
-                BottomBar.Item("back", R.drawable.orig_b_back, description = "后退", marginStart = 10f),
-                BottomBar.Item(
-                    "refresh", R.drawable.orig_b_forward, description = "前进或刷新",
-                    marginStart = 15f, marginEnd = 18f
-                ),
-                BottomBar.Item(
-                    "search", label = "主页", kind = BottomBar.Kind.PILL,
-                    description = "地址与搜索", marginStart = 5f, marginEnd = 5f
-                ),
-                BottomBar.Item("tabs", kind = BottomBar.Kind.COUNT, description = "标签页", marginStart = 18f),
-                BottomBar.Item("menu", R.drawable.orig_b_menu, description = "菜单", marginStart = 15f, marginEnd = 10f)
-            )
-            // 原版 bottom4：标签数在最左，首页在右
-            "tabs_left" -> listOf(
-                BottomBar.Item("tabs", kind = BottomBar.Kind.COUNT, description = "标签页", marginStart = 10f),
-                BottomBar.Item(
-                    "refresh", R.drawable.orig_b_refresh, description = "刷新或前进",
-                    marginStart = 15f, marginEnd = 18f
-                ),
-                BottomBar.Item(
-                    "search", label = "主页", kind = BottomBar.Kind.PILL,
-                    description = "地址与搜索", marginStart = 5f, marginEnd = 5f
-                ),
-                BottomBar.Item("home", R.drawable.orig_b_home, description = "首页", marginStart = 18f),
-                BottomBar.Item("menu", R.drawable.orig_b_menu, description = "菜单", marginStart = 15f, marginEnd = 10f)
-            )
-            else -> listOf(
-                BottomBar.Item("home", R.drawable.orig_b_home, description = "首页", marginStart = 10f),
-                BottomBar.Item(
-                    "refresh", R.drawable.orig_b_refresh, description = "刷新或前进",
-                    marginStart = 15f, marginEnd = 18f
-                ),
-                BottomBar.Item(
-                    "search", label = "主页", kind = BottomBar.Kind.PILL,
-                    description = "地址与搜索", marginStart = 5f, marginEnd = 5f
-                ),
-                BottomBar.Item("tabs", kind = BottomBar.Kind.COUNT, description = "标签页", marginStart = 18f),
-                BottomBar.Item("menu", R.drawable.orig_b_menu, description = "菜单", marginStart = 15f, marginEnd = 10f)
-            )
-        }
+        // 槽位表在 BottomBarSlots：一份定义 + 四种变体的 id 顺序，
+        // 不再三段 listOf 复制粘贴（间距/图标只在一处维护）。
+        val items = BottomBarSlots.of(variant)
         binding.bottomBar.configure(items, style)
         binding.bottomBar.onSelect = { id ->
             when (id) {
@@ -332,7 +293,7 @@ class MainActivity : AppCompatActivity() {
         val browser = Nav.current() as? BrowserFragment
         // 「前进后退」变体（原版 bottom3）第二格固定是右箭头前进，不随历史变化。
         val refreshIcon = when {
-            currentBottomVariant == "back" -> R.drawable.orig_b_forward
+            BottomBarSlots.isForwardVariant(currentBottomVariant) -> R.drawable.orig_b_forward
             browser?.canGoForward() == true -> R.drawable.orig_b_forward
             else -> R.drawable.orig_b_refresh
         }
