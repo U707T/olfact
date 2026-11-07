@@ -275,7 +275,9 @@ class MainActivity : AppCompatActivity() {
             is HomeFragment -> f.focusSearch()
             is BrowserFragment -> f.focusUrlBar()
             else -> {
-                // 设置/下载等页面：pop 回首页（保留返回栈，用户按返回还能回来），再聚焦搜索框。
+                // 设置/下载等页面：回首页再聚焦搜索框。
+                // 注意 openHome() 是 POP_BACK_STACK_INCLUSIVE：整个返回栈会被清掉，
+                // 回首页后按返回是退出应用（与原版一致），不是回设置页。
                 Nav.openHome()
                 (Nav.current() as? HomeFragment)?.focusSearch()
             }
@@ -437,9 +439,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun isDefaultBrowser(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
-        val rm = getSystemService(RoleManager::class.java) ?: return false
-        return rm.isRoleHeld(RoleManager.ROLE_BROWSER)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val rm = getSystemService(RoleManager::class.java) ?: return false
+            return rm.isRoleHeld(RoleManager.ROLE_BROWSER)
+        }
+        // Android 9 及以下没有 RoleManager：问系统「VIEW http 默认交给谁」。
+        // 之前这里直接 return false，而 requestDefaultBrowser() 又专门为 <Q 打开了
+        // 「默认应用」设置页 —— 能改却永远显示「未设置」，用户会以为按钮坏了。
+        val probe = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("http://example.com"))
+        val resolved = packageManager.resolveActivity(probe, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
+        return resolved?.activityInfo?.packageName == packageName
     }
 
     fun requestDefaultBrowser() {
