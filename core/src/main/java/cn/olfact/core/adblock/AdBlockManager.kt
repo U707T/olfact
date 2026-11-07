@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import java.io.Closeable
@@ -72,6 +74,19 @@ class AdBlockManager(private val config: AdBlockConfig) : AdBlockHook, Closeable
     @Volatile
     private var lastRefreshAt: Long = 0L
 
+    /** 最近一次建引擎的错误（「没有可用规则」等）。开关/白名单变化不该把它抹掉。 */
+    @Volatile
+    private var lastError: String? = null
+
+    /**
+     * 建引擎的串行化闸门。
+     *
+     * 刷新有 7 个入口（启动、改订阅开关、增删订阅、导入重载、全量更新、单条更新、备份恢复），
+     * 不加锁时两条协程会各自建出一个引擎，后完成的那个把先完成的 `close()` 掉，
+     * 而浏览器线程可能正在用它 `check()`——use-after-close，轻则漏拦，重则崩在 native 里。
+     */
+    private val refreshLock = Mutex()
+
     // ------------------------------------------------------------ lifecycle
 
     fun start() {
@@ -85,8 +100,12 @@ class AdBlockManager(private val config: AdBlockConfig) : AdBlockHook, Closeable
         }
     }
 
-    /** 重建引擎。订阅变更、规则更新、白名单变更后调用。 */
+    /** 重建引擎。订阅变更、规则更新、白名单变更后调用；并发调用会被串行化（见 [refreshLock]）。 */
     suspend fun refresh(): Boolean = withContext(Dispatchers.IO) {
+        refreshLock.withLock { rebuild() }
+    }
+
+    private fun rebuild(): Boolean {
         val items = store.items.value
         val sb = StringBuilder(1 shl 19)
         var usedLists = 0
@@ -119,8 +138,11 @@ class AdBlockManager(private val config: AdBlockConfig) : AdBlockHook, Closeable
         old?.close()
         if (created != null) lastRefreshAt = System.currentTimeMillis()
         B4Log.d(TAG, "引擎就绪：${created?.kind} / ${created?.ruleCount ?: 0} 条 / $usedLists 个订阅")
-        publish(lastError = if (created == null) "没有可用规则" else null)
-        created != null
+        // 错误只在建引擎时更新：之前 publish() 默认把 lastError 清成 null，
+        // 用户看到「没有可用规则」后随便拨一下开关，提示就消失了，问题还在。
+        lastError = if (created == null) "没有可用规则" else null
+        publish()
+        return created != null
     }
 
     override fun close() {
@@ -280,7 +302,7 @@ class AdBlockManager(private val config: AdBlockConfig) : AdBlockHook, Closeable
 
     // ----------------------------------------------------------------- state
 
-    private fun publish(lastError: String? = null) {
+    private fun publish() {
         _state.value = AdBlockState(
             enabled = enabled,
             engineKind = engine?.kind ?: EngineKind.KOTLIN,
