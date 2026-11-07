@@ -8,6 +8,7 @@ import cn.olfact.ai.TokenUsage
 import cn.olfact.ai.error.AiError
 import cn.olfact.ai.error.AiErrorMapper
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -94,6 +95,13 @@ class ChatClient(
     ) = withContext(Dispatchers.IO) {
         val request = buildRequest(provider, apiKey, OpenAiWire.requestBody(provider, messages, params, stream = true))
         val call = client.newCall(request)
+        // 协程被取消时把底层连接一起断掉。
+        // 循环里的 ensureActive() 只在两行之间生效：卡在 readUtf8Line() 里时，
+        // 要等满 readTimeout(120s) 才会退出，这段时间连接和 token 一直在烧，
+        // 与「可随时取消（连接会真的断）」的说法不符。
+        val cancelOnCompletion = currentCoroutineContext()[Job]?.invokeOnCompletion { cause ->
+            if (cause != null) call.cancel()
+        }
         try {
             call.await().use { response ->
                 if (!response.isSuccessful) {
@@ -124,6 +132,8 @@ class ChatClient(
         } catch (t: Throwable) {
             if (t is AiError) throw t
             throw AiErrorMapper.fromThrowable(t)
+        } finally {
+            cancelOnCompletion?.dispose()
         }
     }
 
