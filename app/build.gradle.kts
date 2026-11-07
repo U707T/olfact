@@ -62,6 +62,21 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    lint {
+        // :app:lintDebug 默认会把 core/web/player/ai/download 也分析一遍（checkDependencies），
+        // 冷缓存下 90 分钟都跑不完（CI 上实测直接超时）。关掉它：
+        // 各模块用自己的 lintDebug 独立跑，CI 里按模块并行，单模块十几分钟就能出报告。
+        checkDependencies = false
+        // 只分析 debug 变体：release 的差异（R8/资源压缩）由 assembleRelease 覆盖，不必再分析一遍。
+        checkReleaseBuilds = false
+        // error 必须拦；warning 只存档。
+        abortOnError = true
+        warningsAsErrors = false
+        // 测试源码不参与分析：单元测试/Instrumentation 各跑一遍分析，
+        // 在冷缓存 runner 上等于把时长翻倍，收益极低（测试里的 lint 问题不影响发版）。
+        ignoreTestSources = true
+    }
+
     testOptions {
         // Robolectric 需要真实资源表（SettingItem 建视图时会取 dimen / drawable）
         unitTests.isIncludeAndroidResources = true

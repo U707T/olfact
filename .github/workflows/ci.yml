@@ -68,10 +68,28 @@ jobs:
   # 每次 push 都跑会把整条流水线拖到一个小时。改为 PR / 手动 / 每周定时跑；
   # push 仍保留单测 + assembleDebug。本地提交前请自己跑一遍（见 README「构建」）。
   lint:
-    name: lint
+    name: lint (${{ matrix.module }})
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # 按模块并行：app 要分析全部依赖模块（AGP 9 的 lint 模型是工程级的），给它 90 分钟兜底；
+    # 其余模块各自分析自己，45 分钟足够。某个模块超时不再拖垮其它模块的报告。
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - module: app
+            timeout: 90
+          - module: core
+            timeout: 45
+          - module: web
+            timeout: 45
+          - module: player
+            timeout: 45
+          - module: download
+            timeout: 45
+          - module: ai
+            timeout: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -90,17 +108,17 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Android Lint
-        run: ./gradlew :app:lintDebug --stacktrace
+      - name: Android Lint (${{ matrix.module }})
+        run: ./gradlew :${{ matrix.module }}:lintDebug --stacktrace
 
       - name: Upload lint report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lint-report
+          name: lint-report-${{ matrix.module }}
           path: |
-            app/build/reports/lint-results-debug.html
-            app/build/reports/lint-results-debug.xml
+            ${{ matrix.module }}/build/reports/lint-results-debug.html
+            ${{ matrix.module }}/build/reports/lint-results-debug.xml
           retention-days: 7
           if-no-files-found: warn
 
