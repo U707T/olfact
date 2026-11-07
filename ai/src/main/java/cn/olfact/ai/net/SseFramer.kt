@@ -18,6 +18,15 @@ class SseFramer {
     private var id: String? = null
     private var hasData = false
 
+    /**
+     * 跨事件保留的 last event id（SSE 规范里 `id:` 不清空，除非显式发一个空 id）。
+     * 现在不重连用不到，但断流续传要靠它做 `Last-Event-ID`；之前每个事件都清掉，
+     * 真要做续传时会以为服务端没发 id。
+     */
+    @Volatile
+    var lastEventId: String? = null
+        private set
+
     /** 喂一行（不含换行）。返回完整事件，或 null 表示还在攒。 */
     fun feedLine(rawLine: String): SseEvent? {
         val line = rawLine.removeSuffix("\r")
@@ -36,7 +45,11 @@ class SseFramer {
                 hasData = true
             }
             "event" -> event = value
-            "id" -> id = value
+            "id" -> {
+                // 空 id 是规范里的「重置」；非空则同时更新跨事件保留值。
+                id = value
+                lastEventId = value.ifBlank { null }
+            }
             "retry" -> Unit
             else -> Unit
         }

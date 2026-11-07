@@ -109,7 +109,7 @@ class VideoPlayerActivity : Activity(), PlayerControlsView.Listener, PlayerGestu
         return prefs.positionOf(source.resumeKey)
     }
 
-    private fun preparePlayer(startMs: Long) {
+    private fun preparePlayer(startMs: Long, autoPlay: Boolean = true) {
         releasePlayer()
         errorPanel.visibility = View.GONE
         lastError = null
@@ -122,7 +122,8 @@ class VideoPlayerActivity : Activity(), PlayerControlsView.Listener, PlayerGestu
                 setAudioAttributes(AudioAttributes.DEFAULT, true)
                 setHandleAudioBecomingNoisy(true)
                 repeatMode = if (options.loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
-                playWhenReady = true
+                // 回前台重建时沿用离开前的播放状态：暂停着切出去再回来，不该自己播起来。
+                playWhenReady = autoPlay
             }
         player = exo
         playerView.player = exo
@@ -364,12 +365,14 @@ class VideoPlayerActivity : Activity(), PlayerControlsView.Listener, PlayerGestu
         if (releasedInBackground) {
             releasedInBackground = false
             startPositionMs = resolveStartPosition()
-            preparePlayer(startPositionMs)
+            preparePlayer(startPositionMs, autoPlay = playOnReturn)
         }
     }
 
     override fun onStop() {
         savePosition()
+        // 记下「离开时是不是在播」，回前台重建时用它初始化 playWhenReady。
+        playOnReturn = player?.isPlaying == true
         if (!isInPictureInPictureModeCompat()) {
             releasePlayer()
             releasedInBackground = true
@@ -397,6 +400,9 @@ class VideoPlayerActivity : Activity(), PlayerControlsView.Listener, PlayerGestu
             prefs.savePosition(source.resumeKey, position)
         }
     }
+
+    /** 离开前后台时的播放状态：回前台重建播放器时沿用（暂停着切出去不该自己播）。 */
+    private var playOnReturn: Boolean = true
 
     private fun releasePlayer() {
         player?.removeListener(playerListener)

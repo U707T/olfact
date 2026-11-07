@@ -139,6 +139,23 @@ class BrowserClient(
         }
     }
 
+    /**
+     * 主框架的 4xx / 5xx 不会走 [onReceivedError]（那是网络层错误）。
+     * 不补这一层的话，404/502 在 WebView 里就是「加载完了但一片空白」——
+     * 用户看到的是服务端返回的错误页 HTML，界面却以为一切正常，也没有重试入口。
+     */
+    override fun onReceivedHttpError(
+        view: WebView,
+        request: WebResourceRequest,
+        errorResponse: WebResourceResponse
+    ) {
+        super.onReceivedHttpError(view, request, errorResponse)
+        val code = errorResponse.statusCode
+        if (request.isForMainFrame && code >= 400) {
+            onError(code, "HTTP $code", request.url?.toString().orEmpty())
+        }
+    }
+
     private fun seenRecently(url: String): Boolean {
         val now = System.currentTimeMillis()
         val previous = seenMedia.put(url, now)

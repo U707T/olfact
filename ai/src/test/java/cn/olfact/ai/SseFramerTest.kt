@@ -63,4 +63,22 @@ class SseFramerTest {
         assertNull(framer.feedLine("data"))
         assertEquals("", framer.feedLine("")?.data)
     }
+
+    @Test
+    fun `lastEventId 跨事件保留，空 id 才重置`() {
+        val framer = SseFramer()
+        framer.feedLine("id: 42")
+        framer.feedLine("data: a")
+        assertEquals("42", framer.feedLine("")?.id)
+        // 下一个事件没有再发 id：事件自身不带 id，但续传锚点仍是 42
+        framer.feedLine("data: b")
+        assertEquals("b", framer.feedLine("")?.data)
+        assertEquals("42", framer.lastEventId)
+
+        // 规范里的「发一个空 id」＝重置
+        framer.feedLine("id: ")
+        framer.feedLine("data: c")
+        framer.feedLine("")
+        assertNull(framer.lastEventId)
+    }
 }

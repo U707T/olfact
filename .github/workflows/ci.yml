@@ -71,7 +71,7 @@ jobs:
     name: lint (${{ matrix.module }})
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
-    # 按模块并行：app 要分析全部依赖模块（AGP 9 的 lint 模型是工程级的），给它 90 分钟兜底；
+    # 按模块并行：app 要分析全部依赖模块（AGP 9 的 lint 模型是工程级的），给它 180 分钟兜底；
     # 其余模块各自分析自己，45 分钟足够。某个模块超时不再拖垮其它模块的报告。
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
@@ -79,7 +79,9 @@ jobs:
       matrix:
         include:
           - module: app
-            timeout: 90
+            # 实测：关掉 checkDependencies 后 app 仍要把全部依赖模块分析一遍
+            # （AGP 9 的 lint 模型是工程级的），沙箱/2 核 runner 上 90 分钟不够。
+            timeout: 180
           - module: core
             timeout: 45
           - module: web
