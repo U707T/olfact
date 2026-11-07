@@ -33,6 +33,10 @@ import java.util.UUID
  *
  * 与 [DefaultBrowserSurface] 的区别：这里的 WebView 是 B2 的 `BrowserView`，
  * 走拦截 → 嗅探 → DoH 粘性 → 脚本注入的完整链路；兜底类只在 web 模块缺失时使用。
+ *
+ * **可复用**：`createView` 只建一次 WebView，[view] 把同一个 View 交回给新容器；
+ * Fragment 的 View 重建时通过 [attachHost] 换掉宿主回调（旧 host 引用的是已销毁的 View）。
+ * 这样「进设置再返回」不会重新加载网页。
  */
 class WebBrowserSurface(private val context: Context) : BrowserSurface {
 
@@ -41,9 +45,19 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
     private var detectSink: ((String) -> Unit)? = null
     private val sticky = SessionSticky()
 
+    /** 当前宿主；View 重建后由 [attachHost] 替换。 */
+    private var host: BrowserSurfaceHost? = null
+
+    private var tabId: String = UUID.randomUUID().toString()
+    private var incognito: Boolean = false
+
     override fun createView(host: BrowserSurfaceHost): View {
-        val tabId = UUID.randomUUID().toString()
-        val incognito = BrowserSession.current()?.incognito == true
+        this.host = host
+        // 同一个实例只建一次：第二次调用直接交回原 View。
+        web?.let { return it }
+
+        tabId = UUID.randomUUID().toString()
+        incognito = BrowserSession.current()?.incognito == true
 
         val view = BrowserView(context).apply {
             uaManager = UaManager(UaManager.systemMobileUa(context))
@@ -55,9 +69,9 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
                 if (!incognito) HistoryStore.record(context, title, url)
             }
 
-            override fun onTitleChanged(tabId: String, title: String) = host.onTitle(title)
+            override fun onTitleChanged(tabId: String, title: String) = host?.onTitle(title) ?: Unit
 
-            override fun onProgress(tabId: String, progress: Int) = host.onProgress(progress)
+            override fun onProgress(tabId: String, progress: Int) = host?.onProgress(progress) ?: Unit
         }
 
         view.webViewClient = BrowserClient(
@@ -70,28 +84,28 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
             dohPredicate = { hostName -> ModuleBackends.shouldUseDoh(hostName) },
             events = events,
             onPageStarted = { url ->
-                host.onPageStarted(url)
+                host?.onPageStarted(url)
                 injectScripts(view, url)
             },
             onPageFinished = { url ->
-                host.onPageFinished(url)
+                host?.onPageFinished(url)
                 injectLateScripts(view, url)
             },
             onExternalScheme = { url -> cn.olfact.app.data.openExternal(context, url) },
             onBeforeNavigate = { url -> injectScripts(view, url) },
-            onError = { code, description, url -> host.onError(code, description, url) },
+            onError = { code, description, url -> host?.onError(code, description, url) ?: Unit },
             onRenderProcessGone = { dead ->
                 // 渲染进程被系统杀掉：拆掉这个 WebView，提示用户重新加载，别让整个应用跟着崩
                 (dead.parent as? android.view.ViewGroup)?.removeView(dead)
                 web = null
                 android.widget.Toast.makeText(context, "页面进程已重启，请重新加载", android.widget.Toast.LENGTH_SHORT).show()
-                host.onPageFinished("")
+                host?.onPageFinished("")
             }
         )
         view.webChromeClient = BrowserChromeClient(tabId, events)
 
         view.onLongPress = { target, x, y ->
-            host.onLongPressAt(target.url ?: target.imageUrl, view.title, x, y)
+            host?.onLongPressAt(target.url ?: target.imageUrl, view.title, x, y)
         }
         view.onDownload = { request ->
             // Content-Disposition 里的文件名比 URL 末段靠谱得多（尤其是 /download?id=1 这种）。
@@ -112,6 +126,21 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
         web = view
         ActiveSurface.attach(this)
         return view
+    }
+
+    override fun view(): View? = web
+
+    override fun attachHost(host: BrowserSurfaceHost?) {
+        this.host = host
+        if (host == null) {
+            // 界面已经销毁：断开桥与「当前渲染器」，别让缓存中的 WebView 继续被当作前台页面。
+            detectSink?.let { InjectionBus.detach(it) }
+            ActiveSurface.clear(this)
+            return
+        }
+        // 重新回到前台：GM 桥与 AI 抓正文都要指向这一份渲染器。
+        detectSink?.let { InjectionBus.attach(it) }
+        ActiveSurface.attach(this)
     }
 
     private fun injectScripts(view: WebView, url: String) {
@@ -228,6 +257,7 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
         ActiveSurface.clear(this)
         detectSink?.let { InjectionBus.detach(it) }
         detectSink = null
+        host = null
         web?.destroy()
         web = null
     }

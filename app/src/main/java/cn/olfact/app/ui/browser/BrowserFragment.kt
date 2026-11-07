@@ -51,6 +51,9 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
     /** 当前绑定的标签 id。切换标签时由 [showTab] 改写，不需要重建 Fragment。 */
     private var boundTabId: Long = -1L
 
+    /** 本次 View 是否复用了缓存里的 WebView（复用时不要再 load，页面已经在那儿）。 */
+    private var surfaceReused = false
+
     private val tab get() = BrowserSession.tabs.firstOrNull { it.id == boundTabId }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -77,7 +80,14 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
 
         val url = tab?.url.orEmpty()
         // 首次进入（书签/外链/恢复标签）要记历史；只有 showTab() 换绑标签时不再重复记。
-        if (url.isNotBlank()) load(url)
+        // 复用缓存的 WebView 时页面已经加载好，再 load 一次等于白重载。
+        if (url.isNotBlank()) {
+            if (surfaceReused) {
+                b.urlBar.setText(surface?.url() ?: url)
+            } else {
+                load(url)
+            }
+        }
         if (url.isBlank() && arguments?.getBoolean(ARG_FOCUS_URL) == true) {
             showAddressBar()
         }
@@ -207,9 +217,14 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
     }
 
     private fun buildSurface(b: FragmentBrowserBinding) {
-        val s = OlfactServices.browserSurfaceFactory?.create()
-            ?: OlfactServices.browserSurface
-            ?: DefaultBrowserSurface(requireContext())
+        // 先从缓存里找这个标签的 WebView：找到就直接挂回新容器，页面不重载。
+        val cached = SurfaceCache.take(boundTabId)
+        surfaceReused = cached != null
+        val s = cached ?: run {
+            OlfactServices.browserSurfaceFactory?.create()
+                ?: OlfactServices.browserSurface
+                ?: DefaultBrowserSurface(requireContext())
+        }
         surface = s
         val host = object : BrowserSurfaceHost {
             override fun onProgress(progress: Int) {
@@ -253,10 +268,13 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
                 LongPressSheet.showAt(requireContext(), url, title, b.surfaceContainer, x, y) { showFind() }
             }
         }
+        // 复用时先换宿主：旧 host 闭包引用的是已销毁的 binding。
+        s.attachHost(host)
+        val surfaceView = s.view() ?: s.createView(host)
         // 插到最底层：地址条 / 页内查找 / 空白页都是它的上层覆盖条，
         // 直接 addView（追加到末尾）会让 WebView 盖住它们。
         b.surfaceContainer.addView(
-            s.createView(host),
+            surfaceView,
             0,
             ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         )
@@ -491,13 +509,27 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
         handler.removeCallbacks(debounce)
         suggest?.dismiss()
         suggest = null
-        surface?.destroy()
+        // 不销毁 WebView：摘下来存一份，返回时原样挂回去（页面状态不丢）。
+        surface?.let { s ->
+            // 先断开宿主：缓存期间页面仍可能回调（onProgress/onTitle/onError），
+            // 那些闭包引用的是刚刚销毁的 binding。
+            s.attachHost(null)
+            (s.view()?.parent as? ViewGroup)?.removeView(s.view())
+            SurfaceCache.offer(boundTabId, s)
+        }
         surface = null
         binding = null
+        errorView = null
         // 与 onViewCreated 的重置配对：View 没了，视觉状态也不该留着。
         addressVisible = false
         findVisible = false
         super.onDestroyView()
+    }
+
+    override fun onDestroy() {
+        // Fragment 真的出栈了：把它的缓存 WebView 释放掉，不在后台留一个页面。
+        SurfaceCache.dropTab(boundTabId)
+        super.onDestroy()
     }
 
     companion object {

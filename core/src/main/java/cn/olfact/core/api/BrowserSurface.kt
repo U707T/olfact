@@ -25,6 +25,22 @@ interface BrowserSurface {
     fun destroy()
 
     /**
+     * 已经创建过的渲染视图（null = 还没创建）。
+     *
+     * 界面层在 Fragment 的 View 重建时会把这个 View 从旧容器摘下来、再挂到新容器，
+     * 从而保住 WebView 里的页面状态（不再重新加载）。
+     */
+    fun view(): android.view.View? = null
+
+    /**
+     * 重新绑定宿主回调；传 null 表示「界面已销毁，别再回调」（缓存的渲染器会经历这一段）。
+     *
+     * Fragment 的 View 销毁后，旧的 [BrowserSurfaceHost] 引用的是已销毁的 View；不换掉的话，
+     * 页面在缓存期间仍会往死 View 上回调（onProgress/onTitle/onError）。默认空实现。
+     */
+    fun attachHost(host: BrowserSurfaceHost?) {}
+
+    /**
      * 设置页改了会影响网页渲染的项（无图 / 夜间 / 字号 / JS / UA）之后调用：
      * 重新读取设置并应用到当前 WebView，然后再 [reload]。
      *
