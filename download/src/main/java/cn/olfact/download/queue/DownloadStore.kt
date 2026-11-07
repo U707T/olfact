@@ -14,6 +14,14 @@ interface DownloadStore {
     fun get(id: String): DownloadRecord?
     fun upsert(record: DownloadRecord)
     fun remove(id: String)
+
+    /**
+     * 批量删除（「清空已下载」）：默认逐条删，落盘实现应覆盖成一次写。
+     * 逐条删 N 条记录＝重写 N 次队列文件、推 N 次列表，几百条历史时会明显卡。
+     */
+    fun removeAll(ids: Collection<String>) {
+        ids.forEach { remove(it) }
+    }
     fun nextQueued(): DownloadRecord?
 
     fun activeCount(): Int = all().count { it.status.isActive }
@@ -49,6 +57,13 @@ class JsonDownloadStore(private val file: File) : DownloadStore {
     override fun remove(id: String) = synchronized(lock) {
         load().remove(id)
         persist()
+    }
+
+    override fun removeAll(ids: Collection<String>) = synchronized(lock) {
+        val map = load()
+        var changed = false
+        ids.forEach { if (map.remove(it) != null) changed = true }
+        if (changed) persist()
     }
 
     override fun nextQueued(): DownloadRecord? = synchronized(lock) {

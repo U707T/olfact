@@ -27,6 +27,12 @@ interface ScriptStore {
      */
     fun count(): Int = all().size
 
+    /**
+     * 单个脚本的正文。列表页只用元数据（[all] 现在不再带 code），
+     * 编辑器 / 删除撤销按 id 取正文，避免为了渲染列表把几 MB 脚本读进内存。
+     */
+    fun code(id: String): String? = all().firstOrNull { it.id == id }?.code
+
     fun save(script: UserScript)
     fun remove(id: String)
     fun setEnabled(id: String, enabled: Boolean)

@@ -29,10 +29,14 @@ class ScriptAdapter(
             version = meta.version.ifBlank { "1.0" },
             matches = meta.matches,
             enabled = meta.enabled,
-            code = store.body(meta.id).orEmpty(),
+            // 列表只用元数据：之前每个脚本都 store.body() 一次，装十个 200KB 脚本
+            // 进一次脚本页就要读 2MB。编辑器/撤销走 code(id)。
+            code = "",
             runAtStart = meta.runAt == RunAt.DOCUMENT_START
         )
     }
+
+    override fun code(id: String): String? = store.body(id)
 
     override fun count(): Int = store.count()
 
@@ -47,7 +51,9 @@ class ScriptAdapter(
             enabled = script.enabled,
             installedAt = existing?.installedAt ?: 0L
         )
-        store.save(meta, script.code)
+        // 列表页 / 删除撤销拿到的对象可能没有正文：空即「保持原样」，不能拿空串覆盖已有脚本。
+        val body = script.code.ifBlank { store.body(script.id).orEmpty() }
+        store.save(meta, body)
     }
 
     override fun remove(id: String) {

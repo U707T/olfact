@@ -59,6 +59,9 @@ class DownloadFacade private constructor(private val appContext: Context) {
      * 「详情页删除」的语义一致，列表/清空这类「只删记录」的路径必须显式传 false。
      */
     fun remove(id: String, deleteFile: Boolean = true) = queue.remove(id, deleteFile)
+
+    /** 批量删记录（「清空已下载」）：一次落盘、一次推列表。 */
+    fun removeAll(ids: Collection<String>, deleteFile: Boolean = false) = queue.removeAll(ids, deleteFile)
     fun refresh() = queue.refresh()
 
     /** WorkManager 被用户禁用/未初始化时的兜底：前台直接跑。 */

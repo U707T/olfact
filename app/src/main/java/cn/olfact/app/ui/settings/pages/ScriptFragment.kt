@@ -73,12 +73,14 @@ class ScriptFragment : Fragment(R.layout.fragment_page) {
                 onRowClick = { edit(script) }
                 setOnLongClickListener {
                     Dialogs.confirm(ctx, "删除脚本", script.name, danger = true) {
+                        // 先留正文：列表里的对象已经不带 code 了，撤销要靠它恢复。
+                        val body = store?.code(script.id).orEmpty()
                         store?.remove(script.id)
                         render()
                         com.google.android.material.snackbar.Snackbar
                             .make(requireView(), "已删除「${script.name}」", com.google.android.material.snackbar.Snackbar.LENGTH_LONG)
                             .setAction("撤销") {
-                                store?.save(script)
+                                store?.save(script.copy(code = body))
                                 render()
                             }
                             .show()
@@ -124,7 +126,7 @@ class ScriptFragment : Fragment(R.layout.fragment_page) {
     private fun edit(script: UserScript?) {
         val ctx = Nav.context() ?: return
         val store = OlfactServices.scriptStore
-        Dialogs.input(ctx, if (script == null) "新建脚本" else "编辑：${script.name}", script?.code ?: DEFAULT_CODE, "// ==UserScript==", multiline = true) { code ->
+        Dialogs.input(ctx, if (script == null) "新建脚本" else "编辑：${script.name}", script?.let { store?.code(it.id) } ?: DEFAULT_CODE, "// ==UserScript==", multiline = true) { code ->
             if (code.isBlank()) return@input
             val target = script ?: UserScript(
                 id = UUID.randomUUID().toString(),

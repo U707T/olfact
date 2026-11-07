@@ -145,8 +145,38 @@ class DownloadQueue(
         publish()
     }
 
-    /** 删除成品文件：content:// 走 ContentResolver，普通路径只允许删下载目录内的文件。 */
-    private fun deleteArtifact(record: DownloadRecord) {
+    /**
+     * 批量删除记录（「清空已下载」走这条）。
+     *
+     * 逐条调 [remove] 时，N 条记录＝N 次全量重写 queue.json + N 次 publish()，
+     * 清空几百条历史会明显卡；这里一次落盘、一次推列表。
+     * 产物删除同样丢到 IO 线程（见 [remove]）。
+     */
+    fun removeAll(ids: Collection<String>, deleteFile: Boolean = false) {
+        if (ids.isEmpty()) return
+        val records = ids.mapNotNull { store.get(it) }
+        records.forEach { jobs.remove(it.id)?.cancel() }
+        if (records.isNotEmpty()) {
+            scope.launch {
+                runCatching {
+                    records.forEach { record ->
+                        record.systemDownloadId?.let { SystemDownloader(context).cancel(it) }
+                        if (deleteFile) deleteArtifact(record)
+                        DownloadPaths.workDir(context, record.id).deleteRecursively()
+                    }
+                }.onFailure { android.util.Log.w("olfact", "批量删除下载产物失败", it) }
+            }
+        }
+        ids.forEach { id ->
+            speedMeter.reset(id)
+            lastProgressPush.remove(id)
+            notifierProvider()?.cancel(id)
+        }
+        store.removeAll(ids)
+        publish()
+    }
+
+    /** 删除成品文件：content:// 走 ContentResolver，普通路径只允许删下载目录内的文件。 */    private fun deleteArtifact(record: DownloadRecord) {
         val path = record.filePath ?: return
         runCatching {
             if (path.startsWith("content://")) {

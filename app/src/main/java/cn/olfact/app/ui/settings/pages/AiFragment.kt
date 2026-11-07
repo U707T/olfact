@@ -69,7 +69,7 @@ class AiFragment : Fragment(R.layout.fragment_page) {
             val row = ListRow(ctx).apply {
                 title = p.name
                 subtitle = "${p.model} · ${p.baseUrl}"
-                trailing = if (p.id == activeId) "当前" else mask(p.apiKey)
+                trailing = if (p.id == activeId) "当前" else mask(store?.apiKey(p.id).orEmpty())
                 showChevron(true)
                 onRowClick = { edit(p) }
             }

@@ -12,11 +12,14 @@ class AiAdapter(private val store: cn.olfact.ai.ProviderStore) : ProviderStore {
             id = p.id,
             name = p.name,
             baseUrl = p.baseUrl,
-            apiKey = store.apiKey(p).orEmpty(),
+            // 列表不带明文 key（之前逐个 Keystore 解密塞进每个对象，备份导出也会顺手带出去）
+            apiKey = "",
             model = p.model,
             enabled = p.enabled
         )
     }
+
+    override fun apiKey(id: String): String? = store.get(id)?.let { store.apiKey(it) }
 
     override fun save(provider: AiProvider) {
         val existing = store.get(provider.id)

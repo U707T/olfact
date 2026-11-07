@@ -75,9 +75,10 @@ class DownloadAdapter(
 
     /** 「清空已下载」= 只删记录，绝不删用户已经下载好的文件。 */
     override fun clearFinished() {
-        facade.queue.items.value.filter { it.status.isTerminal }.forEach {
-            facade.remove(it.id, deleteFile = false)
-        }
+        val ids = facade.queue.items.value.filter { it.status.isTerminal }.map { it.id }
+        if (ids.isEmpty()) return
+        // 批量：之前逐条 remove，200 条历史＝写 200 次 queue.json + 推 200 次列表。
+        facade.removeAll(ids, deleteFile = false)
     }
 
     override val changes: Flow<Unit> = facade.queue.items.map { }

@@ -91,7 +91,8 @@ class IntegrationMappingTest {
             assertEquals("去广告", loaded.name)
             assertEquals("1.2", loaded.version)
             assertEquals(listOf("https://example.com/*"), loaded.matches)
-            assertEquals("console.log('hi')", loaded.code)
+            assertEquals("", loaded.code)          // 列表只带元数据：正文按 id 取
+            assertEquals("console.log('hi')", adapter.code("s1"))
             assertTrue(loaded.enabled)
             assertTrue(loaded.runAtStart)          // 面板默认按 document-start 注入
 
@@ -116,7 +117,24 @@ class IntegrationMappingTest {
 
             val only = adapter.all().single()
             assertEquals("新名字", only.name)
-            assertEquals("v2()", only.code)
+            assertEquals("v2()", adapter.code("s2"))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `保存没有正文的面板对象不会清空已有脚本`() {
+        val dir = Files.createTempDirectory("olfact-scripts-undo").toFile()
+        try {
+            val adapter = ScriptAdapter(ScriptStore(dir))
+            adapter.save(UserScript(id = "s3", name = "去广告", code = "v1()"))
+
+            // 删除撤销 / 列表行直接保存时拿到的是不带 code 的对象（code = ""）
+            adapter.save(adapter.all().single().copy(name = "去广告·改"))
+
+            assertEquals("去广告·改", adapter.all().single().name)
+            assertEquals("v1()", adapter.code("s3"))
         } finally {
             dir.deleteRecursively()
         }
