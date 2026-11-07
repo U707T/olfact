@@ -21,8 +21,8 @@ android {
         applicationId = "cn.olfact.browser"
         minSdk = 24
         targetSdk = 37
-        versionCode = 12
-        versionName = "1.0.0-rc12"
+        versionCode = 13
+        versionName = "1.0.0-rc13"
         resourceConfigurations += listOf("zh")
         vectorDrawables.useSupportLibrary = false
     }
