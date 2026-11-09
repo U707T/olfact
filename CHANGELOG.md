@@ -3,6 +3,16 @@
 本项目遵循「版本号 + CHANGELOG 顶部段落」的发版约定；`release` job 会把对应版本段落
 原样贴进 GitHub Release。
 
+## [未发布]
+
+### 浏览器
+
+- **切标签后进设置再返回会跳回原标签**：`BrowserFragment.onViewCreated` 无条件用 Fragment
+  参数里的标签 id 覆盖 `boundTabId`。`showTab()` 切到标签 2 之后 View 被销毁重建，返回时
+  又回到标签 1；`SurfaceCache` 按 id 取缓存也会 miss，刚做好的「返回不重载」在这条路径上
+  等于没生效。现在只在首次创建时取参数，之后保留当前绑定，并写入 `onSaveInstanceState`
+  供进程重建时恢复（新增 `BoundTabIdTest` 3 例，全量 288 例 0 失败）。
+
 ## [1.0.0-rc13] - 2026-11-07
 
 rc12 之后的一轮全量分诊审计（12 个提交，报告见 `docs/audit/2026-11-07-rc12-audit.md`）。

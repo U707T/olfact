@@ -59,7 +59,12 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val b = FragmentBrowserBinding.bind(view)
         binding = b
-        boundTabId = requireArguments().getLong(ARG_TAB)
+        // 只在第一次创建时用参数里的标签；`showTab()` 之后 View 可能被销毁重建
+        // （进设置/标签页），此时必须保住当前绑定的标签，否则会退回创建时的那个。
+        // 进程被杀后重建则靠 savedInstanceState 里的值。
+        val restored = savedInstanceState?.getLong(KEY_BOUND_TAB, -1L) ?: -1L
+        val initial = if (restored > 0L) restored else boundTabId
+        boundTabId = resolveBoundTabId(initial, requireArguments().getLong(ARG_TAB))
         // 这两个状态是 Fragment 字段，View 重建后布局默认是 GONE，状态也必须一起重置；
         // 否则「地址条开着时离开页面」再回来，第一次按返回会被一个已经隐藏的条吃掉。
         addressVisible = false
@@ -532,9 +537,16 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
         super.onDestroy()
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        // 进程被杀/配置变更重建时，仍要回到用户当时看的那个标签。
+        outState.putLong(KEY_BOUND_TAB, boundTabId)
+    }
+
     companion object {
         private const val ARG_TAB = "tab_id"
         private const val ARG_FOCUS_URL = "focus_url"
+        private const val KEY_BOUND_TAB = "bound_tab"
 
         fun newInstance(tabId: Long, focusUrl: Boolean = false) = BrowserFragment().apply {
             arguments = Bundle().apply {
