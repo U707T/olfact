@@ -37,8 +37,15 @@ cargo ndk -t arm64-v8a -t armeabi-v7a -o ../../../core/src/main/jniLibs build --
 手工命令将产物落在 `core/src/main/jniLibs/{arm64-v8a,armeabi-v7a}/libadblock_ffi.so`，AGP 会自动打进 APK。
 项目 CI 的可选 `build-adblock-rust` job 单独上传 `.so` 制品，不自动把它们合并到其他 job 的 APK。
 
-> 本轮未运行 Rust 编译和 Android NDK/JNI 验证；需在有 Rust stable 和 NDK 的环境执行上面的构建，
-> 并用带 `.so` 的 APK 验证切换订阅、三方请求及页面样式。
+依赖约束：`adblock 0.9.8 → rmp-serde 0.15.5` 仍调用 `rmp::decode::read_data_*`；
+`rmp 0.8.15` 删除了这些兼容函数，首次 CI 因此报 E0425。`Cargo.toml` 直接精确约束
+`rmp = "=0.8.14"`，该版本保留这些函数且默认启用 `std`；无需改 JNI 或升级引擎。
+官方发布源码见 [rmp 0.8.14](https://docs.rs/crate/rmp/0.8.14/source/src/decode/mod.rs)
+和 [rmp 0.8.15](https://docs.rs/crate/rmp/0.8.15/source/src/decode/mod.rs)。
+
+> 本机未运行 Rust 编译和 Android NDK/JNI 验证；上述依赖修复仍待 CI 重跑确认。
+> CI 首次成功后应保存并入库实际生成的 `Cargo.lock`，后续构建使用 `--locked` 固定整个依赖图。
+> 带 `.so` 的 APK 仍需验证切换订阅、三方请求及页面样式。
 
 ## 降级
 
