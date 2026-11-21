@@ -67,6 +67,11 @@ class SuggestionEngineTest {
     }
 
     @Test
+    fun `about 页面不会转换成搜索`() {
+        assertEquals("about:blank", SuggestionEngine.toUrl("about:blank", template))
+    }
+
+    @Test
     fun `空输入没有候选`() {
         assertTrue(SuggestionEngine.suggestions("   ").isEmpty())
     }

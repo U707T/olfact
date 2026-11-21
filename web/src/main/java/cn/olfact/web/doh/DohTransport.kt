@@ -68,13 +68,16 @@ class DohTransport(
             if (!response.isSuccessful) {
                 throw IOException("DoH ${upstream.id} HTTP ${response.code}")
             }
-            val body = response.body.bytes()
+            val source = response.body.source()
+            if (source.request(65_536)) throw IOException("DoH ${upstream.id} 报文过长")
+            val body = source.readByteArray()
             val parsed = try {
                 DnsMessage.parseResponse(body)
             } catch (e: DnsFormatException) {
                 throw IOException("DoH ${upstream.id} 报文异常: ${e.message}", e)
             }
             if (parsed.id != id) throw IOException("DoH ${upstream.id} 事务 ID 不匹配")
+            if (parsed.truncated) throw IOException("DoH ${upstream.id} 响应被截断")
             return parsed
         }
     }

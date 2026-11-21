@@ -32,7 +32,9 @@ class KeystoreSecretBox(context: Context) : SecretBox {
         val payload = ByteArray(cipher.iv.size + encrypted.size)
         cipher.iv.copyInto(payload)
         encrypted.copyInto(payload, cipher.iv.size)
-        prefs.edit().putString(key, Base64.encodeToString(payload, Base64.NO_WRAP)).apply()
+        if (!prefs.edit().putString(key, Base64.encodeToString(payload, Base64.NO_WRAP)).commit()) {
+            throw java.io.IOException("无法保存 AI 密钥")
+        }
     }
 
     override fun get(key: String): String? {
@@ -51,6 +53,7 @@ class KeystoreSecretBox(context: Context) : SecretBox {
         prefs.edit().remove(key).apply()
     }
 
+    @Synchronized
     private fun secretKey(): SecretKey {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         (keyStore.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.let { return it.secretKey }

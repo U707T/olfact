@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   # ── 单元测试：六个模块的纯 JVM 用例（web 的真联网用例默认跳过）────────────
@@ -69,7 +69,7 @@ jobs:
   # push 仍保留单测 + assembleDebug。本地提交前请自己跑一遍（见 README「构建」）。
   lint:
     name: lint (${{ matrix.module }})
-    if: github.event_name != 'push'
+    if: github.event_name != 'push' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     # 按模块并行：app 要分析全部依赖模块（AGP 9 的 lint 模型是工程级的），给它 180 分钟兜底；
     # 其余模块各自分析自己，45 分钟足够。某个模块超时不再拖垮其它模块的报告。
@@ -165,6 +165,9 @@ jobs:
   # ── 发版：打 tag v* 时签名 release 并创建 GitHub Release ──────────────────
   release:
     name: assembleRelease + publish
+    needs: [test, lint, build]
+    permissions:
+      contents: write
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -249,7 +252,6 @@ jobs:
   build-adblock-rust:
     name: libadblock_ffi.so (arm64-v8a + armeabi-v7a)
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_adblock }}
-    continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -266,15 +268,16 @@ jobs:
       - name: Set up Android NDK
         run: |
           set -euo pipefail
-          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
-          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "ndk;28.2.13676358"
+          sdk_root="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          yes | "$sdk_root/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$sdk_root/cmdline-tools/latest/bin/sdkmanager" "ndk;28.2.13676358"
 
       # crate 路径由 B4 提供（默认 core/adblock/rust），产物直接进 app 的 jniLibs
       - name: Build .so
         working-directory: core/adblock/rust
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/28.2.13676358
         run: |
+          set -euo pipefail
+          export ANDROID_NDK_HOME="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk/28.2.13676358"
           cargo ndk -t arm64-v8a -t armeabi-v7a \
             -o ../../../app/src/main/jniLibs build --release
 

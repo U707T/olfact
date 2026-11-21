@@ -52,9 +52,7 @@ class ScriptFragment : Fragment(R.layout.fragment_page) {
             toggle("启用 UserScript", AppSettings.get(K.SCRIPT_ENABLED), "在 document start 注入匹配脚本") { on ->
                 AppSettings.set(K.SCRIPT_ENABLED, on)
             },
-            toggle("GM_* 桥接", AppSettings.get(K.SCRIPT_GM_BRIDGE), "GM_setValue / GM_xmlhttpRequest 走 JsBridge") { on ->
-                AppSettings.set(K.SCRIPT_GM_BRIDGE, on)
-            }
+            setting("GM_* API", "暂未接入", "GM_setValue / GM_xmlhttpRequest 当前不可用")
         ).also { cardBottomMargin(it) })
 
         b.content.addView(sectionTitle("已安装 ${scripts.size}"))
@@ -120,7 +118,7 @@ class ScriptFragment : Fragment(R.layout.fragment_page) {
             setting("新建脚本", "直接写一段 JS 也可以") { edit(null) }
         ).also { cardBottomMargin(it) })
 
-        b.content.addView(note("实现说明：不引入 QuickJS，脚本通过 addDocumentStartJavaScript 注入页面；GM_* 能力由 JsBridge 提供。"))
+        b.content.addView(note("实现说明：UserScript 通过 addDocumentStartJavaScript 注入页面；GM_* API 尚未接入，因此需要这些 API 的脚本暂时不可用。"))
     }
 
     private fun edit(script: UserScript?) {

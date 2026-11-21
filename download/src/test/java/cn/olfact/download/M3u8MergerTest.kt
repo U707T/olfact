@@ -79,4 +79,26 @@ class M3u8MergerTest {
     fun `没有有效分片直接抛错`() {
         M3u8Merger { _, file -> file }.merge(emptyList(), File(temp.root, "none"), null)
     }
+
+    @Test fun `existing mp4 and dotted titles are preserved`() {
+        val original = temp.newFile("film.2026.mp4").apply { writeText("ORIGINAL") }
+        val merger = M3u8Merger { files, file -> file.writeText(files.joinToString("") { it.readText() }); file }
+        val outcome = merger.merge(segments("NEW"), File(temp.root, "film.2026"), null)
+        assertEquals("ORIGINAL", original.readText())
+        assertEquals("film.2026(1).mp4", outcome.file.name)
+        assertEquals("NEW", outcome.file.readText())
+    }
+
+    @Test fun `failed remux never deletes a preexisting completed mp4`() {
+        val original = temp.newFile("keep.mp4").apply { writeText("ORIGINAL") }
+        val outcome = M3u8Merger { _, staged -> staged.writeText("partial"); error("failed") }
+            .merge(segments("COMPLETE"), File(temp.root, "keep"), null)
+        assertEquals("ORIGINAL", original.readText())
+        assertEquals("COMPLETE", outcome.file.readText())
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `missing segments fail rather than silently shortening the media`() {
+        M3u8Merger { _, file -> file }.merge(listOf(File(temp.root, "missing.ts")), File(temp.root, "out"), null)
+    }
 }

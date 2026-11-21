@@ -128,11 +128,18 @@ class TunnelProxy(
                 break
             }
             val executor = pool
-            if (executor == null) {
+            sockets.add(client)
+            if (executor == null || !running.get()) {
+                sockets.remove(client)
                 runCatching { client.close() }
                 break
             }
-            executor.execute { handle(client) }
+            try {
+                executor.execute { handle(client) }
+            } catch (_: java.util.concurrent.RejectedExecutionException) {
+                sockets.remove(client)
+                runCatching { client.close() }
+            }
         }
     }
 
@@ -152,7 +159,7 @@ class TunnelProxy(
             }
             when (parts[0].uppercase()) {
                 "CONNECT" -> handleConnect(client, input, parts[1])
-                "GET", "POST", "HEAD", "PUT", "DELETE", "OPTIONS" -> handlePlain(client, input, header)
+                "GET", "POST", "HEAD", "PUT", "PATCH", "DELETE", "OPTIONS" -> handlePlain(client, input, header)
                 else -> respond(client, 405, "Method Not Allowed")
             }
         } catch (e: Exception) {
@@ -161,13 +168,17 @@ class TunnelProxy(
         } finally {
             active.decrementAndGet()
             runCatching { client.close() }
+            sockets.remove(client)
         }
     }
 
     private fun handleConnect(client: Socket, clientIn: InputStream, authority: String) {
-        val host = authority.substringBeforeLast(':', authority)
-        val port = authority.substringAfterLast(':', "443").toIntOrNull() ?: 443
-        if (host.isEmpty()) {
+        val uri = runCatching { URI("http://$authority") }.getOrNull()
+        val host = uri?.host?.removeSurrounding("[", "]")
+        val port = uri?.port?.takeIf { it != -1 } ?: 443
+        if (uri == null || host.isNullOrEmpty() || uri.rawUserInfo != null || !uri.rawPath.isNullOrEmpty() ||
+            uri.rawQuery != null || uri.rawFragment != null
+        ) {
             respond(client, 400, "Bad Authority")
             return
         }
@@ -182,11 +193,17 @@ class TunnelProxy(
             respond(client, 502, "Bad Gateway")
             return
         }
-        client.getOutputStream().apply {
-            write("HTTP/1.1 200 Connection Established\r\n\r\n".toByteArray(Charsets.ISO_8859_1))
-            flush()
+        try {
+            upstream.use {
+                client.getOutputStream().apply {
+                    write("HTTP/1.1 200 Connection Established\r\n\r\n".toByteArray(Charsets.ISO_8859_1))
+                    flush()
+                }
+                pipeBoth(client, clientIn, upstream)
+            }
+        } finally {
+            sockets.remove(upstream)
         }
-        pipeBoth(client, clientIn, upstream)
     }
 
     private fun handlePlain(client: Socket, clientIn: InputStream, header: String) {
@@ -230,11 +247,17 @@ class TunnelProxy(
             }
             append("Connection: close\r\n\r\n")
         }
-        upstream.getOutputStream().apply {
-            write(rewritten.toByteArray(Charsets.ISO_8859_1))
-            flush()
+        try {
+            upstream.use {
+                upstream.getOutputStream().apply {
+                    write(rewritten.toByteArray(Charsets.ISO_8859_1))
+                    flush()
+                }
+                pipeBoth(client, clientIn, upstream)
+            }
+        } finally {
+            sockets.remove(upstream)
         }
-        pipeBoth(client, clientIn, upstream)
     }
 
     private fun connectUpstream(host: String, port: Int): Socket? {
@@ -247,15 +270,21 @@ class TunnelProxy(
                 // 之前是把同一个 socket 连着 connect 两次，第二个地址必然失败，
                 // 多 A 记录里第一条挂了就等于整条隧道挂了）。
                 val socket = Socket()
+                sockets.add(socket)
                 try {
+                    if (!running.get()) {
+                        socket.close()
+                        sockets.remove(socket)
+                        return null
+                    }
                     socket.tcpNoDelay = true
                     socket.soTimeout = idleTimeoutMs
                     socket.connect(InetSocketAddress(address, port), connectTimeoutMs)
-                    sockets.add(socket)
                     return socket
                 } catch (e: Exception) {
                     lastError = e
                     runCatching { socket.close() }
+                    sockets.remove(socket)
                 }
             }
             if (lastError != null) onEvent("连接 $host:$port 失败: ${lastError.message}")
@@ -329,6 +358,7 @@ class TunnelProxy(
             }
             if (matched == 4) break
         }
+        if (matched != 4) throw java.io.IOException("代理请求头过长")
         return buffer.toString("ISO-8859-1")
     }
 

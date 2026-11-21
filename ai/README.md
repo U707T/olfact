@@ -46,9 +46,20 @@ webView.evaluateJavascript(BilingualInjector.applyTranslationsScript(translation
 webView.evaluateJavascript(BilingualInjector.clearScript(), null)   // 还原
 ```
 
-## 验证
+## 供应商、取消与验证
+
+- 接口地址可带 `/v1` 或完整 `/chat/completions`；查询参数原样保留。本机回环地址（`localhost`、`127.0.0.1`、`::1`）可不填 API Key；远端供应商默认需要 key，显式配置 `Authorization` 头的集成除外。
+- 收集流的协程取消后会中止正在读响应体的 HTTP 连接。缺少结束标记的断流、服务端截断和空结果会报告错误；流已产生文本就不自动重试。使用量以服务器最后发来的数据为准。
+- 上面的双语注入仅供将来集成；当前界面的整页翻译把结果显示在结果面板，不写回网页。
+
+Windows 无 Android SDK 的定向回归：
+
+```powershell
+pwsh -File core/tools/test-core-ai.ps1
+```
+
+依赖、已读清单和验证边界见 [core / AI 审计与验证](../core/AUDIT.md)。Android CI 的模块验证入口：
 
 ```bash
-./gradlew :ai:assembleDebug --offline
-./gradlew :ai:testDebugUnitTest --offline   # 29 个用例
+./gradlew :ai:assembleDebug :ai:testDebugUnitTest
 ```

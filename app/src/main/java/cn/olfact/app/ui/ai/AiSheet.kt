@@ -50,7 +50,23 @@ class AiSheet(private val activity: Activity, title: String) {
         )
     }
 
-    private val footer = TextView(activity).apply {
+    private val cancelView = TextView(activity).apply {
+        text = "取消任务"
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        setTextColor(ContextCompat.getColor(activity, R.color.text_secondary))
+        gravity = android.view.Gravity.CENTER
+        setPadding(activity.dpF(16f), activity.dpF(14f), activity.dpF(16f), activity.dpF(18f))
+        setOnClickListener {
+            if (finished) {
+                dismiss()
+            } else {
+                request.cancel()
+                finish("已取消")
+            }
+        }
+    }
+
+    private val copyView = TextView(activity).apply {
         text = "复制结果"
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
         setTextColor(ContextCompat.getColor(activity, R.color.text_accent))
@@ -68,6 +84,16 @@ class AiSheet(private val activity: Activity, title: String) {
         }
     }
 
+    private val footer = LinearLayout(activity).apply {
+        orientation = LinearLayout.HORIZONTAL
+        addView(cancelView, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        addView(copyView, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+    }
+
+    private val request = AiRequestHandle()
+    private var finished = false
+    private var dismissed = false
+
     private val text = StringBuilder()
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     private var flushPending = false
@@ -79,6 +105,7 @@ class AiSheet(private val activity: Activity, title: String) {
     private val flush = object : Runnable {
         override fun run() {
             flushPending = false
+            if (dismissed) return
             bodyView.text = text.toString()
             scroll.post { scroll.fullScroll(ScrollView.FOCUS_DOWN) }
         }
@@ -87,21 +114,40 @@ class AiSheet(private val activity: Activity, title: String) {
     init {
         current?.dismiss()
         current = this
+        sheet.setOnDismissListener {
+            dismissed = true
+            request.cancel()
+            handler.removeCallbacks(flush)
+            if (current === this) current = null
+        }
         sheet.add(statusView)
         sheet.add(scroll)
         sheet.add(footer)
     }
 
     fun show() {
-        if (activity.isFinishing) return
-        runCatching { sheet.show() }.onFailure { AppLog.w("ai", "面板打不开：${it.message}") }
+        if (activity.isFinishing) {
+            dismiss()
+            return
+        }
+        runCatching { sheet.show() }.onFailure {
+            AppLog.w("ai", "面板打不开：${it.message}")
+            dismiss()
+        }
     }
 
+    fun attach(job: kotlinx.coroutines.Job) {
+        request.attach(job)
+    }
+
+    fun isActive(): Boolean = !dismissed && request.isActive
+
     fun setStatus(text: CharSequence) {
-        statusView.text = text
+        if (isActive()) statusView.text = text
     }
 
     fun append(delta: String) {
+        if (!isActive()) return
         text.append(delta)
         if (!flushPending) {
             flushPending = true
@@ -110,6 +156,11 @@ class AiSheet(private val activity: Activity, title: String) {
     }
 
     fun finish(status: String) {
+        if (dismissed) return
+        request.complete()
+        finished = true
+        cancelView.text = "关闭"
+        cancelView.isEnabled = true
         handler.removeCallbacks(flush)
         if (flushPending || bodyView.text.isNullOrEmpty()) flush.run()
         statusView.text = status
@@ -117,6 +168,8 @@ class AiSheet(private val activity: Activity, title: String) {
 
     fun dismiss() {
         handler.removeCallbacks(flush)
+        dismissed = true
+        request.cancel()
         runCatching { sheet.dismiss() }
         if (current === this) current = null
     }

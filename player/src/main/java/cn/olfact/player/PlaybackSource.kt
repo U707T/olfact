@@ -37,7 +37,10 @@ data class PlaybackSource(
             if (extra.isNotEmpty()) append('#').append(extra.hashCode().toUInt().toString(16))
         }
 
-    fun resolvedMimeType(): String? = mimeType ?: kind.mimeType
+    fun resolvedMimeType(): String? = when (kind) {
+        MediaKind.HLS, MediaKind.DASH -> kind.mimeType
+        else -> mimeType
+    }
 
     companion object {
         const val TIME_UNSET: Long = -1L

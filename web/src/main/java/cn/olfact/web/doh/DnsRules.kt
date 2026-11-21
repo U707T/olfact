@@ -162,7 +162,7 @@ class DnsRules private constructor(
     fun withRules(newRules: List<DnsRule>): DnsRules =
         DnsRules(mode, newRules.distinctBy { it.text.lowercase(Locale.ROOT) }, domestic)
 
-    /** 加一条“本站走 DoH”的规则。 */
+    /** 添加含自身及子域的规则；在 EXCLUDE_LISTED 模式中该规则表示排除。 */
     fun plus(host: String): DnsRules {
         val h = host.normalizeHost()
         if (h.isEmpty()) return this

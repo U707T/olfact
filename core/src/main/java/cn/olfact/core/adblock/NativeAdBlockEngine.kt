@@ -19,20 +19,29 @@ class NativeAdBlockEngine private constructor(
 
     override val kind: EngineKind = EngineKind.RUST
 
+    @Synchronized
     override fun check(url: String, sourceUrl: String?, type: ResourceType): Boolean {
         val h = handle
         if (h == 0L) return false
-        return runCatching { nativeCheck(h, url, sourceUrl ?: "", type.code) }.getOrDefault(false)
+        val source = sourceUrl?.let(::asPageUrl).orEmpty()
+        return runCatching { nativeCheck(h, url, source, type.code) }.getOrDefault(false)
     }
 
+    @Synchronized
     override fun cosmeticSelectors(pageUrl: String): List<String> {
         val h = handle
         if (h == 0L) return emptyList()
-        val raw = runCatching { nativeCosmetic(h, pageUrl) }.getOrNull().orEmpty()
+        val raw = runCatching { nativeCosmetic(h, asPageUrl(pageUrl)) }.getOrNull().orEmpty()
         if (raw.isEmpty()) return emptyList()
         return raw.split('\n').filter { it.isNotBlank() }
     }
 
+    private fun asPageUrl(value: String): String = when {
+        value.isEmpty() || value.contains("://") -> value
+        else -> "https://$value/"
+    }
+
+    @Synchronized
     override fun close() {
         val h = handle
         handle = 0L

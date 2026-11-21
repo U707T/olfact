@@ -1,5 +1,8 @@
 package cn.olfact.ai.error
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.net.SocketTimeoutException
@@ -40,24 +43,10 @@ object AiErrorMapper {
     /** 从 OpenAI 风格的 `{"error":{"message":"..."}}` 里拿可读文案。 */
     fun extractMessage(body: String?): String? {
         if (body.isNullOrBlank()) return null
-        val marker = "\"message\""
-        val index = body.indexOf(marker)
-        if (index < 0) return body.take(200).takeIf { it.isNotBlank() }
-        val start = body.indexOf('"', index + marker.length + 1)
-        if (start < 0) return null
-        val sb = StringBuilder()
-        var i = start + 1
-        while (i < body.length) {
-            val c = body[i]
-            if (c == '\\' && i + 1 < body.length) {
-                sb.append(body[i + 1])
-                i += 2
-                continue
-            }
-            if (c == '"') break
-            sb.append(c)
-            i++
-        }
-        return sb.toString().takeIf { it.isNotBlank() }
+        val root = runCatching { Json.parseToJsonElement(body) as? JsonObject }.getOrNull()
+        val error = root?.get("error")
+        val value = (error as? JsonObject)?.get("message") ?: error ?: root?.get("message")
+        return ((value as? JsonPrimitive)?.takeIf { it.isString }?.content ?: body)
+            .take(200).takeIf { it.isNotBlank() }
     }
 }

@@ -26,32 +26,36 @@ object DohUpstreams {
         if (text.any { it.isWhitespace() }) return Result.Failed("地址里不能有空格")
 
         val withScheme = if (text.contains("://")) text else "https://$text"
-        val match = URL_RE.matchEntire(withScheme) ?: return Result.Failed("格式应为 https://域名/路径")
-
-        val scheme = match.groupValues[1].lowercase()
+        val uri = runCatching { java.net.URI(withScheme) }.getOrNull()
+            ?: return Result.Failed("格式应为 https://域名/路径")
+        val scheme = uri.scheme?.lowercase()
         if (scheme != "https" && scheme != "http") return Result.Failed("只支持 https（本地可用 http）")
-
-        var authority = match.groupValues[2].lowercase()
-        // 去掉默认端口，避免同一个上游写成两种形式
-        if (scheme == "https" && authority.endsWith(":443")) authority = authority.removeSuffix(":443")
-        if (scheme == "http" && authority.endsWith(":80")) authority = authority.removeSuffix(":80")
-        val host = authority.substringBefore(':')
-        if (host.isEmpty()) return Result.Failed("缺少主机名")
-
+        val host = uri.host?.removeSurrounding("[", "]")?.lowercase()
+            ?: return Result.Failed("主机名不合法")
+        if (uri.rawUserInfo != null || uri.rawFragment != null) return Result.Failed("地址不能包含用户信息或片段")
+        if (uri.port !in -1..65535 || uri.port == 0 || uri.rawAuthority?.endsWith(':') == true) return Result.Failed("端口不合法")
         val isIp = IPV4_RE.matches(host) || host.contains(':')
-        val isLocal = host == "localhost" || host == "127.0.0.1" || host.endsWith(".local")
+        val octets = host.split('.').mapNotNull { it.toIntOrNull() }
+        val privateV4 = IPV4_RE.matches(host) && octets.size == 4 && octets.all { it in 0..255 } && (
+            octets[0] == 127 || octets[0] == 10 ||
+                (octets[0] == 192 && octets[1] == 168) ||
+                (octets[0] == 172 && octets[1] in 16..31) ||
+                (octets[0] == 169 && octets[1] == 254)
+            )
+        val privateV6 = host.contains(':') && runCatching {
+            val address = java.net.InetAddress.getByName(host)
+            address.isLoopbackAddress || address.isSiteLocalAddress || address.isLinkLocalAddress ||
+                (address.address.size == 16 && (address.address[0].toInt() and 0xfe) == 0xfc)
+        }.getOrDefault(false)
+        val isLocal = host == "localhost" || host.endsWith(".local") || privateV4 || privateV6
         if (!isIp && !isLocal && !HOST_RE.matches(host)) return Result.Failed("主机名不合法：$host")
-        if (scheme == "http" && !isIp && !isLocal) {
-            return Result.Failed("公网地址必须用 https")
-        }
-
-        val path = match.groupValues[3]
+        if (scheme == "http" && !isLocal) return Result.Failed("公网地址必须用 https")
+        val port = uri.port.takeUnless { it == -1 || (scheme == "https" && it == 443) || (scheme == "http" && it == 80) }
+        val authority = (if (host.contains(':')) "[$host]" else host) + (port?.let { ":$it" } ?: "")
+        val path = uri.rawPath.orEmpty()
         val finalPath = if (path.isEmpty() || path == "/") "/dns-query" else path
-        return Result.Ok(
-            url = "$scheme://$authority$finalPath",
-            host = host,
-            local = isLocal
-        )
+        val query = uri.rawQuery?.let { "?$it" }.orEmpty()
+        return Result.Ok("$scheme://$authority$finalPath$query", host, isLocal)
     }
 
     /** 只要 URL；不合法返回 null。 */

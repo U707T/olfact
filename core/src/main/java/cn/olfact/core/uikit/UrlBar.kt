@@ -82,14 +82,7 @@ class UrlBar @JvmOverloads constructor(
             editor.isFocusable = value
             editor.isFocusableInTouchMode = value
             editor.isCursorVisible = value
-            if (!value) {
-                editor.setOnTouchListener { _, _ ->
-                    onBarClick?.invoke()
-                    true
-                }
-            } else {
-                editor.setOnTouchListener(null)
-            }
+            editor.setOnClickListener(if (!value) View.OnClickListener { onBarClick?.invoke() } else null)
         }
 
     init {
@@ -107,10 +100,7 @@ class UrlBar @JvmOverloads constructor(
         addView(actionIcon)
 
         actionIcon.setOnClickListener { onActionClick?.invoke() }
-        clearIcon.setOnClickListener {
-            editor.setText("")
-            onTextChanged?.invoke("")
-        }
+        clearIcon.setOnClickListener { editor.setText("") }
 
         editor.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit

@@ -91,6 +91,17 @@ class PlayerGestureController(
         return true
     }
 
+    /** Cancel pending long presses before the player is released in the background. */
+    fun cancel() {
+        val now = android.os.SystemClock.uptimeMillis()
+        val event = MotionEvent.obtain(now, now, MotionEvent.ACTION_CANCEL, 0f, 0f, 0)
+        detector.onTouchEvent(event)
+        event.recycle()
+        if (boosting) host.onSpeedBoostEnd()
+        boosting = false
+        longPressConsumed = false
+    }
+
     /** 双击位置到屏幕边缘的百分比，界面层可用它做左/右的视觉反馈。 */
     fun zoneOf(x: Float, width: Int): Zone = when {
         width <= 0 -> Zone.CENTER

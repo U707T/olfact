@@ -2,6 +2,7 @@ package cn.olfact.download
 
 import cn.olfact.download.util.Http
 import cn.olfact.download.util.Http.await
+import kotlinx.coroutines.CancellationException
 import okhttp3.OkHttpClient
 
 data class ProbeResult(
@@ -20,7 +21,7 @@ object MediaProbe {
     suspend fun probe(client: OkHttpClient, spec: DownloadSpec): ProbeResult {
         // 真的用 HEAD：只拿响应头，不触发一次完整 GET。
         val head = runCatching {
-            client.newCall(Http.headRequest(spec)).execute().use { response ->
+            client.newCall(Http.headRequest(spec)).await { response ->
                 if (response.code !in 200..299) error("HEAD ${response.code}")
                 ProbeResult(
                     contentLength = response.header("Content-Length")?.toLongOrNull() ?: -1L,
@@ -29,14 +30,14 @@ object MediaProbe {
                     finalUrl = response.request.url.toString(),
                 )
             }
-        }.getOrNull()
+        }.getOrElse { if (it is CancellationException) throw it else null }
 
         // HEAD 被拒 / 没有长度时，用 1 字节 Range 试探。
         if (head != null && head.contentLength > 0 && head.rangeSupported) return head
 
         val ranged = runCatching {
             val request = Http.request(spec, rangeHeader = "bytes=0-0")
-            client.newCall(request).execute().use { response ->
+            client.newCall(request).await { response ->
                 val contentRange = response.header("Content-Range")
                 val total = contentRange?.substringAfter('/', "")?.toLongOrNull() ?: -1L
                 ProbeResult(
@@ -47,7 +48,7 @@ object MediaProbe {
                     finalUrl = response.request.url.toString(),
                 )
             }
-        }.getOrNull()
+        }.getOrElse { if (it is CancellationException) throw it else null }
 
         return ranged ?: head ?: ProbeResult(finalUrl = spec.url)
     }

@@ -34,7 +34,7 @@ object SuggestionEngine {
     fun toUrl(input: String, searchTemplate: String): String {
         val text = input.trim()
         if (text.isEmpty()) return ""
-        if (text.contains("://")) return text
+        if (text.contains("://") || text.startsWith("about:", true) || text.startsWith("file:", true)) return text
         if (LOCALHOST.matches(text) || IPV4.matches(text)) return "http://$text"
         if (HOST_WITH_TLD.matches(text)) return "https://$text"
         return searchTemplate.replace("%s", URLEncoder.encode(text, "UTF-8"))

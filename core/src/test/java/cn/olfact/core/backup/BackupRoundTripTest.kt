@@ -133,6 +133,39 @@ class BackupRoundTripTest {
         assertEquals("2", over["b"])
     }
 
+    @Test
+    fun `目录条目里的数据仍计入解压上限`() {
+        val bytes = zipOf("skip/" to ByteArray(1024))
+        val failure = runCatching { BackupReader(maxEntryBytes = 256).read(bytes) }.exceptionOrNull()
+        assertTrue(failure is BackupFormatException && failure.message!!.contains("条目过大"))
+    }
+
+    @Test
+    fun `旧备份未提供脚本正文时跳过而不是清空原脚本`() {
+        val data = """{"scripts":[{"meta":{"id":"s","name":"脚本","updatedAt":1000},"body":""}]}""".toByteArray()
+        val manifest = """{"format":"olfact-backup","version":2,"sha256":"${BackupWriter.sha256Hex(data)}"}""".toByteArray()
+        val archive = BackupReader().read(zipOf("manifest.json" to manifest, "data.json" to data))
+        assertTrue(archive.data.scripts.isEmpty())
+    }
+
+    @Test
+    fun `新备份明确保存合法的空脚本`() {
+        val data = BackupData(scripts = listOf(ScriptRecord(UserScript(id = "s", name = "空脚本"))))
+        val bytes = ByteArrayOutputStream().also { BackupWriter().write(data, it) }.toByteArray()
+        assertEquals(data.scripts, BackupReader().read(bytes).data.scripts)
+    }
+
+    @Test
+    fun `新版备份必须带摘要且订阅标识必须合法`() {
+        val data = """{"subscriptions":[{"id":"not/valid","title":"测试"}]}""".toByteArray()
+        fun readWithHash(hash: String) = runCatching {
+            val manifest = """{"format":"olfact-backup","version":2,"sha256":"$hash"}""".toByteArray()
+            BackupReader().read(zipOf("manifest.json" to manifest, "data.json" to data))
+        }.exceptionOrNull()
+        assertTrue(readWithHash("")?.message.orEmpty().contains("校验失败"))
+        assertTrue(readWithHash(BackupWriter.sha256Hex(data))?.message.orEmpty().contains("订阅标识"))
+    }
+
     private fun zipOf(vararg entries: Pair<String, ByteArray>): ByteArray {
         val out = ByteArrayOutputStream()
         ZipOutputStream(out).use { zip ->

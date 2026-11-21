@@ -28,13 +28,15 @@ class AutoBackupWorker(
     override suspend fun doWork(): Result {
         val runner = BackupRuntime.runner
         if (runner == null) {
-            B4Log.w(TAG, "备份流水线未装配，跳过本次任务")
-            return Result.success()
+            B4Log.w(TAG, "备份流水线尚未装配")
+            return if (runAttemptCount < MAX_RETRY) Result.retry() else Result.failure()
         }
         val trigger = inputData.getString(KEY_TRIGGER) ?: TRIGGER_PERIODIC
         val result = try {
             runner.run(trigger)
-        } catch (t: Throwable) {
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (t: Exception) {
             B4Log.e(TAG, "备份任务异常", t)
             BackupResult(success = false, trigger = trigger, error = t.message ?: t.javaClass.simpleName)
         }

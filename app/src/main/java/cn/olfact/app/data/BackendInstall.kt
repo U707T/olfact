@@ -39,7 +39,10 @@ object ModuleBackends {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    @Volatile
     private var doh: DohAdapter? = null
+
+    val sessionSticky = cn.olfact.web.doh.SessionSticky()
 
     /** 备份/恢复要拿到**注入用的同一份**仓库实例，否则恢复出来的脚本不会立刻生效。 */
     var scriptStore: cn.olfact.core.script.ScriptStore? = null
@@ -62,14 +65,16 @@ object ModuleBackends {
         // 其余模块要读盘，挪到后台；失败也不该让进程起不来
         scope.launch {
             val began = System.currentTimeMillis()
-            runCatching {
-                installDoh(app)
-                installAdBlock(app)
-                installScripts(app)
-                installAi(app)
-                installDownloads(app)
-            }.onFailure {
-                android.util.Log.w("olfact", "模块初始化失败", it)
+            listOf(
+                "DoH" to { installDoh(app) },
+                "广告拦截" to { installAdBlock(app) },
+                "脚本" to { installScripts(app) },
+                "AI" to { installAi(app) },
+                "下载" to { installDownloads(app) }
+            ).forEach { (name, install) ->
+                runCatching(install).onFailure {
+                    android.util.Log.w("olfact", "$name 模块初始化失败", it)
+                }
             }
             ready = true
             android.util.Log.i("olfact", "模块初始化完成，用时 ${System.currentTimeMillis() - began} ms")
@@ -84,7 +89,10 @@ object ModuleBackends {
 
     private fun installDoh(app: Context) {
         if (OlfactServices.doh != null) return
-        val manager = DohManagerImpl(app)
+        val manager = DohManagerImpl(app, sticky = sessionSticky)
+        cn.olfact.core.net.AppDns.resolver = { hostname ->
+            manager.appDns()?.lookup(hostname) ?: okhttp3.Dns.SYSTEM.lookup(hostname)
+        }
         val adapter = DohAdapter(manager, AppSettings.repo)
         doh = adapter
         OlfactServices.doh = adapter
@@ -95,7 +103,8 @@ object ModuleBackends {
     }
 
     /** B2 渲染器用它判断某个 host 是否该走 DoH（粘性会话决策）。 */
-    fun shouldUseDoh(host: String): Boolean = doh?.shouldUseDoh(host) ?: false
+    fun shouldUseDoh(host: String): Boolean =
+        AppSettings.get(K.DOH_STICKY) && AppSettings.get(K.DOH_ENABLED) && doh?.shouldUseDoh(host) == true
 
     // -------------------------------------------------------------- 拦截 (B4)
 

@@ -33,7 +33,6 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
-    implementation(libs.okhttp.sse)
     // 与 core 对齐，避免同一类库在 APK 里出现版本漂移
     implementation(libs.kotlinx.serialization.json)
     testImplementation(libs.junit)

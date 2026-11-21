@@ -7,7 +7,9 @@ import cn.olfact.ai.summarize.ReadabilityExtractor
 import cn.olfact.ai.summarize.SummaryEvent
 import cn.olfact.app.data.ActiveSurface
 import cn.olfact.app.nav.Nav
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONTokener
@@ -39,30 +41,29 @@ object AiActions {
         sheet.setStatus("正在读取页面正文…")
 
         surface.evaluateJavascript("(function(){return document.documentElement.outerHTML})()") { raw ->
+            if (!sheet.isActive()) return@evaluateJavascript
             val html = unquote(raw)
             val url = surface.url().orEmpty()
-            activity.lifecycleScope.launch {
+            launchRequest(activity, sheet) {
                 val article = withContext(Dispatchers.Default) {
                     runCatching { ReadabilityExtractor.extract(html, url) }.getOrNull()
                 }
                 if (article == null || article.text.isBlank()) {
-                    sheet.setStatus("这个页面没有抽到正文（可能是纯图或需要登录）")
-                    return@launch
+                    sheet.finish("这个页面没有抽到正文（可能是纯图或需要登录）")
+                    return@launchRequest
                 }
                 sheet.setStatus("正文 ${article.text.length} 字，开始总结…")
-                runCatching {
-                    ctx.facade.summarizer.summarize(ctx.provider, ctx.apiKey, article)
-                        .collect { event ->
-                            when (event) {
-                                is SummaryEvent.Progress ->
-                                    sheet.setStatus("${event.stage}（${event.index}/${event.total}）")
-                                is SummaryEvent.Delta -> sheet.append(event.text)
-                                is SummaryEvent.Done -> sheet.finish("完成 · ${event.result.markdown.length} 字")
-                                is SummaryEvent.Failed ->
-                                    sheet.finish("失败：${event.error.message ?: "未知错误"}")
-                            }
+                ctx.facade.summarizer.summarize(ctx.provider, ctx.apiKey, article)
+                    .collect { event ->
+                        when (event) {
+                            is SummaryEvent.Progress ->
+                                sheet.setStatus("${event.stage}（${event.index}/${event.total}）")
+                            is SummaryEvent.Delta -> sheet.append(event.text)
+                            is SummaryEvent.Done -> sheet.finish("完成 · ${event.result.markdown.length} 字")
+                            is SummaryEvent.Failed ->
+                                sheet.finish("失败：${event.error.message ?: "未知错误"}")
                         }
-                }.onFailure { sheet.finish("失败：${it.message ?: "网络错误"}") }
+                    }
             }
         }
     }
@@ -84,23 +85,23 @@ object AiActions {
             Nav.toast("当前没有打开的网页")
             return
         }
+        val sheet = AiSheet(activity, "AI 翻译")
+        sheet.show()
+        sheet.setStatus("正在读取页面正文…")
         surface.evaluateJavascript(
             "(function(){var t=document.body?document.body.innerText:'';return t?t.slice(0,$MAX_PAGE_CHARS):''})()"
         ) { raw ->
+            if (!sheet.isActive()) return@evaluateJavascript
             val text = unquote(raw).trim()
             if (text.isEmpty()) {
-                Nav.toast("这个页面没有可翻译的正文")
+                sheet.finish("这个页面没有可翻译的正文")
                 return@evaluateJavascript
             }
-            val sheet = AiSheet(activity, "AI 翻译")
-            sheet.show()
             sheet.setStatus("正文 ${text.length} 字，翻译中…")
-            activity.lifecycleScope.launch {
-                runCatching {
-                    ctx.facade.translator.translate(ctx.provider, ctx.apiKey, text)
-                        .collect { delta -> sheet.append(delta) }
-                    sheet.finish("完成 · 可长按复制")
-                }.onFailure { sheet.finish("失败：${it.message ?: "网络错误"}") }
+            launchRequest(activity, sheet) {
+                ctx.facade.translator.translate(ctx.provider, ctx.apiKey, text)
+                    .collect { delta -> sheet.append(delta) }
+                sheet.finish("完成 · 可长按复制")
             }
         }
     }
@@ -113,22 +114,22 @@ object AiActions {
             return
         }
 
+        val sheet = AiSheet(activity, "翻译")
+        sheet.show()
+        sheet.setStatus("正在读取选中文本…")
         surface.evaluateJavascript("(function(){return String(window.getSelection())})()") { raw ->
+            if (!sheet.isActive()) return@evaluateJavascript
             val selected = unquote(raw).trim()
             if (selected.isEmpty()) {
-                Nav.toast("请先在页面里选中要翻译的文字")
+                sheet.finish("请先在页面里选中要翻译的文字")
                 return@evaluateJavascript
             }
-            val sheet = AiSheet(activity, "翻译")
-            sheet.show()
             sheet.setStatus("选中 ${selected.length} 字，翻译中…")
 
-            activity.lifecycleScope.launch {
-                runCatching {
-                    ctx.facade.translator.translate(ctx.provider, ctx.apiKey, selected)
-                        .collect { delta -> sheet.append(delta) }
-                    sheet.finish("完成")
-                }.onFailure { sheet.finish("失败：${it.message ?: "网络错误"}") }
+            launchRequest(activity, sheet) {
+                ctx.facade.translator.translate(ctx.provider, ctx.apiKey, selected)
+                    .collect { delta -> sheet.append(delta) }
+                sheet.finish("完成")
             }
         }
     }
@@ -141,19 +142,33 @@ object AiActions {
         val apiKey: String?
     )
 
-    /** 供应商没配就先提示去配，避免用户看到「翻译中…」然后失败。 */
+    private fun launchRequest(activity: ComponentActivity, sheet: AiSheet, action: suspend () -> Unit) {
+        val job: Job = activity.lifecycleScope.launch {
+            try {
+                action()
+            } catch (cancelled: CancellationException) {
+                if (sheet.isActive()) sheet.finish("已取消")
+            } catch (failure: Throwable) {
+                sheet.finish("失败：${failure.message ?: "网络错误"}")
+            }
+        }
+        sheet.attach(job)
+    }
+
+    /** 供应商没配置好才提示去配；本地或显式 Authorization 供应商可不填单独 API Key。 */
     private fun prepare(activity: ComponentActivity): Ctx? {
         val facade = AiFacade.get(activity)
         val provider = facade.providers.selected()
         if (provider == null) {
-            showProviderDialog(activity, "还没有 AI 供应商", "先添加一个供应商和 API Key，再回来使用总结/翻译。")
+            showProviderDialog(activity, "还没有 AI 供应商", "先添加一个兼容供应商；本机 Ollama / localhost 可不填 API Key。")
             return null
         }
-        if (!facade.providers.hasApiKey(provider)) {
+        val apiKey = facade.providers.apiKey(provider)
+        if (provider.requiresApiKey() && apiKey.isNullOrBlank()) {
             showProviderDialog(activity, "供应商还缺 API Key", "「${provider.name}」还没有填 Key，填完即可使用。")
             return null
         }
-        return Ctx(facade, provider, facade.providers.apiKey(provider))
+        return Ctx(facade, provider, apiKey)
     }
 
     /** 断头路改成直达：对话框的「去设置」直接打开 AI 供应商页。 */

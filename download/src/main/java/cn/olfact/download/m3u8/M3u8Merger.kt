@@ -1,49 +1,50 @@
 package cn.olfact.download.m3u8
 
 import cn.olfact.download.ChunkMerger
+import cn.olfact.download.util.Files
 import java.io.File
+import java.util.concurrent.CancellationException
 
-data class MergeOutcome(
-    val file: File,
-    val remuxed: Boolean,
-    val message: String? = null,
-)
+data class MergeOutcome(val file: File, val remuxed: Boolean, val message: String? = null)
 
-/** 合并策略接口：单测可以注入假实现，不依赖 media3 的 Android 运行时。 */
+/** Tests can inject a merger without Android's media runtime. */
 fun interface SegmentMerger {
     fun merge(segments: List<File>, outputBase: File, extraInitSegment: File?): MergeOutcome
 }
 
-/**
- * 分片合并：优先 remux 成 mp4；任何失败都降级为"仅拼接 .ts"，
- * 保证"下完一定有个能播的文件"。
- */
+/** Remux to MP4 when possible, otherwise keep a complete concatenated stream. */
 class M3u8Merger(
-    private val remuxer: (List<File>, File) -> File = { segments, output -> TsRemuxer.remux(segments, output) },
+    private val checkActive: () -> Unit = {},
+    private val remuxer: (List<File>, File) -> File = { segments, output -> TsRemuxer.remux(segments, output, checkActive) },
 ) : SegmentMerger {
-
-    override fun merge(
-        segments: List<File>,
-        outputBase: File,
-        extraInitSegment: File?,
-    ): MergeOutcome {
-        val inputs = buildList {
-            extraInitSegment?.takeIf { it.exists() && it.length() > 0 }?.let { add(it) }
-            addAll(segments.filter { it.exists() && it.length() > 0 })
+    override fun merge(segments: List<File>, outputBase: File, extraInitSegment: File?): MergeOutcome {
+        require(segments.isNotEmpty() && segments.all { it.isFile && it.length() > 0 }) { "分片缺失或为空" }
+        require(extraInitSegment == null || (extraInitSegment.isFile && extraInitSegment.length() > 0)) { "初始化分片缺失" }
+        val inputs = listOfNotNull(extraInitSegment) + segments
+        outputBase.parentFile?.mkdirs()
+        val staged = File.createTempFile("hls-", ".tmp", outputBase.parentFile)
+        try {
+            checkActive()
+            val result = try {
+                remuxer(inputs, staged)
+                checkActive()
+                if (staged.length() > 0) {
+                    return MergeOutcome(Files.publish(staged, File(outputBase.parentFile, outputBase.name + ".mp4"), checkActive), true)
+                }
+                "remux 输出为空"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                e.message ?: "remux 失败"
+            }
+            checkActive()
+            ChunkMerger.merge(inputs, staged, checkActive = checkActive)
+            checkActive()
+            val extension = if (extraInitSegment != null) "mp4" else "ts"
+            val file = Files.publish(staged, File(outputBase.parentFile, outputBase.name + ".$extension"), checkActive)
+            return MergeOutcome(file, false, "已降级为拼接 ${if (extraInitSegment != null) "fMP4" else "TS"}：$result")
+        } finally {
+            staged.delete()
         }
-        if (inputs.isEmpty()) throw IllegalArgumentException("没有可合并的分片")
-
-        val mp4 = File(outputBase.parentFile, outputBase.nameWithoutExtension + ".mp4")
-        val mp4Result = runCatching { remuxer(inputs, mp4) }
-        if (mp4Result.isSuccess && mp4.exists() && mp4.length() > 0) {
-            return MergeOutcome(mp4, remuxed = true)
-        }
-
-        val reason = mp4Result.exceptionOrNull()?.message ?: "remux 输出为空"
-        runCatching { if (mp4.exists()) mp4.delete() }
-
-        val ts = File(outputBase.parentFile, outputBase.nameWithoutExtension + ".ts")
-        ChunkMerger.merge(inputs, ts, deleteParts = false)
-        return MergeOutcome(ts, remuxed = false, message = "已降级为拼接 TS：$reason")
     }
 }

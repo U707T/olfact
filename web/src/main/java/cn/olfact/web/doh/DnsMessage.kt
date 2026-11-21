@@ -10,15 +10,19 @@ class DnsFormatException(message: String) : Exception(message)
 /**
  * 客户端子网（EDNS0 option 8），国内池带上它可以让 CDN 返回就近节点。
  */
-data class EcsSubnet(val address: ByteArray, val prefixLength: Int) {
+data class EcsSubnet(
+    val address: ByteArray,
+    val prefixLength: Int,
+    val family: Int = if (address.size <= 4) 1 else 2
+) {
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is EcsSubnet) return false
-        return prefixLength == other.prefixLength && address.contentEquals(other.address)
+        return prefixLength == other.prefixLength && family == other.family && address.contentEquals(other.address)
     }
 
-    override fun hashCode(): Int = 31 * address.contentHashCode() + prefixLength
+    override fun hashCode(): Int = (31 * address.contentHashCode() + prefixLength) * 31 + family
 
     companion object {
         /**
@@ -39,7 +43,7 @@ data class EcsSubnet(val address: ByteArray, val prefixLength: Int) {
                 val mask = (0xFF shl (8 - clamped % 8)) and 0xFF
                 truncated[byteLen - 1] = (truncated[byteLen - 1].toInt() and mask).toByte()
             }
-            return EcsSubnet(truncated, clamped)
+            return EcsSubnet(truncated, clamped, if (bytes.size == 4) 1 else 2)
         }
 
         fun isIpLiteral(host: String): Boolean {
@@ -118,7 +122,7 @@ object DnsMessage {
             val rd = DataOutputStream(rdata)
             rd.writeShort(OPTION_ECS)
             rd.writeShort(4 + ecs.address.size)
-            rd.writeShort(if (ecs.address.size == 4) 1 else 2)
+            rd.writeShort(ecs.family)
             rd.writeByte(ecs.prefixLength)
             rd.writeByte(0)                              // scope prefix
             rd.write(ecs.address)
@@ -135,6 +139,7 @@ object DnsMessage {
         val r = Reader(bytes)
         val id = r.u16()
         val flags = r.u16()
+        if (flags and 0x8000 == 0 || flags and 0x7800 != 0) throw DnsFormatException("不是标准 DNS 响应")
         val qdCount = r.u16()
         val anCount = r.u16()
         r.u16() // NSCOUNT
@@ -147,13 +152,18 @@ object DnsMessage {
         repeat(anCount) {
             r.name()
             val type = r.u16()
-            r.u16()  // class
-            val ttl = r.u32()
+            val recordClass = r.u16()
+            val ttl = r.u32().takeIf { it <= Int.MAX_VALUE }?.toInt() ?: 0
             val rdLength = r.u16()
             val data = r.bytes(rdLength)
-            records += DnsRecord(type, ttl.toInt(), data)
+            if (recordClass == CLASS_IN) {
+                if ((type == TYPE_A && rdLength != 4) || (type == TYPE_AAAA && rdLength != 16)) {
+                    throw DnsFormatException("地址记录长度错误")
+                }
+                records += DnsRecord(type, ttl, data)
+            }
         }
-        val addressTtls = records.filter { it.type == TYPE_A || it.type == TYPE_AAAA }.map { it.ttlSeconds }
+        val addressTtls = records.filter { it.type == TYPE_A || it.type == TYPE_AAAA || it.type == 5 }.map { it.ttlSeconds }
         return DnsResponse(
             id = id,
             rcode = flags and 0x0F,
@@ -169,8 +179,10 @@ object DnsMessage {
             d.writeByte(0)
             return
         }
-        for (label in trimmed.split('.')) {
-            val bytes = label.toByteArray(Charsets.UTF_8)
+        val ascii = java.net.IDN.toASCII(trimmed)
+        require(ascii.length <= 253) { "DNS 名称过长" }
+        for (label in ascii.split('.')) {
+            val bytes = label.toByteArray(Charsets.US_ASCII)
             require(bytes.size in 1..63) { "非法 DNS label: $label" }
             d.writeByte(bytes.size)
             d.write(bytes)
@@ -225,9 +237,11 @@ object DnsMessage {
                         if (++hops > 16) throw DnsFormatException("压缩指针成环")
                     }
                     else -> {
+                        if (len and 0xC0 != 0) throw DnsFormatException("保留的 label 编码")
                         pos++
                         if (pos + len > buf.size) throw DnsFormatException("label 越界")
                         sb.append(String(buf, pos, len, Charsets.UTF_8)).append('.')
+                        if (sb.length > 254) throw DnsFormatException("DNS 名称过长")
                         pos += len
                     }
                 }

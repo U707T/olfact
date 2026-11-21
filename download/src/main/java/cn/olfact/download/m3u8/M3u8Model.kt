@@ -20,6 +20,8 @@ data class M3u8Segment(
     val mapUri: String? = null,
     val byteRangeLength: Long? = null,
     val byteRangeOffset: Long? = null,
+    val mapByteRangeLength: Long? = null,
+    val mapByteRangeOffset: Long? = null,
     val title: String? = null,
     /** 由 EXT-X-CUE-OUT / EXT-X-DATERANGE 判定出的广告区间。 */
     val adBreak: Boolean = false,

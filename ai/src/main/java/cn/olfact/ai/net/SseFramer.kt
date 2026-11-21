@@ -1,7 +1,7 @@
 package cn.olfact.ai.net
 
 /**
- * 手写 SSE 分帧（RFC 8895 的常用子集）。
+ * 手写 SSE 分帧（HTML Living Standard 的常用子集）。
  * 不直接用 okhttp-sse 的原因：需要逐行可测、且要兼容国内一些代理发的
  * 非标准帧（缺 event、多行 data、空行结尾）。
  */
@@ -40,6 +40,7 @@ class SseFramer {
 
         when (field) {
             "data" -> {
+                require(data.length + value.length + 1 <= MAX_EVENT_CHARS) { "AI 响应事件过大" }
                 if (hasData) data.append('\n')
                 data.append(value)
                 hasData = true
@@ -67,5 +68,9 @@ class SseFramer {
         id = null
         hasData = false
         return result
+    }
+
+    private companion object {
+        const val MAX_EVENT_CHARS = 1024 * 1024
     }
 }

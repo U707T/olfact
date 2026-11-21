@@ -19,7 +19,7 @@ class DohAdapter(
         val mode = DohMode.of(settings.get(K.DOH_MODE))
         val url = settings.get(K.DOH_UPSTREAM).trim()
         val preset = presetFor(url)
-        val custom = customUpstreams(url)
+        val custom = if (preset == null) customUpstreams(url) else emptyList()
         impl.start(
             cn.olfact.web.doh.DohConfig(
                 enabled = true,
@@ -52,19 +52,14 @@ class DohAdapter(
         /**
          * 把用户填的地址翻译成池子里的两条上游。
          *
-         * 规则（与设置页的校验保持一致）：
-         * - 必须 https://
-         * - 必须有主机名，且带非空路径（`/dns-query` 这类端点；只有 host 的地址大概率填错）
-         * 不合法返回空表 → 退化为只用内置上游，不会把引擎带崩。
+         * 复用设置页的解析：HTTPS 公网上游、本机/内网 HTTP，缺省路径补 `/dns-query`。
+         * 不合法返回空表；显式自定义地址由调用方校验后保存。
          */
         fun buildCustomUpstreams(url: String): List<cn.olfact.web.doh.DohUpstream> {
-            val clean = url.trim()
-            if (!clean.startsWith("https://", ignoreCase = true)) return emptyList()
-            val rest = clean.substringAfter("://")
-            val host = rest.substringBefore('/').substringBefore(':')
-            val path = rest.substringAfter('/', "")
-            if (host.isBlank() || path.isBlank()) return emptyList()
-            val label = "自定义 · $host"
+            if (url.trim().equals(AUTO, ignoreCase = true)) return emptyList()
+            val parsed = DohUpstreams.parse(url) as? DohUpstreams.Result.Ok ?: return emptyList()
+            val clean = parsed.url
+            val label = "自定义 · ${parsed.host}"
             return listOf(
                 cn.olfact.web.doh.DohUpstream(
                     id = "custom-cn", label = label, url = clean,
@@ -89,7 +84,7 @@ class DohAdapter(
     override fun start(cfg: DohConfig) {
         val requested = cfg.upstreams.firstOrNull().orEmpty()
         val preset = presetFor(requested)
-        val custom = customUpstreams(requested)
+        val custom = if (preset == null) customUpstreams(requested) else emptyList()
         impl.start(
             cn.olfact.web.doh.DohConfig(
                 enabled = cfg.enabled,

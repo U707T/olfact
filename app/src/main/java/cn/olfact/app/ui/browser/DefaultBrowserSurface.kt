@@ -24,9 +24,16 @@ class DefaultBrowserSurface(private val context: Context) : BrowserSurface {
 
     private val main = Handler(Looper.getMainLooper())
     private var web: WebView? = null
+    private var recoveryContainer: android.view.ViewGroup? = null
+    private var lastUrl: String? = null
+    private var host: BrowserSurfaceHost? = null
+    private var incognito = false
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun createView(host: BrowserSurfaceHost): View {
+        this.host = host
+        web?.let { return it }
+        incognito = cn.olfact.app.data.BrowserSession.current()?.incognito == true
         val wv = WebView(context)
         wv.settings.apply {
             javaScriptEnabled = AppSettings.get(K.JS_ENABLED)
@@ -45,42 +52,69 @@ class DefaultBrowserSurface(private val context: Context) : BrowserSurface {
                 view: android.webkit.WebView,
                 detail: android.webkit.RenderProcessGoneDetail?
             ): Boolean {
+                recoveryContainer = view.parent as? android.view.ViewGroup
+                recoveryContainer?.removeView(view)
                 runCatching { view.destroy() }
                 web = null
+                this@DefaultBrowserSurface.host?.onProgress(100)
+                this@DefaultBrowserSurface.host?.onError(-1, "页面进程已停止，请重试", lastUrl.orEmpty())
                 return true
             }
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
-                url?.let { host.onPageStarted(it) }
+                url?.let {
+                    lastUrl = it
+                    this@DefaultBrowserSurface.host?.onPageStarted(it)
+                }
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 url?.let {
-                    host.onPageFinished(it)
-                    HistoryStore.record(context, view?.title.orEmpty(), it)
+                    this@DefaultBrowserSurface.host?.onPageFinished(it)
+                    if (!incognito) HistoryStore.record(context, view?.title.orEmpty(), it)
                 }
             }
         }
         wv.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                host.onProgress(newProgress)
-                if (newProgress > 60) host.onTitle(view?.title)
+                this@DefaultBrowserSurface.host?.onProgress(newProgress)
+                if (newProgress > 60) this@DefaultBrowserSurface.host?.onTitle(view?.title)
             }
         }
         wv.setOnLongClickListener {
-            host.onLongPress(wv.hitTestResult.extra, wv.title)
+            this@DefaultBrowserSurface.host?.onLongPress(wv.hitTestResult.extra, wv.title)
             true
         }
         web = wv
         return wv
     }
 
+    override fun view(): View? = web
+
+    override fun attachHost(host: BrowserSurfaceHost?) {
+        this.host = host
+        if (host == null) web?.onPause() else web?.onResume()
+    }
+
     override fun loadUrl(url: String) {
-        web?.loadUrl(url)
+        lastUrl = url
+        var view = web
+        if (view == null) {
+            val container = recoveryContainer ?: return
+            val currentHost = host ?: return
+            view = createView(currentHost) as WebView
+            recoveryContainer = null
+            container.addView(view, 0, android.view.ViewGroup.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT
+            ))
+        }
+        view.loadUrl(url)
     }
 
     override fun reload() {
-        web?.reload()
+        val current = web
+        if (current != null) current.reload() else lastUrl?.let(::loadUrl)
     }
 
     override fun stopLoading() {
@@ -101,6 +135,17 @@ class DefaultBrowserSurface(private val context: Context) : BrowserSurface {
 
     override fun clearHistory() {
         web?.clearHistory()
+    }
+
+    override fun refreshConfig() {
+        web?.settings?.apply {
+            javaScriptEnabled = AppSettings.get(K.JS_ENABLED)
+            loadsImagesAutomatically = !AppSettings.get(K.NO_IMAGE)
+            textZoom = AppSettings.get(K.TEXT_ZOOM)
+            userAgentString = AppSettings.get(K.WEB_CUSTOM_UA).ifBlank {
+                if (AppSettings.get(K.DESKTOP_MODE)) DESKTOP_UA else MOBILE_UA
+            }
+        }
     }
 
     override fun title(): String? = web?.title
@@ -129,6 +174,8 @@ class DefaultBrowserSurface(private val context: Context) : BrowserSurface {
     }
 
     override fun destroy() {
+        host = null
+        recoveryContainer = null
         web?.apply {
             stopLoading()
             loadUrl("about:blank")

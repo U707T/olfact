@@ -7,7 +7,7 @@ object ChunkMerger {
 
     private const val BUFFER = 64 * 1024
 
-    fun merge(parts: List<File>, output: File, deleteParts: Boolean = false): File {
+    fun merge(parts: List<File>, output: File, deleteParts: Boolean = false, checkActive: () -> Unit = {}): File {
         require(parts.isNotEmpty()) { "没有分块可合并" }
         output.parentFile?.mkdirs()
         val buffer = ByteArray(BUFFER)
@@ -15,6 +15,7 @@ object ChunkMerger {
             parts.forEach { part ->
                 part.inputStream().buffered(BUFFER).use { input ->
                     while (true) {
+                        checkActive()
                         val read = input.read(buffer)
                         if (read <= 0) break
                         sink.write(buffer, 0, read)

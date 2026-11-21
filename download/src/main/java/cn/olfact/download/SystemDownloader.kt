@@ -42,7 +42,8 @@ class SystemDownloader(private val context: Context) {
         spec.mimeType?.let { request.setMimeType(it) }
         val ua = spec.userAgent ?: spec.headers.entries.firstOrNull { it.key.equals("User-Agent", true) }?.value
         if (!ua.isNullOrBlank()) request.addRequestHeader("User-Agent", ua)
-        spec.referer?.takeIf { it.isNotBlank() }?.let { request.addRequestHeader("Referer", it) }
+        (spec.referer ?: spec.headers.entries.firstOrNull { it.key.equals("Referer", true) }?.value)
+            ?.takeIf { it.isNotBlank() }?.let { request.addRequestHeader("Referer", it) }
         spec.headers.forEach { (key, value) ->
             if (key.isNotBlank() && value.isNotBlank() &&
                 !key.equals("User-Agent", true) && !key.equals("Referer", true)

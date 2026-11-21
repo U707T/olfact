@@ -58,7 +58,6 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list) {
             Dialogs.confirm(requireContext(), title, message, danger = true, positiveLabel = "清空") { clearCurrent() }
         }
 
-        b.empty.setAction("新增下载") { AddDownloadSheet.show(requireContext()) { url, name -> enqueue(url, name) } }
         b.empty.setIcon(R.drawable.ic_download)
 
         val a = DownloadAdapter(
@@ -94,14 +93,23 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list) {
 
     private fun enqueue(url: String, name: String?) {
         if (url.isBlank()) return
-        OlfactServices.downloads?.enqueue(url, name?.ifBlank { null })
+        val center = OlfactServices.downloads
+        if (center == null) {
+            Nav.toast("下载模块未就绪，请稍后重试")
+            return
+        }
+        center.enqueue(url, name?.ifBlank { null })
         Nav.toast("已加入下载队列")
         showRunning = true
         render()
     }
 
     private fun clearCurrent() {
-        val center = OlfactServices.downloads ?: return
+        val center = OlfactServices.downloads
+        if (center == null) {
+            Nav.toast("下载模块未就绪，请稍后重试")
+            return
+        }
         if (showRunning) {
             center.tasks().filter { it.state != DownloadState.DONE }.forEach { center.remove(it.id, false) }
         } else {
@@ -113,7 +121,19 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list) {
     private fun render() {
         val b = binding ?: return
         val ctx = requireContext()
-        val all = OlfactServices.downloads?.tasks().orEmpty()
+        val downloads = OlfactServices.downloads
+        val a = adapter ?: return
+        if (downloads == null) {
+            b.empty.visibility = View.VISIBLE
+            b.empty.text = "下载模块未就绪，请返回稍后重试"
+            b.empty.setAction("返回") { Nav.pop() }
+            a.submit(emptyList())
+            return
+        }
+        b.empty.setAction("新增下载") {
+            AddDownloadSheet.show(requireContext()) { url, name -> enqueue(url, name) }
+        }
+        val all = downloads.tasks()
         val filtered = if (showRunning) all.filter { it.state != DownloadState.DONE } else all.filter { it.state == DownloadState.DONE }
         val list = when (sortMode) {
             SortMode.TIME -> filtered.sortedByDescending { it.createdAt }
@@ -121,7 +141,6 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list) {
             SortMode.SIZE -> filtered.sortedByDescending { it.totalBytes }
         }
 
-        val a = adapter ?: return
         b.tabDone.setTextColor(ContextCompat.getColor(ctx, if (showRunning) R.color.text_secondary else R.color.text_accent))
         b.tabRunning.setTextColor(ContextCompat.getColor(ctx, if (showRunning) R.color.text_accent else R.color.text_secondary))
         // 选中项下方 2dp 绿色指示条（原版有，之前只有文字变色）

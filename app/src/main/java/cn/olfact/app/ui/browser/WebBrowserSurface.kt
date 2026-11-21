@@ -42,8 +42,10 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
 
     private val main = Handler(Looper.getMainLooper())
     private var web: BrowserView? = null
+    private var recoveryContainer: android.view.ViewGroup? = null
+    private var lastUrl: String? = null
     private var detectSink: ((String) -> Unit)? = null
-    private val sticky = SessionSticky()
+    private val sticky = ModuleBackends.sessionSticky
 
     /** 当前宿主；View 重建后由 [attachHost] 替换。 */
     private var host: BrowserSurfaceHost? = null
@@ -69,9 +71,9 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
                 if (!incognito) HistoryStore.record(context, title, url)
             }
 
-            override fun onTitleChanged(tabId: String, title: String) = host?.onTitle(title) ?: Unit
+            override fun onTitleChanged(tabId: String, title: String) = this@WebBrowserSurface.host?.onTitle(title) ?: Unit
 
-            override fun onProgress(tabId: String, progress: Int) = host?.onProgress(progress) ?: Unit
+            override fun onProgress(tabId: String, progress: Int) = this@WebBrowserSurface.host?.onProgress(progress) ?: Unit
         }
 
         view.webViewClient = BrowserClient(
@@ -79,33 +81,46 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
             configProvider = { configSnapshot() },
             incognito = incognito,
             sniffer = OlfactServices.sniffer,
-            adblock = OlfactServices.adBlock,
+            adblock = object : cn.olfact.core.api.AdBlockHook {
+                override fun shouldBlock(url: String, pageHost: String): Boolean =
+                    OlfactServices.adBlock?.shouldBlock(url, pageHost) == true
+                override fun cosmeticCss(pageHost: String): String =
+                    if (AppSettings.get(K.AD_COSMETIC)) OlfactServices.adBlock?.cosmeticCss(pageHost).orEmpty() else ""
+                override fun recordBlocked() { OlfactServices.adBlock?.recordBlocked() }
+            },
             sticky = sticky,
             dohPredicate = { hostName -> ModuleBackends.shouldUseDoh(hostName) },
             events = events,
             onPageStarted = { url ->
-                host?.onPageStarted(url)
+                lastUrl = url
+                this@WebBrowserSurface.host?.onPageStarted(url)
                 injectScripts(view, url)
             },
             onPageFinished = { url ->
-                host?.onPageFinished(url)
+                this@WebBrowserSurface.host?.onPageFinished(url)
                 injectLateScripts(view, url)
             },
-            onExternalScheme = { url -> cn.olfact.app.data.openExternal(context, url) },
+            onExternalScheme = { url ->
+                this@WebBrowserSurface.host != null && cn.olfact.app.data.openExternal(context, url)
+            },
             onBeforeNavigate = { url -> injectScripts(view, url) },
-            onError = { code, description, url -> host?.onError(code, description, url) ?: Unit },
+            onError = { code, description, url -> this@WebBrowserSurface.host?.onError(code, description, url) ?: Unit },
             onRenderProcessGone = { dead ->
                 // 渲染进程被系统杀掉：拆掉这个 WebView，提示用户重新加载，别让整个应用跟着崩
-                (dead.parent as? android.view.ViewGroup)?.removeView(dead)
+                sticky.closeTab(tabId)
+                recoveryContainer = dead.parent as? android.view.ViewGroup
+                recoveryContainer?.removeView(dead)
+                detectSink?.let { InjectionBus.detach(it) }
+                detectSink = null
                 web = null
-                android.widget.Toast.makeText(context, "页面进程已重启，请重新加载", android.widget.Toast.LENGTH_SHORT).show()
-                host?.onPageFinished("")
+                this@WebBrowserSurface.host?.onProgress(100)
+                this@WebBrowserSurface.host?.onError(-1, "页面进程已停止，请重试", lastUrl.orEmpty())
             }
         )
         view.webChromeClient = BrowserChromeClient(tabId, events)
 
         view.onLongPress = { target, x, y ->
-            host?.onLongPressAt(target.url ?: target.imageUrl, view.title, x, y)
+            this@WebBrowserSurface.host?.onLongPressAt(target.url ?: target.imageUrl, view.title, x, y)
         }
         view.onDownload = { request ->
             // Content-Disposition 里的文件名比 URL 末段靠谱得多（尤其是 /download?id=1 这种）。
@@ -133,19 +148,22 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
     override fun attachHost(host: BrowserSurfaceHost?) {
         this.host = host
         if (host == null) {
+            web?.onPause()
             // 界面已经销毁：断开桥与「当前渲染器」，别让缓存中的 WebView 继续被当作前台页面。
             detectSink?.let { InjectionBus.detach(it) }
             ActiveSurface.clear(this)
             return
         }
+        web?.onResume()
         // 重新回到前台：GM 桥与 AI 抓正文都要指向这一份渲染器。
         detectSink?.let { InjectionBus.attach(it) }
         ActiveSurface.attach(this)
     }
 
     private fun injectScripts(view: WebView, url: String) {
-        if (!AppSettings.get(K.SCRIPT_ENABLED)) return
-        val scripts = OlfactServices.scripts?.documentStartScripts(url).orEmpty()
+        val scripts = if (AppSettings.get(K.SCRIPT_ENABLED)) {
+            OlfactServices.scripts?.documentStartScripts(url).orEmpty()
+        } else emptyList()
         (view as? BrowserView)?.applyDocumentStartScripts(scripts)
     }
 
@@ -179,20 +197,34 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
             javaScriptEnabled = AppSettings.get(K.JS_ENABLED),
             nightMode = night,
             textZoom = AppSettings.get(K.TEXT_ZOOM),
-            incognito = BrowserSession.current()?.incognito == true,
+            incognito = incognito,
             blockThirdPartyCookies = AppSettings.get(K.PRIVACY_BLOCK_THIRD_PARTY)
         )
     }
 
     override fun loadUrl(url: String) {
-        val view = web ?: return
+        lastUrl = url
+        val view = web ?: recoverView() ?: return
         // 地址栏 / 书签 / 首页搜索都走这里：先注册 document-start 脚本，再加载。
         injectScripts(view, url)
         view.loadUrl(url)
     }
 
     override fun reload() {
-        web?.reload()
+        val current = web
+        if (current != null) current.reload() else lastUrl?.let(::loadUrl)
+    }
+
+    private fun recoverView(): BrowserView? {
+        val container = recoveryContainer ?: return null
+        val currentHost = host ?: return null
+        val view = createView(currentHost)
+        recoveryContainer = null
+        container.addView(view, 0, android.view.ViewGroup.LayoutParams(
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT
+        ))
+        return web
     }
 
     override fun stopLoading() {
@@ -225,6 +257,7 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
         val view = web ?: return
         view.applyConfig(configSnapshot())
         view.applyUserAgent(view.url)
+        injectScripts(view, view.url.orEmpty())
     }
 
     override fun title(): String? = web?.title
@@ -254,10 +287,12 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
     }
 
     override fun destroy() {
+        sticky.closeTab(tabId)
         ActiveSurface.clear(this)
         detectSink?.let { InjectionBus.detach(it) }
         detectSink = null
         host = null
+        recoveryContainer = null
         web?.destroy()
         web = null
     }

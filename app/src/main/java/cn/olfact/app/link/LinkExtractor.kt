@@ -49,15 +49,15 @@ object LinkExtractor {
 
     /** 从任意文本里抽取链接，按出现顺序去重，最多 [max] 条。 */
     fun extract(text: String, max: Int = 5): List<LinkCandidate> {
-        if (text.isBlank()) return emptyList()
+        if (text.isBlank() || max <= 0) return emptyList()
 
-        val found = mutableListOf<LinkCandidate>()
+        val found = mutableListOf<Pair<Int, LinkCandidate>>()
         val occupied = mutableListOf<IntRange>()
 
         FULL_URL.findAll(text).forEach { m ->
             val raw = trimTrailing(m.value)
             if (raw.length > "https://".length) {
-                found += LinkCandidate(raw, hostOf(raw))
+                found += m.range.first to LinkCandidate(raw, hostOf(raw))
                 occupied += m.range
             }
         }
@@ -72,12 +72,19 @@ object LinkExtractor {
             val tld = raw.substringBefore('/').substringAfterLast('.').substringBefore(':').lowercase()
             if (tld in FILE_EXT) return@forEach
             if (raw.none { it == '.' }) return@forEach
-            found += LinkCandidate(normalize(raw), hostOf(raw))
+            found += m.range.first to LinkCandidate(normalize(raw), hostOf(raw))
         }
 
         val seen = HashSet<String>()
-        return found
-            .filter { seen.add(it.url.lowercase().trimEnd('/')) }
+        return found.sortedBy { it.first }.map { it.second }
+            .filter { candidate ->
+                val key = runCatching {
+                    val uri = URI(candidate.url)
+                    "${uri.scheme?.lowercase()}://${uri.rawAuthority?.lowercase()}${uri.rawPath.orEmpty().ifEmpty { "/" }}" +
+                        (uri.rawQuery?.let { "?$it" } ?: "") + (uri.rawFragment?.let { "#$it" } ?: "")
+                }.getOrDefault(candidate.url)
+                seen.add(key)
+            }
             .take(max)
     }
 

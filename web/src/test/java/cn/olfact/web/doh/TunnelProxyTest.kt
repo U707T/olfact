@@ -102,6 +102,64 @@ class TunnelProxyTest {
         }
     }
 
+    @Test(timeout = 5_000)
+    fun `stop closes clients still waiting for request headers`() {
+        val port = tunnel.start()
+        Socket("127.0.0.1", port).use { socket ->
+            socket.soTimeout = 2_000
+            socket.getOutputStream().write("CONNECT example.com".toByteArray())
+            val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(1)
+            while (tunnel.stats().connections == 0L && System.nanoTime() < deadline) Thread.yield()
+            assertTrue(tunnel.stats().connections > 0)
+            tunnel.stop()
+            assertEquals(-1, socket.getInputStream().read())
+        }
+    }
+
+    @Test(timeout = 5_000)
+    fun `CONNECT IPv6 literal is passed to resolver without brackets`() {
+        val hosts = java.util.concurrent.LinkedBlockingQueue<String>()
+        tunnel = TunnelProxy(resolver = { hosts.add(it); listOf(InetAddress.getLoopbackAddress()) }, allowedPorts = setOf(echo.localPort))
+        val port = tunnel.start()
+        Socket("127.0.0.1", port).use { socket ->
+            socket.soTimeout = 2_000
+            socket.getOutputStream().write("CONNECT [2001:db8::1]:${echo.localPort} HTTP/1.1\r\n\r\n".toByteArray())
+            assertTrue(socket.getInputStream().bufferedReader().readLine().contains("200"))
+            assertEquals("2001:db8::1", hosts.poll(1, java.util.concurrent.TimeUnit.SECONDS))
+        }
+    }
+
+    @Test(timeout = 5_000)
+    fun `invalid CONNECT port does not silently become 443`() {
+        val port = tunnel.start()
+        Socket("127.0.0.1", port).use { socket ->
+            socket.soTimeout = 2_000
+            socket.getOutputStream().write("CONNECT example.com:invalid HTTP/1.1\r\n\r\n".toByteArray())
+            assertTrue(socket.getInputStream().bufferedReader().readLine().contains("400"))
+        }
+    }
+
+    @Test(timeout = 5_000)
+    fun `plain PATCH keeps method path and body`() {
+        val port = tunnel.start()
+        Socket("127.0.0.1", port).use { socket ->
+            socket.soTimeout = 2_000
+            socket.getOutputStream().write(("PATCH http://example.com:${echo.localPort}/item?x=1 HTTP/1.1\r\n" +
+                "Host: example.com\r\nContent-Length: 4\r\n\r\ndata").toByteArray())
+            val reader = socket.getInputStream().bufferedReader()
+            assertEquals("PATCH /item?x=1 HTTP/1.1", reader.readLine())
+            while (reader.readLine().orEmpty().isNotEmpty()) { }
+            val body = CharArray(4)
+            var read = 0
+            while (read < body.size) {
+                val n = reader.read(body, read, body.size - read)
+                if (n < 0) break
+                read += n
+            }
+            assertEquals("data", String(body, 0, read))
+        }
+    }
+
     @Test(timeout = 15_000)
     fun `明文 GET 改写成 origin-form`() {
         val port = tunnel.start(0)

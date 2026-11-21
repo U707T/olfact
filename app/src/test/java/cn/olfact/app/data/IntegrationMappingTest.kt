@@ -139,4 +139,36 @@ class IntegrationMappingTest {
             dir.deleteRecursively()
         }
     }
+
+    @Test
+    fun `编辑仅 include 匹配的脚本不扩大站点权限或丢失元数据`() {
+        val dir = Files.createTempDirectory("olfact-script-metadata").toFile()
+        try {
+            val store = ScriptStore(dir)
+            val original = cn.olfact.core.script.UserScript(
+                id = "include-only", name = "Original", namespace = "custom-namespace",
+                includes = listOf("https://allowed.example/*"),
+                excludes = listOf("https://allowed.example/private/*"),
+                grants = listOf("GM_getValue"),
+                runAt = cn.olfact.core.script.RunAt.DOCUMENT_IDLE,
+                updateUrl = "https://scripts.example/update.user.js"
+            )
+            store.save(original, "console.log('installed');")
+            val adapter = ScriptAdapter(store)
+            adapter.save(adapter.all().single().copy(name = "Edited"))
+            val edited = requireNotNull(store.find(original.id))
+            assertEquals("Edited", edited.name)
+            assertEquals(original.namespace, edited.namespace)
+            assertEquals(original.grants, edited.grants)
+            assertEquals(original.includes, edited.includes)
+            assertEquals(original.excludes, edited.excludes)
+            assertEquals(original.runAt, edited.runAt)
+            assertEquals(original.updateUrl, edited.updateUrl)
+            assertTrue(edited.matches("https://allowed.example/page"))
+            assertEquals(false, edited.matches("https://other.example/page"))
+            assertEquals(false, edited.matches("https://allowed.example/private/page"))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
 }

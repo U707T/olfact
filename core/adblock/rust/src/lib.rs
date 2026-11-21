@@ -8,7 +8,6 @@
 //! 保证 Kotlin 侧永远不需要因为 native 崩溃而 try/catch（虽然它还是包了）。
 
 use std::ffi::{c_char, CStr, CString};
-use std::path::Path;
 use std::ptr;
 
 use adblock::engine::Engine;
@@ -55,31 +54,16 @@ fn request_type_name(code: i32) -> &'static str {
     }
 }
 
-fn build_engine(rules: &str, engine_path: Option<&str>) -> Option<Engine> {
-    // 1) 有序列化产物直接反序列化（冷启最快）
-    if let Some(path) = engine_path {
-        if Path::new(path).is_file() {
-            if let Ok(engine) = Engine::deserialize_from_file(path) {
-                return Some(engine);
-            }
-            // 损坏就重建，不阻断启动
-            let _ = std::fs::remove_file(path);
-        }
-    }
-
-    // 2) 从规则文本构建
+fn build_engine(rules: &str) -> Engine {
     let mut filter_set = FilterSet::new(true);
     filter_set.add_filter_list(rules, ParseOptions::default());
-    let engine = Engine::from_filter_set(filter_set, true);
+    Engine::from_filter_set(filter_set, true)
+}
 
-    // 3) 回写序列化产物，下次启动 mmap 直接加载
-    if let Some(path) = engine_path {
-        if let Some(parent) = Path::new(path).parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let _ = engine.serialize_to_file(path);
-    }
-    Some(engine)
+fn cosmetic_selectors(engine: &Engine, page_url: &str) -> String {
+    let mut selectors: Vec<_> = engine.url_cosmetic_resources(page_url).hide_selectors.into_iter().collect();
+    selectors.sort_unstable();
+    selectors.join("\n")
 }
 
 // ------------------------------------------------------------------- C ABI
@@ -93,26 +77,19 @@ pub extern "C" fn olfact_adblock_engine_create(rules_path: *const c_char) -> *mu
     let Ok(text) = std::fs::read_to_string(path) else {
         return ptr::null_mut();
     };
-    match build_engine(&text, None) {
-        Some(engine) => Box::into_raw(Box::new(engine)),
-        None => ptr::null_mut(),
-    }
+    Box::into_raw(Box::new(build_engine(&text)))
 }
 
-/// 直接从规则文本构建；`engine_path` 可为 null（不缓存序列化产物）。
+/// 直接从规则文本构建；保留已弃用的缓存路径参数以维持 ABI。
 #[no_mangle]
 pub extern "C" fn olfact_adblock_engine_create_from_text(
     rules_text: *const c_char,
-    engine_path: *const c_char,
+    _engine_path: *const c_char,
 ) -> *mut Engine {
     let Some(rules) = cstr_to_str(rules_text) else {
         return ptr::null_mut();
     };
-    let path = cstr_to_str(engine_path);
-    match build_engine(rules, path) {
-        Some(engine) => Box::into_raw(Box::new(engine)),
-        None => ptr::null_mut(),
-    }
+    Box::into_raw(Box::new(build_engine(rules)))
 }
 
 /// 是否拦截。异常规则命中时同样返回 false（等价于放行）。
@@ -153,10 +130,7 @@ pub extern "C" fn olfact_adblock_engine_cosmetic(
         return ptr::null_mut();
     };
     let engine = unsafe { &*engine };
-    // 注：adblock-rust 的 `generichide` 无法在结果里区分通用/站点选择器，
-    // 这里统一返回全部选择器；Kotlin 侧再按 800 条上限截断。
-    let resources = engine.url_cosmetic_resources(page_url);
-    to_c_string(resources.hide_selectors.join("\n"))
+    to_c_string(cosmetic_selectors(engine, page_url))
 }
 
 #[no_mangle]
@@ -200,15 +174,13 @@ pub extern "system" fn Java_cn_olfact_core_adblock_NativeAdBlockEngine_nativeCre
     mut env: JNIEnv,
     _this: JObject,
     rules: JString,
-    engine_path: JString,
+    _engine_path: JString,
 ) -> jlong {
     let rules_text = jstring_to_string(&mut env, &rules);
-    let path = jstring_to_string(&mut env, &engine_path);
-    let path = if path.is_empty() { None } else { Some(path.as_str()) };
-    match build_engine(&rules_text, path) {
-        Some(engine) => Box::into_raw(Box::new(engine)) as jlong,
-        None => 0,
+    if rules_text.is_empty() {
+        return 0;
     }
+    Box::into_raw(Box::new(build_engine(&rules_text))) as jlong
 }
 
 #[no_mangle]
@@ -251,9 +223,7 @@ pub extern "system" fn Java_cn_olfact_core_adblock_NativeAdBlockEngine_nativeCos
         return ptr::null_mut();
     };
     let page = jstring_to_string(&mut env, &page_url);
-    let resources = engine.url_cosmetic_resources(&page);
-    let joined = resources.hide_selectors.join("\n");
-    match env.new_string(joined) {
+    match env.new_string(cosmetic_selectors(engine, &page)) {
         Ok(s) => s.into_raw(),
         Err(_) => ptr::null_mut(),
     }

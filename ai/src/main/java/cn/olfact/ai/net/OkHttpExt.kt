@@ -16,7 +16,7 @@ suspend fun Call.await(): Response = suspendCancellableCoroutine { cont ->
         }
 
         override fun onResponse(call: Call, response: Response) {
-            if (cont.isActive) cont.resume(response) else response.close()
+            cont.resume(response) { _, value, _ -> value.close() }
         }
     })
     cont.invokeOnCancellation { runCatching { cancel() } }

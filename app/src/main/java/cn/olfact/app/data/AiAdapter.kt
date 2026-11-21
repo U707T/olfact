@@ -24,12 +24,12 @@ class AiAdapter(private val store: cn.olfact.ai.ProviderStore) : ProviderStore {
     override fun save(provider: AiProvider) {
         val existing = store.get(provider.id)
         store.upsert(
-            cn.olfact.ai.AiProvider(
-                id = provider.id,
+            (existing ?: cn.olfact.ai.AiProvider(
+                id = provider.id, name = provider.name, baseUrl = provider.baseUrl, model = provider.model
+            )).copy(
                 name = provider.name,
                 baseUrl = provider.baseUrl,
                 model = provider.model,
-                keyRef = existing?.keyRef ?: "provider_${provider.id}",
                 enabled = provider.enabled
             ),
             apiKey = provider.apiKey.ifBlank { null }

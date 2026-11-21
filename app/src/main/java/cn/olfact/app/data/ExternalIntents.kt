@@ -11,7 +11,20 @@ internal fun openExternal(context: Context, url: String): Boolean {
         return false
     }
     return runCatching {
-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        val intent = if (url.startsWith("intent:", ignoreCase = true)) {
+            Intent.parseUri(url, Intent.URI_INTENT_SCHEME)
+        } else Intent(Intent.ACTION_VIEW, Uri.parse(url))
+        val scheme = intent.data?.scheme?.lowercase() ?: return false
+        if (scheme in setOf("javascript", "data", "file", "content", "intent")) return false
+        intent.action = Intent.ACTION_VIEW
+        intent.addCategory(Intent.CATEGORY_BROWSABLE)
+        intent.component = null
+        intent.selector = null
+        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        context.startActivity(intent)
         true
-    }.getOrDefault(false)
+    }.getOrElse {
+        android.widget.Toast.makeText(context, "没有可用的应用打开此链接", android.widget.Toast.LENGTH_SHORT).show()
+        false
+    }
 }

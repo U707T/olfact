@@ -29,7 +29,7 @@ interface DohManager {
     /** 当前分流规则 */
     fun rules(): DnsRules
 
-    /** 地址栏长按「本站启用加密 DNS」 */
+    /** 地址栏长按「本站启用加密 DNS」；排除模式会移除匹配本站的排除规则（含通配规则）。 */
     fun enableForHost(host: String): DnsRules
 
     fun updateRules(rules: DnsRules)

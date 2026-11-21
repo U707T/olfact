@@ -58,7 +58,7 @@ object ReadabilityExtractor {
             .filter { it.length >= MIN_PARAGRAPH_CHARS }
             .distinct()
 
-        val selected = if (paragraphs.isNotEmpty()) assemble(paragraphs) else plainText(cleaned)
+        val selected = if (paragraphs.isNotEmpty()) assemble(paragraphs) else bounded(plainText(cleaned))
 
         return Article(
             title = title.ifBlank { url?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: "网页" },
@@ -72,18 +72,26 @@ object ReadabilityExtractor {
 
     /** 按长度 + 标点密度打分，取到字符预算为止。 */
     private fun assemble(paragraphs: List<String>): String {
-        val scored = paragraphs.map { text ->
-            val score = text.length + punctuationCount(text) * 12
-            text to score
-        }.sortedByDescending { it.second }
-
-        val builder = StringBuilder()
-        for ((text, _) in scored) {
-            if (builder.length + text.length > MAX_CHARS) continue
-            if (builder.isNotEmpty()) builder.append("\n\n")
-            builder.append(text)
+        val scored = paragraphs.indices.sortedByDescending { index ->
+            val text = paragraphs[index]
+            text.length + punctuationCount(text) * 12
         }
-        return if (builder.isEmpty()) paragraphs.joinToString("\n\n") else builder.toString()
+        val selected = ArrayList<Int>()
+        var remaining = MAX_CHARS
+        for (index in scored) {
+            val length = paragraphs[index].length + if (selected.isEmpty()) 0 else 2
+            if (length > remaining) continue
+            remaining -= length
+            selected += index
+        }
+        return if (selected.isEmpty()) bounded(paragraphs.first())
+        else selected.sorted().joinToString("\n\n") { paragraphs[it] }
+    }
+
+    private fun bounded(text: String): String {
+        if (text.length <= MAX_CHARS) return text
+        val end = if (text[MAX_CHARS].isLowSurrogate()) MAX_CHARS - 1 else MAX_CHARS
+        return text.substring(0, end)
     }
 
     private fun punctuationCount(text: String): Int =

@@ -85,6 +85,7 @@ class TabsFragment : Fragment(R.layout.fragment_tabs) {
     }
 
     private fun render() {
+        cn.olfact.app.ui.browser.SurfaceCache.retainTabs(BrowserSession.tabs.mapTo(mutableSetOf()) { it.id })
         val b = binding ?: return
         val ctx = requireContext()
         b.countText.text = "共 ${BrowserSession.tabs.size} 个"

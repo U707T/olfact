@@ -156,11 +156,14 @@ class BrowserView @JvmOverloads constructor(
         }
     }
 
-    fun injectCss(css: String) {
+    fun injectCss(css: String) = injectStyle("olfact-cosmetic", css)
+
+    private fun injectStyle(id: String, css: String) {
         if (css.isBlank()) return
         val quoted = JSONObject.quote(css)
+        val quotedId = JSONObject.quote(id)
         evaluateJavascript(
-            "(function(){var id='olfact-cosmetic';var s=document.getElementById(id);" +
+            "(function(){var id=$quotedId;var s=document.getElementById(id);" +
                 "if(!s){s=document.createElement('style');s.id=id;(document.head||document.documentElement).appendChild(s);}" +
                 "s.textContent=$quoted;})();",
             null
@@ -190,13 +193,14 @@ class BrowserView @JvmOverloads constructor(
 
     private fun injectNightCss(enabled: Boolean) {
         if (enabled) {
-            injectCss(
+            injectStyle(
+                "olfact-night",
                 "html{filter:invert(1) hue-rotate(180deg)!important;background:#111!important}" +
                     "img,video,picture,canvas,svg,iframe{filter:invert(1) hue-rotate(180deg)!important}"
             )
         } else {
             evaluateJavascript(
-                "(function(){var s=document.getElementById('olfact-cosmetic');if(s)s.remove();})();",
+                "(function(){var s=document.getElementById('olfact-night');if(s)s.remove();})();",
                 null
             )
         }
@@ -204,7 +208,7 @@ class BrowserView @JvmOverloads constructor(
 
     private fun removeNightCss() {
         evaluateJavascript(
-            "(function(){var s=document.getElementById('olfact-cosmetic');if(s)s.remove();})();",
+            "(function(){var s=document.getElementById('olfact-night');if(s)s.remove();})();",
             null
         )
     }

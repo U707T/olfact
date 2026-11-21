@@ -40,8 +40,25 @@ class DohCustomUpstreamTest {
     fun `不合法的地址退化为空表`() {
         assertTrue(DohAdapter.buildCustomUpstreams("").isEmpty())
         assertTrue(DohAdapter.buildCustomUpstreams("http://dns.example.com/dns-query").isEmpty())
-        assertTrue(DohAdapter.buildCustomUpstreams("https://dns.example.com").isEmpty())
         assertTrue(DohAdapter.buildCustomUpstreams("https://").isEmpty())
+        assertTrue(DohAdapter.buildCustomUpstreams("auto").isEmpty())
+    }
+
+    @Test
+    fun `只给主机时补通用 DNS 路径`() {
+        val list = DohAdapter.buildCustomUpstreams("https://dns.example.com")
+        assertEquals(2, list.size)
+        assertTrue(list.all { it.url == "https://dns.example.com/dns-query" })
+    }
+
+    @Test
+    fun `本地 HTTP 和 IPv6 不再静默退回内置池`() {
+        listOf("http://127.0.0.1:8080/dns-query", "http://[::1]:8080/dns-query", "https://[2001:db8::1]:8443/Dns?key=A").forEach { url ->
+            val list = DohAdapter.buildCustomUpstreams(url)
+            assertEquals(url, 2, list.size)
+            assertTrue(list.all { it.url == DohUpstreams.normalize(url) })
+            assertEquals((DohUpstreams.parse(url) as DohUpstreams.Result.Ok).host, list.first().host)
+        }
     }
 
     @Test

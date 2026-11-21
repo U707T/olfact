@@ -75,6 +75,10 @@ class DnsRulesTest {
         val rules = DnsRules.builtin(DohMode.SMART)
         assertFalse(rules.useDoh("127.0.0.1"))
         assertFalse(rules.useDoh("192.168.1.1"))
+        assertFalse(rules.useDoh("2001:db8::1"))
+        assertFalse(rules.useDoh("[2001:db8::1]:443"))
+        assertFalse(rules.useDoh("::1"))
+        assertTrue(rules.contains("HTTPS://WWW.GOOGLE.COM/path"))
     }
 
     @Test

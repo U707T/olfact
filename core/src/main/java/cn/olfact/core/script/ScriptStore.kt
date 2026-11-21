@@ -2,7 +2,12 @@ package cn.olfact.core.script
 
 import cn.olfact.core.b4.B4Log
 import cn.olfact.core.b4.StoreFiles
+import cn.olfact.core.network.requireAtMost
+import cn.olfact.core.network.withCancellableResponse
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,16 +60,20 @@ class ScriptStore(
         // 文件被外部删掉时，索引里的条目也要清掉，避免"装了但注入空"
         val alive = items.filter { bodyFile(it.id).isFile }
         _scripts.value = alive
-        if (alive.size != items.size) saveLocked(alive)
+        if (alive.size != items.size) {
+            runCatching { saveLocked(alive) }.onFailure { B4Log.w(TAG, "清理失效脚本索引失败", it) }
+        }
         return alive
     }
 
-    @Synchronized
     private fun saveLocked(items: List<UserScript>) {
+        StoreFiles.writeAtomic(indexFile, json.encodeToString(IndexFile.serializer(), IndexFile(items = items)))
         _scripts.value = items
-        runCatching {
-            StoreFiles.writeAtomic(indexFile, json.encodeToString(IndexFile.serializer(), IndexFile(items = items)))
-        }.onFailure { B4Log.e(TAG, "写入 index.json 失败", it) }
+    }
+
+    private fun requireDistinctFile(id: String) {
+        val key = fileId(id)
+        require(_scripts.value.none { it.id != id && fileId(it.id) == key }) { "脚本文件名冲突" }
     }
 
     fun bodyFile(id: String): File = File(scriptsDir, "${fileId(id)}.user.js")
@@ -97,6 +106,7 @@ class ScriptStore(
             installedAt = existing?.installedAt ?: parsed.meta.installedAt,
             updatedAt = System.currentTimeMillis()
         )
+        requireDistinctFile(meta.id)
         StoreFiles.writeAtomic(bodyFile(meta.id), parsed.body.ifBlank { source })
         val items = _scripts.value.toMutableList()
         val idx = items.indexOfFirst { it.id == meta.id }
@@ -110,17 +120,24 @@ class ScriptStore(
     suspend fun installFromUrl(url: String, http: OkHttpClient): UserScript? = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder().url(url).header("User-Agent", USER_AGENT).build()
-            http.newCall(request).execute().use { resp ->
+            http.newCall(request).withCancellableResponse { resp ->
                 if (!resp.isSuccessful) {
-                    B4Log.w(TAG, "下载脚本失败 HTTP ${resp.code}: $url")
-                    return@withContext null
+                    B4Log.w(TAG, "下载脚本失败 HTTP ${resp.code}")
+                    return@withCancellableResponse null
                 }
-                val text = resp.body.string()
-                if (text.isBlank() || text.length > MAX_BYTES) return@withContext null
+                val text = resp.body.requireAtMost(MAX_BYTES.toLong()).string()
+                val head = text.trimStart().take(64).lowercase()
+                if (text.isBlank() || head.startsWith("<!doctype html") || head.startsWith("<html")) {
+                    return@withCancellableResponse null
+                }
+                currentCoroutineContext().ensureActive()
                 install(text, url)?.meta
             }
-        } catch (t: Throwable) {
-            B4Log.w(TAG, "下载脚本异常：$url", t)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            currentCoroutineContext().ensureActive()
+            B4Log.w(TAG, "下载脚本异常", e)
             null
         }
     }
@@ -139,6 +156,7 @@ class ScriptStore(
             installedAt = existing?.installedAt ?: now,
             updatedAt = now
         )
+        requireDistinctFile(item.id)
         StoreFiles.writeAtomic(bodyFile(item.id), code)
         val items = _scripts.value.toMutableList()
         val idx = items.indexOfFirst { it.id == item.id }
@@ -159,6 +177,7 @@ class ScriptStore(
         val item = meta.copy(
             installedAt = meta.installedAt.takeIf { it > 0 } ?: System.currentTimeMillis()
         )
+        requireDistinctFile(item.id)
         StoreFiles.writeAtomic(bodyFile(item.id), code)
         val items = _scripts.value.toMutableList()
         val idx = items.indexOfFirst { it.id == item.id }
@@ -182,8 +201,8 @@ class ScriptStore(
         val items = _scripts.value.toMutableList()
         val removed = items.removeAll { it.id == id }
         if (!removed) return false
-        bodyFile(id).delete()
         saveLocked(items)
+        if (items.none { fileId(it.id) == fileId(id) }) bodyFile(id).delete()
         return true
     }
 

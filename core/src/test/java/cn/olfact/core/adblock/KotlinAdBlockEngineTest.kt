@@ -79,6 +79,22 @@ class KotlinAdBlockEngineTest {
     }
 
     @Test
+    fun `子串倒排与正则备选都不会漏匹配`() {
+        val e = engine("banner\n/ads|trackingpixel/\n|https://x.test/StrictPath\$match-case")
+        assertTrue(e.check("https://x.test/prebanner42.js", null, ResourceType.SCRIPT))
+        assertTrue(e.check("https://x.test/ads.js", null, ResourceType.SCRIPT))
+        assertTrue(e.check("https://x.test/StrictPath", null, ResourceType.SCRIPT))
+        assertFalse(e.check("https://x.test/strictpath", null, ResourceType.SCRIPT))
+    }
+
+    @Test
+    fun `元素隐藏排除域不会误伤 local 页面`() {
+        val e = engine("example.com,~shop.example.com##.hidden\n~shop.example.com##.generic")
+        assertTrue(e.cosmeticSelectors("https://news.example.com").containsAll(listOf(".hidden", ".generic")))
+        assertTrue(e.cosmeticSelectors("https://shop.example.com").isEmpty())
+    }
+
+    @Test
     fun `规则超上限时会截断但保留例外`() {
         val sb = StringBuilder()
         for (i in 0 until 50) sb.append("||ad$i.example.com^\n")

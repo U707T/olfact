@@ -1,5 +1,6 @@
 package cn.olfact.core.backup
 
+import cn.olfact.core.adblock.SubscriptionStore
 import cn.olfact.core.b4.B4Log
 import kotlinx.serialization.json.Json
 import java.io.ByteArrayInputStream
@@ -24,34 +25,37 @@ class BackupReader(
 
     fun read(bytes: ByteArray): Archive = read(ByteArrayInputStream(bytes))
 
-    fun read(input: InputStream): Archive {
+    fun read(input: InputStream): Archive = read(input) {}
+
+    internal fun read(input: InputStream, checkActive: () -> Unit): Archive {
         val entries = HashMap<String, ByteArray>(16)
+        val names = HashSet<String>()
+        val chunk = ByteArray(16 * 1024)
         var total = 0L
-        var count = 0
 
         ZipInputStream(input).use { zip ->
             while (true) {
+                checkActive()
                 val entry = zip.nextEntry ?: break
-                if (++count > maxEntries) throw BackupFormatException("条目数超过上限 $maxEntries")
                 val name = entry.name
                 if (!isSafeEntryName(name)) throw BackupFormatException("非法条目名：$name")
-                if (entry.isDirectory) {
-                    zip.closeEntry()
-                    continue
-                }
-                val buffer = ByteArrayOutputStream()
-                val chunk = ByteArray(16 * 1024)
+                if (!names.add(name)) throw BackupFormatException("重复条目：$name")
+                if (names.size > maxEntries) throw BackupFormatException("条目数超过上限 $maxEntries")
+                val needed = !entry.isDirectory && (name == BackupWriter.MANIFEST_ENTRY ||
+                    name == BackupWriter.DATA_ENTRY || name.startsWith(BackupWriter.SCRIPT_DIR))
+                val buffer = if (needed) ByteArrayOutputStream() else null
                 var entryBytes = 0L
                 while (true) {
+                    checkActive()
                     val read = zip.read(chunk)
                     if (read < 0) break
                     entryBytes += read
                     total += read
                     if (entryBytes > maxEntryBytes) throw BackupFormatException("条目过大：$name")
                     if (total > maxTotalBytes) throw BackupFormatException("解压总量超过 ${maxTotalBytes / 1024 / 1024} MB")
-                    buffer.write(chunk, 0, read)
+                    buffer?.write(chunk, 0, read)
                 }
-                entries[name] = buffer.toByteArray()
+                if (buffer != null) entries[name] = buffer.toByteArray()
                 zip.closeEntry()
             }
         }
@@ -63,7 +67,7 @@ class BackupReader(
 
         val manifest = try {
             json.decodeFromString(BackupManifest.serializer(), manifestBytes.toString(Charsets.UTF_8))
-        } catch (t: Throwable) {
+        } catch (t: Exception) {
             throw BackupFormatException("manifest 解析失败", t)
         }
         if (manifest.format != BackupManifest.FORMAT) {
@@ -73,22 +77,33 @@ class BackupReader(
             throw BackupFormatException("备份版本 ${manifest.version} 不受支持（当前 ${BackupManifest.VERSION}）")
         }
         val actual = BackupWriter.sha256Hex(dataBytes)
-        if (manifest.sha256.isNotEmpty() && !actual.equals(manifest.sha256, ignoreCase = true)) {
+        if ((manifest.version >= 2 || manifest.sha256.isNotEmpty()) &&
+            !actual.equals(manifest.sha256, ignoreCase = true)) {
             throw BackupFormatException("data.json 校验失败（备份可能损坏）")
         }
 
         val rawData = try {
             json.decodeFromString(BackupData.serializer(), dataBytes.toString(Charsets.UTF_8))
-        } catch (t: Throwable) {
+        } catch (t: Exception) {
             throw BackupFormatException("data.json 解析失败", t)
         }
+        if (rawData.subscriptions.any { !SubscriptionStore.isValidId(it.id) }) {
+            throw BackupFormatException("备份包含非法的订阅标识")
+        }
 
-        val scripts = rawData.scripts.map { record ->
-            val body = entries[BackupWriter.scriptEntry(record.meta.id)]?.toString(Charsets.UTF_8)
-            if (body == null && record.body.isBlank()) {
+        val scriptEntries = HashSet<String>()
+        val scripts = rawData.scripts.mapNotNull { record ->
+            val name = BackupWriter.scriptEntry(record.meta.id)
+            if (!scriptEntries.add(name)) throw BackupFormatException("备份包含冲突的脚本标识")
+            val body = entries[name]?.toString(Charsets.UTF_8)
+            if (body == null && record.body.isEmpty()) {
+                // Older backups omitted intentionally empty bodies. They cannot be distinguished
+                // from a missing entry, so never use them to replace an existing script.
                 B4Log.w("BackupReader", "脚本 ${record.meta.name} 缺 body，跳过")
+                null
+            } else {
+                record.copy(body = body ?: record.body)
             }
-            record.copy(body = body ?: record.body)
         }
         return Archive(manifest, rawData.copy(scripts = scripts))
     }

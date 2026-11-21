@@ -19,13 +19,14 @@
 
 `typeCode` 对应 `ResourceType.code`（document=0 … other=11），映射表在 `lib.rs::request_type_name`。
 
-句柄是 `Box<Engine>` 的裸指针；`destroy` 回收。所有函数对空指针返回安全默认值（false / 0 / 空串），
-所以即使 `.so` 版本不匹配，也只会"拦截失效"，不会把浏览器带崩。
+句柄是 `Box<Engine>` 的裸指针；`destroy` 回收。C ABI 调用者必须串行使用句柄并负责其生命周期，
+不可用已销毁句柄。Kotlin JNI 包装层串行化检查、样式查询和关闭。同一安装中的每次构建按当前规则文本生成，
+旧缓存路径参数只保留 ABI 兼容，不读取 `engine.dat`。空参数的默认返回值不保证兼容任意版本的 `.so`。
 
 ## 构建
 
 ```bash
-# 需要 rust stable（≥1.82，adblock 的传递依赖已用 edition 2024）+ Android NDK
+# 需要当前 Rust stable（传递依赖可能使用 edition 2024）和 Android NDK
 rustup target add aarch64-linux-android armv7-linux-androideabi
 cargo install cargo-ndk --locked
 
@@ -33,13 +34,11 @@ cd core/adblock/rust
 cargo ndk -t arm64-v8a -t armeabi-v7a -o ../../../core/src/main/jniLibs build --release
 ```
 
-产物落在 `core/src/main/jniLibs/{arm64-v8a,armeabi-v7a}/libadblock_ffi.so`，AGP 会自动打进 APK。
+手工命令将产物落在 `core/src/main/jniLibs/{arm64-v8a,armeabi-v7a}/libadblock_ffi.so`，AGP 会自动打进 APK。
+项目 CI 的可选 `build-adblock-rust` job 单独上传 `.so` 制品，不自动把它们合并到其他 job 的 APK。
 
-> `Cargo.lock` 故意不入库：沙箱里的 cargo 1.75 解析不了 edition 2024 的传递依赖，
-> 生成的锁文件是半成品。CI 首次构建通过后，把 CI 产出的 `Cargo.lock` 提交进来即可锁定版本。
-
-> 沙箱内只有 cargo 1.75 且无 Android target，**本地编不出来**（与 TECH-PLAN §5 的结论一致），
-> 只能走 CI。见 `../ci-snippet.yml`。
+> 本轮未运行 Rust 编译和 Android NDK/JNI 验证；需在有 Rust stable 和 NDK 的环境执行上面的构建，
+> 并用带 `.so` 的 APK 验证切换订阅、三方请求及页面样式。
 
 ## 降级
 

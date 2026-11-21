@@ -2,11 +2,16 @@ package cn.olfact.core.backup
 
 import cn.olfact.core.b4.B4Log
 import cn.olfact.core.b4.StoreFiles
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -50,19 +55,16 @@ class BackupPipeline(
         var size = 0L
         val result = try {
             val data = collect()
+            val context = currentCoroutineContext()
+            context.ensureActive()
             val target = targetProvider()
             val name = fileName(started)
             val location = when (target) {
                 is BackupTarget.Local -> {
-                    StoreFiles.ensureDir(target.dir)
                     val file = File(target.dir, name)
-                    // 先写 .tmp 再改名：写到一半被系统杀掉会留下半个 zip，
-                    // 而备份列表把目录里任何 .zip 都当成可恢复的备份，用户会拿它去恢复并失败。
-                    val tmp = File(target.dir, "$name.tmp")
-                    java.io.FileOutputStream(tmp).use { out -> writer.write(data, out, appVersion) }
-                    if (!tmp.renameTo(file)) {
-                        tmp.copyTo(file, overwrite = true)
-                        tmp.delete()
+                    StoreFiles.writeAtomic(file) { out ->
+                        writer.write(data, out, appVersion)
+                        context.ensureActive()
                     }
                     size = file.length()
                     pruneLocal(target.dir, target.retention)
@@ -70,11 +72,11 @@ class BackupPipeline(
                 }
 
                 is BackupTarget.WebDav -> {
-                    // WebDAV 客户端目前只接受 ByteArray；本地备份是主路径，这里维持现状。
                     val bytes = exportBytes(data)
                     size = bytes.size.toLong()
                     val client = target.client
-                    runCatching { client.mkcol(target.dir) }
+                    context.ensureActive()
+                    if (target.dir.isNotBlank()) client.mkcol(target.dir)
                     val remotePath = if (target.dir.isBlank()) name else "${target.dir.trimEnd('/')}/$name"
                     client.put(remotePath, bytes)
                     pruneWebDav(client, target.dir, target.retention)
@@ -83,7 +85,9 @@ class BackupPipeline(
             }
             B4Log.d("Backup", "备份完成 $location（${size / 1024} KB）")
             BackupResult(true, size, location, trigger, started)
-        } catch (t: Throwable) {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Exception) {
             B4Log.e("Backup", "备份失败（$trigger）", t)
             BackupResult(false, 0L, "", trigger, started, t.message ?: t.javaClass.simpleName)
         }
@@ -116,38 +120,57 @@ class BackupPipeline(
         return out.toByteArray()
     }
 
-    /** 导入：先整体校验，再逐段合并；任何校验失败都不动现有数据。 */
     suspend fun importBytes(bytes: ByteArray, options: MergeOptions = MergeOptions()): ImportResult =
+        importArchive(ByteArrayInputStream(bytes), options)
+
+    /** 先整体校验，任何格式错误都不动现有数据；写入失败时报告已完成的分段。 */
+    suspend fun importArchive(input: InputStream, options: MergeOptions = MergeOptions()): ImportResult =
         withContext(Dispatchers.IO) {
+            val context = currentCoroutineContext()
             val archive = try {
-                reader.read(bytes)
-            } catch (t: Throwable) {
+                reader.read(input) { context.ensureActive() }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Exception) {
                 B4Log.e("Backup", "备份文件校验失败", t)
                 return@withContext ImportResult(error = t.message ?: "备份文件损坏")
             }
             val data = archive.data
-            val reports = ArrayList<MergeReport>(6)
+            val reports = ArrayList<MergeReport>(7)
+            suspend fun applySection(name: String, merge: suspend () -> MergeReport): ImportResult? {
+                context.ensureActive()
+                return try {
+                    reports.add(merge())
+                    null
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    B4Log.e("Backup", "恢复${name}失败", e)
+                    ImportResult(reports, "恢复${name}失败；部分数据可能已合并：${e.message ?: e.javaClass.simpleName}")
+                }
+            }
 
-            providers.settings?.let {
-                reports.add(it.importSettings(data.settings, options.overwriteSettings))
+            providers.settings?.let { section ->
+                applySection("设置") { section.importSettings(data.settings, options.overwriteSettings) }
+                    ?.let { return@withContext it }
             }
-            providers.bookmarks?.let {
-                reports.add(it.importItems(data.bookmarks, options))
+            providers.bookmarks?.let { section ->
+                applySection("书签") { section.importItems(data.bookmarks, options) }?.let { return@withContext it }
             }
-            providers.history?.let {
-                reports.add(it.importItems(data.history, options))
+            providers.history?.let { section ->
+                applySection("历史") { section.importItems(data.history, options) }?.let { return@withContext it }
             }
-            providers.favorites?.let {
-                reports.add(it.importItems(data.favorites, options))
+            providers.favorites?.let { section ->
+                applySection("收藏") { section.importItems(data.favorites, options) }?.let { return@withContext it }
             }
-            providers.scripts?.let {
-                reports.add(it.importItems(data.scripts, options))
+            providers.scripts?.let { section ->
+                applySection("脚本") { section.importItems(data.scripts, options) }?.let { return@withContext it }
             }
-            providers.subscriptions?.let {
-                reports.add(it.importItems(data.subscriptions, options))
+            providers.subscriptions?.let { section ->
+                applySection("订阅") { section.importItems(data.subscriptions, options) }?.let { return@withContext it }
             }
-            providers.whitelist?.let {
-                reports.add(it.importWhitelist(data.adblockWhitelist))
+            providers.whitelist?.let { section ->
+                applySection("白名单") { section.importWhitelist(data.adblockWhitelist) }?.let { return@withContext it }
             }
             B4Log.d("Backup", "导入完成：${reports.joinToString { "${it.section}+${it.added}/~${it.updated}" }}")
             ImportResult(merged = reports)
@@ -157,30 +180,47 @@ class BackupPipeline(
 
     private fun pruneLocal(dir: File, retention: Int) {
         if (retention <= 0) return
-        val files = dir.listFiles { f -> f.isFile && f.name.startsWith(FILE_PREFIX) }?.sortedByDescending { it.name } ?: return
+        val files = dir.listFiles { f -> f.isFile && isBackupFileName(f.name) }?.sortedByDescending { it.name } ?: return
         files.drop(retention).forEach { runCatching { it.delete() } }
     }
 
     private suspend fun pruneWebDav(client: WebDavClient, dir: String, retention: Int) {
         if (retention <= 0) return
-        val entries = runCatching { client.list(dir, 1) }.getOrElse {
-            B4Log.w("Backup", "WebDAV 列表失败，跳过清理", it)
+        val entries = try {
+            client.list(dir, 1)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            B4Log.w("Backup", "WebDAV 列表失败，跳过清理", e)
             return
         }
         entries.asSequence()
-            .filter { !it.isDirectory && it.name.startsWith(FILE_PREFIX) }
+            .filter { !it.isDirectory && isBackupFileName(it.name) }
             .sortedByDescending { it.name }
             .drop(retention)
-            .forEach { runCatching { client.delete(if (dir.isBlank()) it.name else "${dir.trimEnd('/')}/${it.name}") } }
+            .forEach { entry ->
+                try {
+                    if (!client.delete(if (dir.isBlank()) entry.name else "${dir.trimEnd('/')}/${entry.name}")) {
+                        B4Log.w("Backup", "WebDAV 清理失败：${entry.name}")
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    B4Log.w("Backup", "WebDAV 清理失败：${entry.name}", e)
+                }
+            }
     }
 
     companion object {
         const val FILE_PREFIX = "olfact-backup-"
+        private val BACKUP_FILENAME = Regex("${FILE_PREFIX}[0-9]{8}-[0-9]{6}([0-9]{3})?\\.zip")
+
+        fun isBackupFileName(name: String): Boolean = BACKUP_FILENAME.matches(name)
 
         fun fileName(timestamp: Long): String {
             val c = Calendar.getInstance()
             c.timeInMillis = timestamp
-            val fmt = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US)
+            val fmt = SimpleDateFormat("yyyyMMdd-HHmmssSSS", Locale.US)
             return "$FILE_PREFIX${fmt.format(c.time)}.zip"
         }
     }

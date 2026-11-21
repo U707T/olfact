@@ -1,5 +1,10 @@
 # B4 交付说明（拦截 / 脚本 / 数据）
 
+> 下文记录 B4 初次交付时的接口示例，不代表全部已接入应用。当前实现、覆盖与验证见
+> [core / AI 审计与验证](../AUDIT.md)。备份的订阅和白名单应通过 `AdBlockManager` 的共享 section，
+> 恢复后调用 `refresh()`；不要建立两个长寿命 store 同时改一个索引。GM 原生接口尚未安全接入 WebView，
+> 不要对任意页面直接安装 `GmJsInterface`；下文相关代码仅作为历史背景。
+
 本文件是给 B1（合并构建）、B2（web）、B5（UI）看的对接清单。三块代码都在 `core` 模块内，
 包名分别是 `cn.olfact.core.adblock` / `.script` / `.backup`。
 

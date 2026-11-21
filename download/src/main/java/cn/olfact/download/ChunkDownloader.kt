@@ -2,6 +2,7 @@ package cn.olfact.download
 
 import cn.olfact.download.util.Http
 import cn.olfact.download.util.Http.await
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -50,8 +51,8 @@ class ChunkDownloader(
         val total = probe.contentLength
 
         if (total <= 0L || !probe.rangeSupported) {
-            val bytes = downloadSingleStream(spec, target, progress)
-            return DownloadResult(target, bytes, DownloadEngine.CHUNKED, "服务器不支持分块，已单线程下载")
+            val file = downloadSingleStream(spec, target, progress)
+            return DownloadResult(file, file.length(), DownloadEngine.CHUNKED, "服务器不支持分块，已单线程下载")
         }
 
         val ranges = ChunkPlanner.plan(total, chunkSize)
@@ -60,6 +61,15 @@ class ChunkDownloader(
         val parts = ranges.map { range -> File(workDir, partName(spec.fileName, range.index)) }
         workDir.mkdirs()
 
+        val planFile = File(workDir, "chunk-plan.txt")
+        val plan = spec.url + "\n" + total + "\n" + ranges.joinToString { it.header() }
+        if (planFile.exists() && planFile.readText() != plan) {
+            val prefix = partName(spec.fileName, 0).removeSuffix("0")
+            workDir.listFiles().orEmpty().filter { it.name.startsWith(prefix) && it.name.removePrefix(prefix).toIntOrNull() != null }
+                .forEach { if (!it.delete()) throw IOException("无法清理旧分块") }
+        }
+        planFile.writeText(plan)
+        parts.forEachIndexed { index, part -> if (part.length() > ranges[index].length) part.delete() }
         val downloaded = AtomicLong(parts.sumOf { if (it.exists()) it.length() else 0L })
         val semaphore = Semaphore(threadCount.coerceIn(1, MAX_THREADS))
         progress?.onProgress(downloaded.get(), total)
@@ -68,7 +78,7 @@ class ChunkDownloader(
             ranges.map { range ->
                 async(Dispatchers.IO) {
                     semaphore.withPermit {
-                        downloadRange(spec, range, parts[range.index]) { delta ->
+                        downloadRange(spec, range, total, parts[range.index]) { delta ->
                             progress?.onProgress(downloaded.addAndGet(delta), total)
                         }
                     }
@@ -76,24 +86,30 @@ class ChunkDownloader(
             }.awaitAll()
         }
 
-        val merged = ChunkMerger.merge(parts, target, deleteParts = true)
-        val expected = total
-        val actual = merged.length()
-        if (actual != expected) {
-            // 大小不对的文件不能留给用户：删掉再报错，任务会显示失败而不是「已完成但打不开」。
-            runCatching { merged.delete() }
-            throw IOException("分块合并后大小不一致：期望 $expected，实际 $actual")
+        val context = coroutineContext
+        val staged = File(workDir, "merged.tmp")
+        try {
+            ChunkMerger.merge(parts, staged, checkActive = { context.ensureActive() })
+            val actual = staged.length()
+            if (actual != total) throw IOException("分块合并后大小不一致：期望 $total，实际 $actual")
+            context.ensureActive()
+            val merged = cn.olfact.download.util.Files.publish(staged, target) { context.ensureActive() }
+            parts.forEach { it.delete() }
+            return DownloadResult(merged, actual, DownloadEngine.CHUNKED)
+        } finally {
+            staged.delete()
         }
-        return DownloadResult(merged, actual, DownloadEngine.CHUNKED)
     }
 
     private suspend fun downloadRange(
         spec: DownloadSpec,
         range: ByteRange,
+        total: Long,
         part: File,
         onDelta: (Long) -> Unit,
     ) = withContext(Dispatchers.IO) {
         part.parentFile?.mkdirs()
+        val context = coroutineContext
         var attempt = 0
         while (true) {
             coroutineContext.ensureActive()
@@ -103,21 +119,15 @@ class ChunkDownloader(
             try {
                 val from = range.start + already
                 val request = Http.request(spec, rangeHeader = "bytes=$from-${range.endInclusive}")
-                client.newCall(request).await().use { response ->
-                    if (!response.isSuccessful) {
-                        throw IOException("分块 ${range.index} HTTP ${response.code}")
-                    }
-                    // 服务端忽略了 Range：整段重下（只在第一块且无进度时可行）
-                    if (response.code == 200 && already > 0L) {
-                        throw IOException("服务器返回 200，无法继续分块 ${range.index}")
-                    }
+                client.newCall(request).await { response ->
+                    Http.requireRange(response, from, range.endInclusive, total)
                     val body = response.body ?: throw IOException("分块 ${range.index} 响应为空")
                     var written = 0L
                     FileOutputStream(part, true).use { sink ->
                         body.byteStream().use { input ->
                             val buffer = ByteArray(BUFFER)
                             while (true) {
-                                coroutineContext.ensureActive()
+                                context.ensureActive()
                                 val read = input.read(buffer)
                                 if (read <= 0) break
                                 sink.write(buffer, 0, read)
@@ -126,17 +136,17 @@ class ChunkDownloader(
                             }
                         }
                     }
-                    if (written == 0L && already + written < range.length) {
-                        throw IOException("分块 ${range.index} 没有收到数据")
+                    val actual = part.length()
+                    if (actual > range.length) {
+                        part.delete()
+                        onDelta(-actual)
+                        throw IOException("分块 ${range.index} 超出范围 ${range.length}")
                     }
-                    // 服务器忽略 Range 时会回 200 + 整个文件：每个分块都把整份数据写进来，
-                    // 合并后必然对不上。删掉这块再报错，否则重试会把它当成「已下完」直接跳过。
-                    if (part.length() > range.length) {
-                        runCatching { part.delete() }
-                        throw IOException("分块 ${range.index} 收到 ${part.length()} 字节，超出范围 ${range.length}（服务器忽略 Range）")
-                    }
-                    return@withContext
+                    if (actual < range.length) throw IOException("分块 ${range.index} 数据不完整")
                 }
+                return@withContext
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 if (attempt >= MAX_ATTEMPTS) throw e
                 delay(RETRY_BASE_DELAY_MS * attempt)
@@ -148,15 +158,16 @@ class ChunkDownloader(
         spec: DownloadSpec,
         target: File,
         progress: ProgressListener?,
-    ): Long = withContext(Dispatchers.IO) {
-        target.parentFile?.mkdirs()
-        val temp = File(target.parentFile, target.name + ".tmp")
+    ): File = withContext(Dispatchers.IO) {
+        workDir.mkdirs()
+        val temp = File(workDir, "single.tmp")
+        val context = coroutineContext
         var attempt = 0
         while (true) {
             coroutineContext.ensureActive()
             attempt++
             try {
-                client.newCall(Http.request(spec)).await().use { response ->
+                client.newCall(Http.request(spec)).await { response ->
                     if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
                     val total = response.header("Content-Length")?.toLongOrNull() ?: -1L
                     val body = response.body ?: throw IOException("响应为空")
@@ -165,7 +176,7 @@ class ChunkDownloader(
                         body.byteStream().use { input ->
                             val buffer = ByteArray(BUFFER)
                             while (true) {
-                                coroutineContext.ensureActive()
+                                context.ensureActive()
                                 val read = input.read(buffer)
                                 if (read <= 0) break
                                 sink.write(buffer, 0, read)
@@ -174,19 +185,19 @@ class ChunkDownloader(
                             }
                         }
                     }
-                    if (!temp.renameTo(target)) {
-                        temp.copyTo(target, overwrite = true)
-                        temp.delete()
-                    }
-                    return@withContext written
+                    if (total >= 0L && written != total) throw IOException("下载数据不完整")
                 }
+                context.ensureActive()
+                return@withContext cn.olfact.download.util.Files.publish(temp, target) { context.ensureActive() }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 if (attempt >= MAX_ATTEMPTS) throw e
                 delay(RETRY_BASE_DELAY_MS * attempt)
             }
         }
         @Suppress("UNREACHABLE_CODE")
-        0L
+        target
     }
 
     companion object {

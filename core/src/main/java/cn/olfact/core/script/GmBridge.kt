@@ -1,6 +1,8 @@
 package cn.olfact.core.script
 
 import cn.olfact.core.b4.B4Log
+import cn.olfact.core.net.AppDns
+import cn.olfact.core.network.requireAtMost
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -10,6 +12,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -42,7 +45,14 @@ class GmBridge(
         Thread(r, "olfact-gm-xhr").apply { isDaemon = true }
     }
 
+    private val calls = HashSet<Call>()
+    @Volatile private var closed = false
+
     fun shutdown() {
+        synchronized(calls) {
+            closed = true
+            calls.forEach { it.cancel() }
+        }
         executor.shutdownNow()
     }
 
@@ -90,6 +100,7 @@ class GmBridge(
      * 供 `@JavascriptInterface` 调用。返回的字符串会原样成为 JS 字符串（JS 侧自行 JSON.parse）。
      */
     fun dispatch(scriptId: String, callId: String, method: String, argsJson: String): String {
+        if (closed || !gmEnabled()) return ""
         val args: JsonArray = runCatching { json.parseToJsonElement(argsJson).jsonArray }
             .getOrElse { JsonArray(emptyList()) }
         return when (method) {
@@ -125,7 +136,7 @@ class GmBridge(
                 B4Log.w("GmBridge", "GM_xmlhttpRequest 失败", t)
                 """{"error":${jsString(t.message ?: t.javaClass.simpleName)}}"""
             }
-            runCatching { resolve(callId, payload) }
+            if (!closed && gmEnabled()) runCatching { resolve(callId, payload) }
                 .onFailure { B4Log.w("GmBridge", "回传 GM_xhr 结果失败", it) }
         }
     }
@@ -156,18 +167,26 @@ class GmBridge(
             http
         }
 
-        client.newCall(builder.build()).execute().use { resp ->
-            var text = resp.body.string()
-            if (text.length > MAX_RESPONSE_CHARS) text = text.substring(0, MAX_RESPONSE_CHARS)
-            val headerText = resp.headers.joinToString("\n") { "${it.first}: ${it.second}" }
-            return buildString(text.length + 256) {
-                append("{\"status\":").append(resp.code)
-                append(",\"statusText\":").append(jsString(resp.message))
-                append(",\"finalUrl\":").append(jsString(resp.request.url.toString()))
-                append(",\"responseHeaders\":").append(jsString(headerText))
-                append(",\"responseText\":").append(jsString(text))
-                append('}')
+        val call = client.newCall(builder.build())
+        synchronized(calls) {
+            check(!closed) { "GM bridge closed" }
+            calls.add(call)
+        }
+        try {
+            return call.execute().use { resp ->
+                val text = resp.body.requireAtMost(MAX_RESPONSE_BYTES).string()
+                val headerText = resp.headers.joinToString("\n") { "${it.first}: ${it.second}" }
+                buildString(text.length + 256) {
+                    append("{\"status\":").append(resp.code)
+                    append(",\"statusText\":").append(jsString(resp.message))
+                    append(",\"finalUrl\":").append(jsString(resp.request.url.toString()))
+                    append(",\"responseHeaders\":").append(jsString(headerText))
+                    append(",\"responseText\":").append(jsString(text))
+                    append('}')
+                }
             }
+        } finally {
+            synchronized(calls) { calls.remove(call) }
         }
     }
 
@@ -176,9 +195,10 @@ class GmBridge(
     }
 
     companion object {
-        private const val MAX_RESPONSE_CHARS = 2 * 1024 * 1024
+        private const val MAX_RESPONSE_BYTES = 2L * 1024 * 1024
 
         fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
+            .dns(AppDns)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .followRedirects(true)
@@ -253,7 +273,7 @@ var GM_getValue = function(key, def) {
   if (raw === null || raw === undefined || raw === "null") return def;
   try { return JSON.parse(raw); } catch (e) { return def; }
 };
-var GM_setValue = function(key, value) { __call("set", [String(key), JSON.stringify(value === undefined ? null : value)]); };
+var GM_setValue = function(key, value) { __call("set", [String(key), value === undefined ? null : value]); };
 var GM_deleteValue = function(key) { __call("delete", [String(key)]); };
 var GM_listValues = function() { var raw = __call("keys", []); try { return JSON.parse(raw) || []; } catch (e) { return []; } };
 var GM_log = function() {

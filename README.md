@@ -4,17 +4,17 @@
 原版（含规则引擎、迅雷 SDK、磁力、投屏等）只作为视觉与行为参照，范围见
 [`docs/TECH-PLAN.md`](docs/TECH-PLAN.md)。
 
-**当前版本：`1.0.0-rc13`（versionCode 13）** ·
-[Release](https://github.com/U707T/olfact/releases/tag/v1.0.0-rc13)
+**当前版本：`1.0.0-rc14`（versionCode 14）** ·
+[Release](https://github.com/U707T/olfact/releases/tag/v1.0.0-rc14)
 
 - **minSdk 24 / targetSdk 37**，Gradle 9.7.0 + AGP 9.0.1 + Kotlin 2.3.20，JDK 21
 - 纯 View 体系（不引 Compose），release 开 R8 + 资源压缩 + ABI split
-- 发版由 GitHub Actions 完成，本地只做 `assembleDebug` / 单测
+- 本地优先定向 JVM 回归；完整 Android 检查和发版按 GitHub Actions 执行
 
 ## 功能
 
 - **浏览**：WebView 内核、多标签、默认浏览器接管、DoH（内置/自定义上游）、
-  广告拦截、UserScript + GM 桥、页内查找、长按菜单（锚定浮层）、错误页。
+  广告拦截、普通 UserScript、页内查找、长按菜单（锚定浮层）、错误页。
 - **下载**：系统委派 + 分块 + M3U8（AES-128 流式解密 / remux），
   队列持久化、前台服务通知、全部暂停/继续。
 - **播放**：Media3、PiP、倍速、断点续播；详情页只做起播入口，不伪造控制条。
@@ -27,7 +27,7 @@
 ```
 app       壳、导航、界面、默认浏览器接管、模块装配（ModuleBackends）
 core      日志/工具/设置(DataStore)/Room/加密 + adblock + script + backup + uikit
-web       浏览内核（BrowserView/Client/TabManager）+ DoH（规则/编码/竞速/隧道）
+web       浏览内核（BrowserView/Client）+ DoH（规则/编码/竞速/隧道）
 player    Media3 播放页、PiP、倍速与跳片头
 download  系统委派 + 分块 + M3U8（AES-128/remux）+ 队列/通知
 ai        供应商管理、SSE 流式、网页总结、整页翻译
@@ -36,25 +36,48 @@ ai        供应商管理、SSE 流式、网页总结、整页翻译
 依赖方向固定：`app → web/player/download/ai → core`，反向依赖会被编译期挡住
 （`core/api` 里只有接口与纯数据契约）。
 
-## 构建
+## 本地轻量验证与 CI
 
-```bash
-export ANDROID_HOME=/opt/android-sdk ANDROID_SDK_ROOT=/opt/android-sdk
-./gradlew :app:assembleDebug            # 产物：app/build/outputs/apk/debug/*.apk
-./gradlew testDebugUnitTest             # 六个模块的 JVM 单测
-./gradlew :app:lintDebug                # 0 error 才放行（CI 只在 PR / 手动 / 每周跑，本地提交前自己跑）
-./gradlew :app:assembleRelease          # 需仓库根的 keystore.properties（见下）
+2026-11-21 新增 Windows 定向 JVM 入口。默认复用工作区相邻的 `.panelfm-tools/`
+中的 JDK 21 / Kotlin 2.4.10 和 `.tools/olfact/lib/` 缓存；可用各脚本的
+`-ToolRoot` / `-DependencyRoot` 指向已有工具。生产版本仍以 version catalog 为准，
+轻量工具版本不同于生产 Kotlin 2.3.20，不能据此宣称 Android 构建通过。
+
+在仓库根目录依次执行：
+
+```powershell
+# 首次获取 Maven 依赖；已有缓存时可跳过两条 fetch，并去掉 -ResolveDependencies
+python ./web/tools/fetch-test-deps.py
+python ./web/tools/fetch-test-deps.py --shared
+./tools/test-download-player.ps1 -ResolveDependencies -CheckRemuxTypes
+./core/tools/test-core-ai.ps1
+./web/tools/test-web.ps1
+./app/tools/test-app-data.ps1
 ```
 
-签名材料不进仓库：本地放 `/workspace/olfact-keys/olfact-release.jks`，
-`keystore.properties` 已在 `.gitignore`；CI 用仓库 secrets
+应用集成入口依赖前两组 core/AI、web 的成功编译产物，会检查产物新鲜度。
+依赖下载及替身范围详见[下载说明](download/README.md)、[核心审计](core/AUDIT.md)、
+[Web 说明](web/README.md)、[应用轻量验证说明](app/tools/support-data/README.md)。
+轻量回归使用实际文件、HTTP、队列、DNS 和业务实现，但替换 Android 平台边界；
+不代表 WebView、DownloadManager、WorkManager、PiP、相机或原生播放已验证。
+
+完整平台检查使用项目的 JDK 21、Android SDK 37 与 Gradle wrapper，在 CI 执行：
+
+```powershell
+./gradlew.bat testDebugUnitTest
+./gradlew.bat :app:assembleDebug
+./gradlew.bat :app:lintDebug
+```
+
+有对应 Android 环境时也可本地执行；本地审计不安装重型 SDK。完整 CI 与签名产物状态以 GitHub Actions 对应提交/标签的运行结果为准。
+签名材料放仓库外，`keystore.properties` 已在 `.gitignore`；CI 使用仓库 secrets
 （`OLFACT_KEYSTORE_B64` / `OLFACT_STORE_PASSWORD` / `OLFACT_KEY_ALIAS` / `OLFACT_KEY_PASSWORD`）。
 
 ## 发版
 
 1. 改 `app/build.gradle.kts` 的 `versionName`（`versionCode` 递增）
 2. `CHANGELOG.md` 顶部加同版本段落（CI 会把它贴进 Release）
-3. push 打 tag：`git tag v1.0.0-rc13 && git push origin v1.0.0-rc13`
+3. push 打 tag：`git tag v1.0.0-rc14 && git push origin v1.0.0-rc14`
 4. CI 跑单测 / lint / debug → 签 `assembleRelease` → 上传 APK 并创建 Release
    （`-rc` / `-beta` 自动标 prerelease）
 
@@ -62,7 +85,8 @@ export ANDROID_HOME=/opt/android-sdk ANDROID_SDK_ROOT=/opt/android-sdk
 
 | 文件 | 内容 |
 |---|---|
-| [`docs/audit/2026-11-05-post-rc11-fixes.md`](docs/audit/2026-11-05-post-rc11-fixes.md) | **当前状态**：rc11 之后的修复轮（下载误删 / 备份顺序 / 设置不生效 / 启动默认值）+ 真机复核清单 |
+| [`docs/audit/2026-11-21-full-audit.md`](docs/audit/2026-11-21-full-audit.md) | **当前审计**：六模块覆盖、修复与功能优化、本地验证和待 CI/设备项 |
+| [`docs/audit/2026-11-05-post-rc11-fixes.md`](docs/audit/2026-11-05-post-rc11-fixes.md) | rc11 之后的历史修复与真机复核清单 |
 | [`docs/audit/2026-11-01-rc11-status.md`](docs/audit/2026-11-01-rc11-status.md) | rc11 的逐屏对齐记录（历史对照） |
 | [`docs/audit/archive/`](docs/audit/archive/) | 历史审计（rc4 / rc6 基线，不再更新） |
 | [`docs/TECH-PLAN.md`](docs/TECH-PLAN.md) | 范围、选型、模块划分、DoH 设计 |
@@ -72,13 +96,16 @@ export ANDROID_HOME=/opt/android-sdk ANDROID_SDK_ROOT=/opt/android-sdk
 
 ## 已知限制
 
-- 沙箱无 KVM/adb，视觉与真机冒烟用例需在真机补跑（见 `docs/tasks/B5-SMOKE.md`）。
-- **标签切换复用同一个 `BrowserFragment`，但 WebView 会换页**：per-tab surface 池 + host
-  重绑未做，网页内的滚动/表单/视频进度在切标签时仍会丢；Fragment 与返回栈、首页不再被重建。
-- **无痕标签与普通标签共用同一个 WebView 的 Cookie/缓存**（同一时刻只有一个 WebView）：
-  只保证不写历史、标签 URL 不落盘；用完请手动清 Cookie。
-- 打开设置/下载等页面会 `replace` 掉浏览器 Fragment，返回时网页会重新加载（同样需要 per-tab
-  surface 池才能彻底解决）。
+- 当前 Windows 验证环境未配置 Android SDK/adb；视觉与原生集成需在设备补跑（见 `docs/tasks/B5-SMOKE.md`）。
+- **标签渲染缓存有界**：最多保留 3 个离屏渲染器，按最近使用顺序淘汰；可见页使用独立渲染器。
+  缓存命中时保留网页状态，超过容量、内核进程退出或 Activity 重建时仍会重载。
+  修改网页设置会丢弃离屏旧配置缓存，并刷新当前页。
+- **无痕标签与普通标签共用进程默认 WebView profile 的 Cookie/缓存**：渲染器按标签固定无痕属性，
+  不写历史、URL/标题不落盘；这不等于 Cookie 隔离，用完仍需手动清 Cookie。
+- **GM 原生桥尚未接入 WebView**：普通 UserScript 可用；`GM_getValue` 持久化、
+  `GM_xmlhttpRequest` 等原生能力暂不可用，设置页已明确显示限制。
+- 应用内默认 HTTP 客户端已接 DoH；系统 `DownloadManager` 与播放器的 Media3 HTTP 不经过此入口，
+  WebView 的 QUIC 也不在本地 TCP 隧道覆盖范围。
 - `libadblock_ffi.so` 默认由手动触发的 CI job 产出，缺失时降级 Kotlin 引擎（规则上限 2 万条）。
 - 仅中文资源，未提供英文。
 - 下载列表「文件管理」提供「复制目录路径 / 尝试打开系统文件管理器」；未接 SAF 目录选择器
@@ -86,17 +113,11 @@ export ANDROID_HOME=/opt/android-sdk ANDROID_SDK_ROOT=/opt/android-sdk
 
 ---
 
-## 本地构建缓存（沙箱）
+## 本地缓存
 
-> 沙箱里 `dl.google.com` / `maven.google.com` 基本不通，**Gradle 依赖重下不回来**。删任何缓存前先看 `/workspace/AI通用说明.md` §2。
-
-| 路径 | 现状（2026-11-04） | 怎么办 |
-|---|---|---|
-| `app/build/intermediates` | 约 200 MB | **别删**（增量编译的底子；删了下次 2 min 全量） |
-| 根目录 `build/` | 147 KB | 空壳，可删 |
-| `~/.gradle/caches/modules-2` | 全局 3.4 GB | **别删**，全项目共享 |
-| `~/.gradle/caches/9.7.0` | 全局，数 GB | **别删**（本项目用的就是这个版本） |
-| `~/.gradle/daemon/9.7.0/*.log` | 每次构建一份 DEBUG 日志 | 可删，只留最近 3 个 |
-
-- 本地节奏：`:app:assembleDebug` 增量约 30 s；`testDebugUnitTest`（六模块）约 20 s。
-- debug APK 正常 **14.7 MB**（arm64 单 ABI）。发版仍交 CI，别在本地 `assembleRelease`。
+- Gradle、Android SDK、现有 JDK/Kotlin 工具和工作区 `.tools/olfact/lib/` 是可复用工具及依赖，勿整体删除。
+- `web/build/pure-jvm-deps/` 是 Web 回归下载的 Maven 依赖；`*/build/` 下的测试输出可重建，
+  但应用轻量集成验证需要先生成 core/AI 与 web 的产物，清理后需按顺序重跑。
+- `.tools/olfact/build/core-ai/` 的 GUID 子目录隔离每次测试；`latest-success.txt` 标识最近通过的产物。
+- 当前 Windows 的缓存大小、APK 大小和完整构建时长未重新测量；旧 Linux 沙箱数字不代表本机环境。
+- 不清理签名材料或真实用户数据，也不为本地测试安装完整 Android/NDK 工具链。

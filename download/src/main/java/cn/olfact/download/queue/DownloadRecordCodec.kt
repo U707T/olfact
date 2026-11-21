@@ -34,11 +34,12 @@ object DownloadRecordCodec {
         decodeOne(json.parseToJsonElement(text).jsonObject)
     }.getOrNull()
 
-    fun decodeAll(text: String): List<DownloadRecord> = runCatching {
+    fun decodeAll(text: String): List<DownloadRecord> = runCatching { decodeAllChecked(text) }.getOrDefault(emptyList())
+
+    internal fun decodeAllChecked(text: String): List<DownloadRecord> =
         json.parseToJsonElement(text).jsonArray.mapNotNull { element ->
             runCatching { decodeOne(element.jsonObject) }.getOrNull()
         }
-    }.getOrDefault(emptyList())
 
     private fun encodeOne(record: DownloadRecord): JsonObject = buildJsonObject {
         put("id", JsonPrimitive(record.id))

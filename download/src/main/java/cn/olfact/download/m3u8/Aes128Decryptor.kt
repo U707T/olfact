@@ -26,7 +26,9 @@ object Aes128Decryptor {
             }
             return iv
         }
-        val hex = ivHex.removePrefix("0x").removePrefix("0X")
+        val raw = ivHex.removePrefix("0x").removePrefix("0X")
+        require(raw.isNotEmpty() && raw.length <= 32 && raw.all { it.digitToIntOrNull(16) != null }) { "无效的 AES IV" }
+        val hex = if (raw.length % 2 == 0) raw else "0$raw"
         val bytes = ByteArray(hex.length / 2)
         for (i in bytes.indices) {
             bytes[i] = hex.substring(i * 2, i * 2 + 2).toInt(16).toByte()
@@ -35,9 +37,10 @@ object Aes128Decryptor {
     }
 
     private fun normalizeIv(iv: ByteArray): ByteArray {
+        require(iv.size <= 16) { "AES IV 超出 16 字节" }
         if (iv.size == 16) return iv
         val result = ByteArray(16)
-        iv.copyInto(result, 16 - iv.size.coerceAtMost(16))
+        iv.copyInto(result, 16 - iv.size)
         return result
     }
 }

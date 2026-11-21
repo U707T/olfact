@@ -18,7 +18,12 @@ data class SiteConfig(
         javaScriptEnabled = javaScriptEnabled ?: base.javaScriptEnabled,
         imagesEnabled = imagesEnabled ?: base.imagesEnabled,
         nightMode = nightMode ?: base.nightMode,
-        uaMode = if (desktopMode == true) UaMode.DESKTOP else base.uaMode,
+        uaMode = when {
+            !customUa.isNullOrBlank() -> UaMode.CUSTOM
+            desktopMode == true -> UaMode.DESKTOP
+            desktopMode == false -> UaMode.MOBILE
+            else -> base.uaMode
+        },
         customUa = customUa ?: base.customUa
     )
 

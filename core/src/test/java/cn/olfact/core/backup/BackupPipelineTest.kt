@@ -95,4 +95,46 @@ class BackupPipelineTest {
         assertEquals(2, outDir.listFiles()!!.count { it.name.endsWith(".zip") })
         root.deleteRecursively()
     }
+
+    @Test
+    fun `只清理完整备份文件且同秒不同毫秒不会覆盖`() = runBlocking<Unit> {
+        val root = Files.createTempDirectory("olfact-backup-boundary").toFile()
+        try {
+            val unrelated = File(root, "olfact-backup-not-a-backup.txt").also { it.writeText("keep") }
+            val leftover = File(root, "olfact-backup-20200101-120000.zip.tmp").also { it.writeText("keep") }
+            var now = 1_700_000_000_000L
+            val pipeline = BackupPipeline(root, BackupProviders(), { BackupTarget.Local(root, retention = 2) }, clock = { now++ })
+            repeat(2) { assertTrue(pipeline.run("manual").success) }
+            assertEquals(2, root.listFiles()!!.count { BackupPipeline.isBackupFileName(it.name) })
+            assertTrue(BackupPipeline.isBackupFileName("olfact-backup-20200101-120000.zip"))
+            assertTrue(unrelated.isFile)
+            assertTrue(leftover.isFile)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `恢复部分分段写失败返回现场而不是显示全部成功`() = runBlocking<Unit> {
+        val root = Files.createTempDirectory("olfact-backup-partial").toFile()
+        try {
+            val providers = BackupProviders(
+                settings = object : SettingsSection {
+                    override fun exportSettings() = mapOf("theme" to "s:dark")
+                    override suspend fun importSettings(values: Map<String, String>, overwrite: Boolean) = MergeReport("settings", added = 1)
+                },
+                bookmarks = object : ListSection<BookmarkRecord> {
+                    override fun exportItems() = emptyList<BookmarkRecord>()
+                    override fun importItems(items: List<BookmarkRecord>, options: MergeOptions): MergeReport =
+                        throw java.io.IOException("不可写")
+                }
+            )
+            val pipeline = BackupPipeline(root, providers, { BackupTarget.Local(root) })
+            val result = pipeline.importArchive(pipeline.exportBytes().inputStream())
+            assertTrue(result.error.orEmpty().contains("恢复书签失败"))
+            assertEquals(listOf("settings"), result.merged.map { it.section })
+        } finally {
+            root.deleteRecursively()
+        }
+    }
 }

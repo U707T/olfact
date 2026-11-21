@@ -45,7 +45,6 @@ class BackupWriter(
             z.putNextEntry(ZipEntry(DATA_ENTRY)); z.write(dataBytes); z.closeEntry()
             for (script in data.scripts) {
                 val body = script.body
-                if (body.isEmpty()) continue
                 z.putNextEntry(ZipEntry(scriptEntry(script.meta.id)))
                 z.write(body.toByteArray(Charsets.UTF_8))
                 z.closeEntry()

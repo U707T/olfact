@@ -13,18 +13,20 @@ object FavoriteStore {
     private const val KEY = "favorites"
     private var nextId = 1L
     private val lock = Any()
-    val items = mutableListOf<Favorite>()
+    private val data = mutableListOf<Favorite>()
+    val items: List<Favorite>
+        get() = synchronized(lock) { data.toList() }
 
     data class Favorite(val id: Long, val title: String, val url: String, val at: Long = System.currentTimeMillis())
 
     fun init(context: Context) {
         synchronized(lock) {
-            if (items.isNotEmpty()) return
+            if (data.isNotEmpty()) return
             val arr = JsonStore.readArray(context, KEY)
             for (i in 0 until arr.length()) {
                 val o: JSONObject = arr.optJSONObject(i) ?: continue
                 val id = o.optLong("id", nextId)
-                items.add(Favorite(id, o.optString("title"), o.optString("url"), o.optLong("at")))
+                data.add(Favorite(id, o.optString("title"), o.optString("url"), o.optLong("at")))
                 if (id >= nextId) nextId = id + 1
             }
         }
@@ -32,23 +34,23 @@ object FavoriteStore {
 
     fun add(context: Context, title: String, url: String): Boolean {
         synchronized(lock) {
-            if (items.any { it.url == url }) return false
-            items.add(0, Favorite(nextId++, title.ifBlank { url }, url))
+            if (data.any { it.url == url }) return false
+            data.add(0, Favorite(nextId++, title.ifBlank { url }, url))
         }
         persist(context)
         return true
     }
 
     fun remove(context: Context, id: Long) {
-        synchronized(lock) { items.removeAll { it.id == id } }
+        synchronized(lock) { data.removeAll { it.id == id } }
         persist(context)
     }
 
     /** 撤销删除：原样放回。 */
     fun restore(context: Context, favorite: Favorite) {
         synchronized(lock) {
-            if (items.any { it.id == favorite.id }) return
-            items.add(0, favorite)
+            if (data.any { it.id == favorite.id }) return
+            data.add(0, favorite)
         }
         persist(context)
     }
@@ -62,30 +64,31 @@ object FavoriteStore {
     fun importAll(context: Context, list: List<Favorite>): Int {
         var added = 0
         synchronized(lock) {
-            val known = items.mapTo(mutableSetOf()) { it.url }
+            val known = data.mapTo(mutableSetOf()) { it.url }
             list.forEach { f ->
                 if (f.url.isBlank() || !known.add(f.url)) return@forEach
-                val id = if (items.any { it.id == f.id }) nextId++ else f.id
-                items.add(Favorite(id, f.title.ifBlank { f.url }, f.url, f.at))
+                val id = if (data.any { it.id == f.id }) nextId++ else f.id
+                data.add(Favorite(id, f.title.ifBlank { f.url }, f.url, f.at))
                 if (id >= nextId) nextId = id + 1
                 added++
             }
-            if (added > 0) items.sortByDescending { it.at }
+            if (added > 0) data.sortByDescending { it.at }
         }
         if (added > 0) persist(context)
         return added
     }
 
     /** 进程退到后台时补一次落盘。 */
-    fun flush(context: Context) = persist(context)
+    fun flush(context: Context) = persist(context, delayMs = 0)
 
-    private fun persist(context: Context) {
-        val arr = org.json.JSONArray()
-        synchronized(lock) {
-            items.forEach { f ->
-                arr.put(JsonStore.objOf("id" to f.id, "title" to f.title, "url" to f.url, "at" to f.at))
+    private fun persist(context: Context, delayMs: Long = 150) {
+        JsonPersist.schedule(context, KEY, delayMs) {
+            val snapshot = items
+            org.json.JSONArray().apply {
+                snapshot.forEach { f ->
+                    put(JsonStore.objOf("id" to f.id, "title" to f.title, "url" to f.url, "at" to f.at))
+                }
             }
         }
-        JsonStore.writeArray(context, KEY, arr)
     }
 }

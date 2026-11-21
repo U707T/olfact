@@ -57,6 +57,12 @@ class DownloadNamesTest {
     }
 
     @Test
+    fun `扩展文件名允许语言字段并保留字面加号`() {
+        assertEquals("a+b.mp4", DownloadNames.fromContentDisposition("attachment; filename*=UTF-8'en'a+b.mp4"))
+        assertEquals("a+b.mp4", DownloadNames.fromContentDisposition("attachment; filename*=UTF-8''a%2Bb.mp4"))
+    }
+
+    @Test
     fun `没有文件名时返回 null`() {
         assertNull(DownloadNames.fromContentDisposition(null))
         assertNull(DownloadNames.fromContentDisposition(""))

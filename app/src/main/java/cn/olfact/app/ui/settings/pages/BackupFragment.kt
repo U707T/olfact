@@ -141,7 +141,7 @@ class BackupFragment : Fragment(R.layout.fragment_page) {
 
         b.content.addView(note(
             "备份包是 zip + JSON：manifest（版本 + SHA256）+ 设置 / 书签 / 历史 / 脚本 / 订阅 / 白名单。\n" +
-                "不包含 Cookie、页面缓存与 AI 密钥；恢复用「只增不减」合并，冲突按时间取新。"
+                "不包含 Cookie、页面缓存、AI API 密钥与 WebDAV 密码；换设备需重新配置凭据。恢复用「只增不减」合并，冲突按时间取新。"
         ))
     }
 

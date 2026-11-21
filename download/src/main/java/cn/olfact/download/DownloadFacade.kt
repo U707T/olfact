@@ -49,8 +49,11 @@ class DownloadFacade private constructor(private val appContext: Context) {
 
     fun cancel(id: String) = queue.cancel(id)
     fun pause(id: String) = queue.pause(id)
-    fun resume(id: String) = queue.resume(id)
-    fun retry(id: String) = queue.retry(id)
+    fun resume(id: String) {
+        queue.resume(id)
+        if (!DownloadWorker.schedule(appContext, settings.snapshot())) scheduleFallback()
+    }
+    fun retry(id: String) = resume(id)
 
     /**
      * 删除任务记录。

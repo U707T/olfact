@@ -6,17 +6,16 @@ import java.net.InetAddress
 import java.net.UnknownHostException
 import java.util.Locale
 import java.util.concurrent.Callable
+import java.util.concurrent.ExecutorCompletionService
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 
 /**
- * L1：给 OkHttp/下载/AI 用的 Dns 实现。
- *
- * - A / AAAA 并发查询，任一成功即可返回（v6 优先不阻塞 v4）
- * - TTL 感知缓存 + NXDOMAIN 负缓存
- * - 上游失败自动记失败次数，全失败时退回系统 DNS，保证“不白屏”
+ * L1：A / AAAA 并发解析，按记录类型缓存；失败时退回系统 DNS。
+ * 两个查询共用一个等待期限，未完成的任务在退出时取消。
  */
 class DohDns(
     private val pool: UpstreamPool,
@@ -30,86 +29,99 @@ class DohDns(
     private val executor: ExecutorService = Executors.newFixedThreadPool(4) { runnable ->
         Thread(runnable, "olfact-doh").apply { isDaemon = true }
     }
+    @Volatile private var closed = false
 
     override fun lookup(hostname: String): List<InetAddress> {
         val host = hostname.trim().trimEnd('.').lowercase(Locale.ROOT)
         if (host.isEmpty()) throw UnknownHostException(hostname)
-
-        if (EcsSubnet.isIpLiteral(host)) {
-            return InetAddress.getAllByName(host).toList()
-        }
-
-        when (val cached = cache.lookup(DnsCache.PREFIX_DOH, host, DnsCache.TYPE_A)) {
-            is DnsCache.Lookup.Hit -> {
-                stats.onQuery(0, cacheHit = true, failed = false)
-                return cached.addresses
-            }
-            DnsCache.Lookup.Negative -> {
-                stats.onQuery(0, cacheHit = true, failed = false)
-                throw UnknownHostException("$host (negative cache)")
-            }
-            DnsCache.Lookup.Miss -> Unit
-        }
+        if (EcsSubnet.isIpLiteral(host)) return InetAddress.getAllByName(host).toList()
+        // 已交给下载器的旧 client 可能比 manager 活得久，停用后回落系统解析。
+        if (closed) return fallback.lookup(host)
 
         val cfg = configProvider()
+        val cacheGeneration = cache.generation()
+        val types = if (cfg.enableIpv6) listOf(DnsMessage.TYPE_A, DnsMessage.TYPE_AAAA) else listOf(DnsMessage.TYPE_A)
+        val cachedAddresses = ArrayList<InetAddress>()
+        val missing = types.filter { type ->
+            when (val cached = cache.lookup(DnsCache.PREFIX_DOH, host, type)) {
+                is DnsCache.Lookup.Hit -> { cachedAddresses += cached.addresses; false }
+                DnsCache.Lookup.Negative -> false
+                DnsCache.Lookup.Miss -> true
+            }
+        }
+        if (missing.isEmpty()) {
+            stats.onQuery(0, cacheHit = true, failed = false)
+            return cachedAddresses.distinct().ifEmpty { throw UnknownHostException("$host (negative cache)") }
+        }
+
         val upstream = pool.pick(host)
         if (upstream == null) {
             stats.onQuery(0, cacheHit = false, failed = true)
-            return fallback.lookup(host)
+            return cachedAddresses.distinct().ifEmpty { fallback.lookup(host) }
         }
         val ecs = if (upstream.supportsEcs) cfg.ecs() else null
-
-        val started = System.currentTimeMillis()
+        val started = System.nanoTime()
+        val deadline = started + TimeUnit.MILLISECONDS.toNanos(cfg.timeoutMs + 800)
+        val completion = ExecutorCompletionService<Pair<Int, DnsResponse>>(executor)
+        val tasks = ArrayList<Future<Pair<Int, DnsResponse>>>(missing.size)
         val answers = LinkedHashMap<Int, DnsResponse>()
-        val tasks = ArrayList<Future<DnsResponse>>(2)
-        tasks += executor.submit(Callable { transport.query(upstream, host, DnsMessage.TYPE_A, ecs) })
-        if (cfg.enableIpv6) {
-            tasks += executor.submit(Callable { transport.query(upstream, host, DnsMessage.TYPE_AAAA, ecs) })
-        }
-
-        var failed = false
-        var nameError = false
-        tasks.forEach { task ->
-            try {
-                val response = task.get(cfg.timeoutMs + 800, TimeUnit.MILLISECONDS)
-                if (response.isNameError) nameError = true
-                if (response.isSuccess && response.records.isNotEmpty()) {
-                    answers[response.records.first().type] = response
+        try {
+            missing.forEach { type ->
+                tasks += completion.submit(Callable { type to transport.query(upstream, host, type, ecs) })
+            }
+            repeat(tasks.size) {
+                val remaining = deadline - System.nanoTime()
+                val completed = if (remaining > 0) completion.poll(remaining, TimeUnit.NANOSECONDS) else null
+                if (completed != null) {
+                    try {
+                        val (type, response) = completed.get()
+                        if (!response.truncated) answers[type] = response
+                    } catch (_: java.util.concurrent.ExecutionException) {
+                        // 单个地址族失败不丢弃另一个地址族的结果。
+                    }
                 }
-            } catch (e: Exception) {
-                failed = true
             }
+        } catch (_: RejectedExecutionException) {
+            // shutdown 与 lookup 并发时不把执行器异常传给 OkHttp。
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw UnknownHostException("$host (interrupted)").apply { initCause(e) }
+        } finally {
+            tasks.forEach { if (!it.isDone) it.cancel(true) }
         }
 
-        val elapsed = System.currentTimeMillis() - started
-        val addresses = answers.values.flatMap { it.addresses() }.distinct()
-
-        if (addresses.isEmpty()) {
-            if (nameError) {
-                cache.putNegative(DnsCache.PREFIX_DOH, host, DnsCache.TYPE_A)
-                stats.onQuery(elapsed, cacheHit = false, failed = false)
-                throw UnknownHostException(host)
-            }
-            pool.recordFailure(upstream)
-            stats.onQuery(elapsed, cacheHit = false, failed = true)
-            return fallback.lookup(host)
-        }
-
-        pool.recordSuccess(upstream, elapsed)
-        stats.onQuery(elapsed, cacheHit = false, failed = failed && addresses.isEmpty())
+        val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
+        val addresses = ArrayList(cachedAddresses)
         answers.forEach { (type, response) ->
-            cache.put(
-                DnsCache.PREFIX_DOH,
-                host,
-                type,
-                response.addresses(),
-                response.minTtlSeconds
-            )
+            if (response.isSuccess) {
+                val typed = response.records.filter { it.type == type }
+                val resolved = response.copy(records = typed).addresses()
+                addresses += resolved
+                if (!closed && (resolved.isNotEmpty() || cachedAddresses.isNotEmpty() ||
+                    answers.values.any { it.isSuccess && it.addresses().isNotEmpty() })
+                ) {
+                    cache.put(DnsCache.PREFIX_DOH, host, type, resolved, response.minTtlSeconds, cacheGeneration)
+                }
+            } else if (response.isNameError && !closed) {
+                cache.putNegative(DnsCache.PREFIX_DOH, host, type, cacheGeneration)
+            }
         }
-        return addresses
+        if (addresses.isNotEmpty()) {
+            pool.recordSuccess(upstream, elapsed)
+            stats.onQuery(elapsed, cacheHit = false, failed = false)
+            return addresses.distinct().sortedBy { it.address.size }
+        }
+        if (answers.values.any { it.isNameError }) {
+            stats.onQuery(elapsed, cacheHit = false, failed = false)
+            throw UnknownHostException(host)
+        }
+        pool.recordFailure(upstream)
+        stats.onQuery(elapsed, cacheHit = false, failed = true)
+        return fallback.lookup(host)
     }
 
     fun shutdown() {
+        closed = true
         executor.shutdownNow()
     }
 

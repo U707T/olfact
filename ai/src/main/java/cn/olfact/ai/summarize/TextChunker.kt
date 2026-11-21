@@ -35,7 +35,10 @@ object TextChunker {
                 continue
             }
             if (current.length + paragraph.length + 2 > maxChars) {
-                val tail = current.toString().takeLast(overlapChars.coerceAtMost(current.length))
+                val available = (maxChars - paragraph.length - 2).coerceAtLeast(0)
+                val overlap = overlapChars.coerceIn(0, minOf(available, current.length))
+                val start = current.length - overlap
+                val tail = current.substring(if (start < current.length && current[start].isLowSurrogate()) start + 1 else start)
                 flush()
                 if (tail.isNotBlank()) current.append(tail)
             }
@@ -57,6 +60,10 @@ object TextChunker {
                 val windowStart = maxOf(start, end - 200)
                 val sentenceEnd = text.lastIndexOfAny(charArrayOf('。', '！', '？', '.', '!', '?', '\n'), end)
                 if (sentenceEnd in windowStart until end) cut = sentenceEnd + 1
+            }
+            if (cut < text.length && text[cut].isLowSurrogate() && text[cut - 1].isHighSurrogate()) {
+                require(cut > start + 1) { "maxChars 无法容纳一个完整字符" }
+                cut--
             }
             pieces += text.substring(start, cut).trim()
             start = cut

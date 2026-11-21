@@ -34,6 +34,16 @@ class ScriptStorePathTest {
     }
 
     @Test
+    fun `不同 id 不会覆盖同一文件正文`() {
+        val store = store()
+        store.save(script("abc"), "before()")
+        val result = runCatching { store.restoreOne(script("a/bc"), "after()") }
+        assertTrue(result.isFailure)
+        assertEquals("before()", store.body("abc"))
+        assertEquals(1, store.count())
+    }
+
+    @Test
     fun `正常 id 文件名不变`() {
         val store = store()
         store.save(script("abc-123_x"), "x()")

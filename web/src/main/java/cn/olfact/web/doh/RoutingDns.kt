@@ -36,8 +36,9 @@ class RoutingDns(
             DnsCache.Lookup.Negative -> throw UnknownHostException("$hostname (negative cache)")
             DnsCache.Lookup.Miss -> Unit
         }
+        val generation = cache.generation()
         val result = system.lookup(hostname)
-        cache.put(DnsCache.PREFIX_SYSTEM, hostname, DnsCache.TYPE_A, result, systemTtlSeconds)
+        cache.put(DnsCache.PREFIX_SYSTEM, hostname, DnsCache.TYPE_A, result, systemTtlSeconds, generation)
         return result
     }
 }

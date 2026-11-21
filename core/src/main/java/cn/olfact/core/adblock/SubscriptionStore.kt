@@ -43,26 +43,27 @@ class SubscriptionStore(
                 .onFailure { B4Log.w("SubStore", "subscriptions.json 损坏，重建", it) }
                 .getOrNull()
                 ?.items
-                ?.takeIf { it.isNotEmpty() }
+                ?.filter { isValidId(it.id) }
                 ?: SubscriptionCatalog.builtins()
         }
         val sorted = parsed.sortedBy { it.order }
         _items.value = sorted
-        if (text.isNullOrBlank() || parsed != sorted) saveLocked(sorted)
+        if (text.isNullOrBlank() || parsed != sorted) {
+            runCatching { saveLocked(sorted) }.onFailure { B4Log.w("SubStore", "写入默认订阅失败", it) }
+        }
         return sorted
     }
 
     @Synchronized
     fun save(items: List<Subscription>) {
+        require(items.all { isValidId(it.id) }) { "非法的订阅标识" }
         val sorted = items.sortedBy { it.order }
-        _items.value = sorted
         saveLocked(sorted)
+        _items.value = sorted
     }
 
     private fun saveLocked(items: List<Subscription>) {
-        runCatching {
-            StoreFiles.writeAtomic(indexFile, json.encodeToString(StoreFile.serializer(), StoreFile(items = items)))
-        }.onFailure { B4Log.e("SubStore", "写入 subscriptions.json 失败", it) }
+        StoreFiles.writeAtomic(indexFile, json.encodeToString(StoreFile.serializer(), StoreFile(items = items)))
     }
 
     @Synchronized
@@ -95,7 +96,10 @@ class SubscriptionStore(
         return removed
     }
 
-    fun rulesFile(id: String): File = File(listsDir, "$id.txt")
+    fun rulesFile(id: String): File {
+        require(isValidId(id)) { "非法的订阅标识" }
+        return File(listsDir, "$id.txt")
+    }
 
     fun readRules(id: String): String? = StoreFiles.readText(rulesFile(id))
 
@@ -106,4 +110,9 @@ class SubscriptionStore(
     fun hasRules(id: String): Boolean = StoreFiles.sizeOf(rulesFile(id)) > 0
 
     fun totalRuleCount(): Int = _items.value.sumOf { it.ruleCount }
+
+    companion object {
+        private val ID = Regex("[A-Za-z0-9_-]{1,128}")
+        internal fun isValidId(id: String): Boolean = ID.matches(id)
+    }
 }

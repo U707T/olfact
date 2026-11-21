@@ -136,4 +136,60 @@ class ChunkDownloaderTest {
         assertTrue("应该失败而不是继续合并", failure.isFailure)
         assertFalse("不能产出大小不对的文件", target.exists())
     }
+
+    @Test fun `short 206 responses are resumed before merge`() = kotlinx.coroutines.runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                if (request.method == "HEAD") return MockResponse().addHeader("Accept-Ranges", "bytes")
+                    .addHeader("Content-Length", payload.size)
+                val match = rangeRegex.find(request.getHeader("Range")!!)!!
+                val from = match.groupValues[1].toInt()
+                val end = match.groupValues[2].toInt()
+                val bodyEnd = if (from == 0) 49 else end
+                return MockResponse().setResponseCode(206).addHeader("Content-Range", "bytes $from-$end/${payload.size}")
+                    .setBody(Buffer().write(payload.copyOfRange(from, bodyEnd + 1)))
+            }
+        }
+        val result = ChunkDownloader(OkHttpClient(), temp.newFolder("short"))
+            .download(DownloadSpec(server.url("/short.bin").toString(), fileName = "short"),
+                File(temp.root, "short.bin"), chunkSize = 1000)
+        assertArrayEquals(payload, result.file.readBytes())
+    }
+
+    @Test fun `206 with wrong content range is rejected before writing a corrupt result`() = kotlinx.coroutines.runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                if (request.method == "HEAD") return MockResponse().addHeader("Accept-Ranges", "bytes")
+                    .addHeader("Content-Length", payload.size)
+                return MockResponse().setResponseCode(206).addHeader("Content-Range", "bytes 0-499/${payload.size}")
+                    .setBody(Buffer().write(payload.copyOfRange(0, 500)))
+            }
+        }
+        val target = File(temp.root, "wrong.bin")
+        assertTrue(runCatching {
+            ChunkDownloader(OkHttpClient(), temp.newFolder("wrong"))
+                .download(DownloadSpec(server.url("/wrong.bin").toString(), fileName = "wrong"), target, chunkSize = 500)
+        }.isFailure)
+        assertFalse(target.exists())
+    }
+
+    @Test fun `publishing a download keeps an existing file with the same name`() = kotlinx.coroutines.runBlocking {
+        val target = temp.newFile("keep.bin").apply { writeText("original") }
+        val result = ChunkDownloader(OkHttpClient(), temp.newFolder("keep"))
+            .download(DownloadSpec(server.url("/keep.bin").toString(), fileName = "keep"), target, chunkSize = 500)
+        assertEquals("original", target.readText())
+        assertTrue(result.file != target)
+        assertArrayEquals(payload, result.file.readBytes())
+    }
+
+    @Test fun `changed chunk plans discard stale offsets before resuming`() = kotlinx.coroutines.runBlocking {
+        val work = temp.newFolder("changed")
+        File(work, "chunk-plan.txt").writeText("previous plan")
+        File(work, "changed.part0").writeBytes(payload.copyOfRange(0, 100))
+        File(work, "changed.part1").writeBytes(payload.copyOfRange(100, 200))
+        val result = ChunkDownloader(OkHttpClient(), work)
+            .download(DownloadSpec(server.url("/changed.bin").toString(), fileName = "changed"),
+                File(temp.root, "changed.bin"), chunkSize = 500)
+        assertArrayEquals(payload, result.file.readBytes())
+    }
 }

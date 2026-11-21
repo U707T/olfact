@@ -114,6 +114,91 @@ class BrowserSessionTest {
     }
 
     @Test
+    fun `restore replaces startup blank and respects saved selection`() {
+        BrowserSession.ensureTab()
+        val saved = listOf(Tab(7, "https://a.example"), Tab(8, "https://b.example"))
+        assertEquals(2, BrowserSession.mergeRestored(saved, 7))
+        assertEquals(listOf(7L, 8L), BrowserSession.tabs.map { it.id })
+        assertEquals(7L, BrowserSession.currentId)
+        assertTrue(BrowserSession.open("https://next.example").id > 8)
+    }
+
+    @Test
+    fun `restore preserves active external page when saved id collides`() {
+        val external = BrowserSession.open("https://external.example")
+        val saved = listOf(Tab(external.id, "https://saved.example"), Tab(9, "https://other.example"))
+        assertEquals(2, BrowserSession.mergeRestored(saved, 9))
+        assertSame(external, BrowserSession.current())
+        assertEquals(3, BrowserSession.tabs.size)
+        assertEquals(3, BrowserSession.tabs.map { it.id }.toSet().size)
+        assertTrue(BrowserSession.tabs.any { it.url == "https://saved.example" })
+        assertEquals(0, BrowserSession.mergeRestored(saved, 9))
+        assertEquals(3, BrowserSession.tabs.size)
+    }
+
+    @Test
+    fun `private active page never absorbs restored normal tab`() {
+        val private = BrowserSession.open("https://same.example", incognito = true)
+        val saved = listOf(Tab(private.id, "https://same.example"))
+        assertEquals(1, BrowserSession.mergeRestored(saved, private.id))
+        assertSame(private, BrowserSession.current())
+        assertEquals(2, BrowserSession.tabs.size)
+        assertEquals(1, BrowserSession.tabs.count { !it.incognito })
+        assertEquals(0, BrowserSession.mergeRestored(saved, private.id))
+    }
+
+    @Test
+    fun `same url from distinct saved tabs is preserved and restore is idempotent`() {
+        val saved = listOf(Tab(6, "https://same.example"), Tab(7, "https://same.example"))
+        assertEquals(2, BrowserSession.mergeRestored(saved, 6))
+        assertEquals(2, BrowserSession.tabs.size)
+        assertEquals(0, BrowserSession.mergeRestored(saved, 6))
+        assertEquals(6L, BrowserSession.currentId)
+    }
+
+    @Test
+    fun `legacy private saved tabs are ignored`() {
+        val saved = listOf(Tab(4, "https://secret.example", incognito = true), Tab(5, "https://normal.example"))
+        assertEquals(1, BrowserSession.mergeRestored(saved, 4))
+        assertEquals(5L, BrowserSession.currentId)
+        assertTrue(BrowserSession.tabs.none { it.incognito })
+    }
+
+    @Test
+    fun `merge capacity limit does not evict current page`() {
+        val current = BrowserSession.open("https://current.example")
+        val saved = (100L..150L).map { Tab(it, "https://saved$it.example") }
+        assertEquals(BrowserSession.MAX_TABS - 1, BrowserSession.mergeRestored(saved, 110))
+        assertEquals(BrowserSession.MAX_TABS, BrowserSession.tabs.size)
+        assertSame(current, BrowserSession.current())
+    }
+
+    @Test
+    fun `closed or navigated restored page can be restored again`() {
+        val external = BrowserSession.open("https://external.example")
+        val saved = listOf(Tab(external.id, "https://saved.example"))
+        BrowserSession.mergeRestored(saved, external.id)
+        val restored = BrowserSession.tabs.first { it.url == "https://saved.example" }
+        restored.url = "https://navigated.example"
+        assertEquals(1, BrowserSession.mergeRestored(saved, external.id))
+        BrowserSession.close(BrowserSession.tabs.first { it.url == "https://saved.example" }.id)
+        assertEquals(1, BrowserSession.mergeRestored(saved, external.id))
+        assertSame(external, BrowserSession.current())
+    }
+
+    @Test
+    fun `invalid saved ids receive unique ids and do not mutate source tabs`() {
+        val saved = listOf(Tab(0, "https://zero.example"), Tab(-1, "https://negative.example"), Tab(Long.MAX_VALUE, "https://large.example"))
+        assertEquals(3, BrowserSession.mergeRestored(saved, null))
+        assertTrue(BrowserSession.tabs.all { it.id > 0 })
+        assertEquals(3, BrowserSession.tabs.map { it.id }.distinct().size)
+        assertEquals(listOf(0L, -1L, Long.MAX_VALUE), saved.map { it.id })
+        val next = BrowserSession.open("https://next.example")
+        assertEquals(BrowserSession.tabs.size, BrowserSession.tabs.map { it.id }.distinct().size)
+        assertTrue(next.id > 0)
+    }
+
+    @Test
     fun `incognito tabs are never persisted`() {
         BrowserSession.open("https://normal.example")
         BrowserSession.open("https://secret.example", incognito = true)

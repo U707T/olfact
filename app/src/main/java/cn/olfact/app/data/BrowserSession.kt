@@ -22,10 +22,12 @@ data class Tab(
 object BrowserSession {
 
     private const val KEY = "tabs"
+    private const val SELECTED_KEY = "tabs_selected"
 
     /** 与原版 web 内核的 TabManager 对齐：最多 24 个，超出淘汰最早的标签。 */
     const val MAX_TABS = 24
     private var nextId = 1L
+    private val restoredOrigins = mutableMapOf<Pair<Long, String>, Long>()
 
     val tabs = mutableListOf<Tab>()
     var currentId: Long? = null
@@ -104,6 +106,7 @@ object BrowserSession {
         tabs.clear()
         currentId = null
         nextId = 1L
+        restoredOrigins.clear()
     }
 
     fun close(id: Long) {
@@ -138,11 +141,14 @@ object BrowserSession {
     internal fun persistable(): List<Tab> = tabs.filterNot { it.incognito }
 
     fun save(context: Context) {
+        val saved = if (AppSettings.get(K.RESTORE_TABS) == "never") emptyList() else persistable()
         val arr = JSONArray()
-        persistable().forEach { t ->
-            arr.put(JsonStore.objOf("id" to t.id, "url" to t.url, "title" to t.title, "incognito" to t.incognito))
+        saved.forEach { t ->
+            arr.put(JsonStore.objOf("id" to t.id, "url" to t.url, "title" to t.title, "incognito" to false))
         }
         JsonStore.writeArray(context, KEY, arr)
+        val selected = saved.firstOrNull { it.id == currentId } ?: saved.lastOrNull()
+        JsonStore.writeArray(context, SELECTED_KEY, JSONArray().apply { selected?.let { put(it.id) } })
     }
 
     /** 「启动时恢复标签」：always 自动恢复；manual 由用户在标签页里手动恢复。 */
@@ -152,7 +158,8 @@ object BrowserSession {
     }
 
     /** 上次落盘的标签数量（没有则为 0）。 */
-    fun savedCount(context: Context): Int = JsonStore.readArray(context, KEY).length()
+    fun savedCount(context: Context): Int =
+        if (AppSettings.get(K.RESTORE_TABS) == "never") 0 else JsonStore.readArray(context, KEY).length()
 
     /**
      * 恢复上次的标签。
@@ -162,30 +169,47 @@ object BrowserSession {
      *
      * @return 实际恢复的标签数量。
      */
-    fun restore(context: Context): Int {        val arr = JsonStore.readArray(context, KEY)
-        if (arr.length() == 0) return 0
+    fun restore(context: Context): Int {
+        if (AppSettings.get(K.RESTORE_TABS) == "never") return 0
+        val arr = JsonStore.readArray(context, KEY)
+        val saved = (0 until arr.length()).mapNotNull { i ->
+            val o: JSONObject = arr.optJSONObject(i) ?: return@mapNotNull null
+            if (o.optBoolean("incognito", false)) return@mapNotNull null
+            Tab(o.optLong("id", 0L), o.optString("url"), o.optString("title"))
+        }
+        val selected = JsonStore.readArray(context, SELECTED_KEY).optLong(0, -1L)
+        return mergeRestored(saved, selected)
+    }
 
-        val onlyBlank = tabs.size <= 1 && tabs.all { it.url.isBlank() }
+    internal fun mergeRestored(saved: List<Tab>, selectedId: Long?): Int {
+        if (saved.isEmpty()) return 0
+        val onlyBlank = tabs.size <= 1 && tabs.all { it.url.isBlank() && !it.incognito }
+        val previous = currentId
         if (onlyBlank) {
             tabs.clear()
             currentId = null
         }
-
+        restoredOrigins.entries.removeAll { (origin, id) -> tabs.none { it.id == id && it.url == origin.second } }
         var added = 0
-        for (i in 0 until arr.length()) {
+        for (savedTab in saved) {
             if (tabs.size >= MAX_TABS) break
-            val o: JSONObject = arr.optJSONObject(i) ?: continue
-            // 旧版本会把无痕标签一起落盘：恢复时直接丢弃，别把地址再读出来。
-            if (o.optBoolean("incognito", false)) continue
-            val id = o.optLong("id", nextId)
-            if (tabs.any { it.id == id }) continue
-            val tab = Tab(id, o.optString("url"), o.optString("title"), o.optBoolean("incognito"))
-            tabs.add(tab)
+            if (savedTab.incognito) continue
+            val origin = savedTab.id to savedTab.url
+            if (restoredOrigins[origin] != null) continue
+            val existing = tabs.firstOrNull { it.id == savedTab.id }
+            if (existing != null && existing.url == savedTab.url && !existing.incognito) continue
+            val id = savedTab.id.takeIf { it > 0 && it < Long.MAX_VALUE && existing == null } ?: nextId
+            tabs.add(savedTab.copy(id = id))
+            restoredOrigins[origin] = id
             if (id >= nextId) nextId = id + 1
             added++
         }
         if (tabs.isEmpty()) open(null)
-        currentId = tabs.lastOrNull()?.id
+        currentId = when {
+            !onlyBlank && tabs.any { it.id == previous } -> previous
+            tabs.any { it.id == selectedId } -> selectedId
+            else -> tabs.lastOrNull()?.id
+        }
         return added
     }
 }

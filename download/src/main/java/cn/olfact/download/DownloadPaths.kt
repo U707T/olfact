@@ -18,15 +18,17 @@ object DownloadPaths {
 
     fun tempRoot(context: Context): File = File(context.cacheDir, "downloads/tmp")
 
-    fun resolveTarget(context: Context, spec: DownloadSpec): File {
-        val root = if (spec.subDir.isBlank()) downloadsRoot(context) else File(downloadsRoot(context), spec.subDir)
+    fun resolveTarget(context: Context, spec: DownloadSpec, reserved: Set<File> = emptySet()): File {
+        val downloads = downloadsRoot(context).canonicalFile
+        val root = if (spec.subDir.isBlank()) downloads else File(downloads, spec.subDir).canonicalFile
+        require(root == downloads || root.path.startsWith(downloads.path + File.separator)) { "下载子目录超出下载目录" }
         val extension = Files.extensionOf(spec.url, spec.mimeType)
         val base = Files.sanitizeFileName(spec.fileName.ifBlank { "video" }, "video")
         val plain = File(root, Files.ensureExtension(base, extension))
         // 文件名已存在时也走 uniqueFile：不能因为 allowDuplicate=false 就覆盖旧文件。
         // allowDuplicate=false 只用于「同 URL 活跃任务去重」，不代表允许覆盖磁盘文件。
-        if (spec.allowDuplicate || plain.exists()) {
-            return Files.uniqueFile(root, base, extension)
+        if (spec.allowDuplicate || plain.exists() || plain in reserved) {
+            return Files.uniqueFile(root, base, extension, reserved)
         }
         return plain
     }

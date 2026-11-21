@@ -33,18 +33,22 @@ class WhitelistStore(
     }
 
     @Synchronized
-    fun add(raw: String): Boolean {
-        val d = normalize(raw) ?: return false
-        if (!domains.add(d)) return false
-        save()
-        return true
+    fun add(raw: String): Boolean = addAll(listOf(raw)) > 0
+
+    @Synchronized
+    internal fun addAll(raws: Collection<String>): Int {
+        val next = LinkedHashSet(domains)
+        raws.mapNotNullTo(next, ::normalize)
+        val added = next.size - domains.size
+        if (added > 0) replace(next)
+        return added
     }
 
     @Synchronized
     fun remove(raw: String): Boolean {
         val d = normalize(raw) ?: return false
-        if (!domains.remove(d)) return false
-        save()
+        if (d !in domains) return false
+        replace(domains - d)
         return true
     }
 
@@ -64,14 +68,13 @@ class WhitelistStore(
     @Synchronized
     fun clear() {
         if (domains.isEmpty()) return
-        domains.clear()
-        save()
+        replace(emptySet())
     }
 
-    private fun save() {
-        runCatching {
-            StoreFiles.writeAtomic(file, json.encodeToString(ListSerializer(String.serializer()), domains.toList()))
-        }.onFailure { B4Log.e("Whitelist", "写入白名单失败", it) }
+    private fun replace(next: Set<String>) {
+        StoreFiles.writeAtomic(file, json.encodeToString(ListSerializer(String.serializer()), next.toList()))
+        domains.clear()
+        domains.addAll(next)
     }
 
     companion object {

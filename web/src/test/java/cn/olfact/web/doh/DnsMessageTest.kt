@@ -108,4 +108,51 @@ class DnsMessageTest {
         assertEquals("2001:db8:0:0:0:0:0:1", response.addresses().first().hostAddress)
         assertEquals(120, response.minTtlSeconds)
     }
+
+    @Test
+    fun `ECS 编码保留 IPv4 和 IPv6 的原地址族`() {
+        listOf("116.24.0.0/16" to 1, "116.24.0.0/0" to 1, "2408:8000::/32" to 2).forEach { (subnet, family) ->
+            val query = DnsMessage.buildQuery(1, "a.example", 1, EcsSubnet.parse(subnet))
+            val without = DnsMessage.buildQuery(1, "a.example", 1)
+            val optionStart = without.size + 11
+            assertEquals(family, query[optionStart + 5].toInt() and 255)
+        }
+    }
+
+    @Test
+    fun `国际化域名编码为 ASCII label`() {
+        val international = DnsMessage.buildQuery(7, "例子.测试", 1)
+        val ascii = DnsMessage.buildQuery(7, java.net.IDN.toASCII("例子.测试"), 1)
+        assertTrue(international.contentEquals(ascii))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `超过 DNS 名称总长度时拒绝构造`() {
+        DnsMessage.buildQuery(1, List(5) { "a".repeat(63) }.joinToString("."), 1)
+    }
+
+    @Test(expected = DnsFormatException::class)
+    fun `压缩指针成环时拒绝响应`() {
+        val bytes = buildResponse(1, 0, emptyList())
+        bytes[12] = 0xc0.toByte()
+        bytes[13] = 12
+        DnsMessage.parseResponse(bytes)
+    }
+
+    @Test(expected = DnsFormatException::class)
+    fun `保留 label 编码不能当普通长度处理`() {
+        val bytes = buildResponse(1, 0, emptyList())
+        bytes[12] = 0x40
+        DnsMessage.parseResponse(bytes)
+    }
+
+    @Test(expected = DnsFormatException::class)
+    fun `查询报文不能当响应接受`() {
+        DnsMessage.parseResponse(DnsMessage.buildQuery(1, "a.example", 1))
+    }
+
+    @Test(expected = DnsFormatException::class)
+    fun `A 记录长度错误时拒绝响应`() {
+        DnsMessage.parseResponse(buildResponse(1, 0, listOf(Triple(1, 60, byteArrayOf(1, 2, 3)))))
+    }
 }

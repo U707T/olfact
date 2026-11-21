@@ -1,20 +1,18 @@
 package cn.olfact.download.util
 
 import cn.olfact.download.DownloadSpec
+import cn.olfact.core.network.withCancellableResponse
 import okhttp3.Call
-import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import java.io.IOException
 import java.util.concurrent.TimeUnit
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
-import kotlinx.coroutines.suspendCancellableCoroutine
 
 object Http {
 
     fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
+        .dns(cn.olfact.core.net.AppDns)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
@@ -45,7 +43,8 @@ object Http {
         val ua = spec.userAgent
             ?: spec.headers.entries.firstOrNull { it.key.equals("User-Agent", true) }?.value
         if (!ua.isNullOrBlank()) builder.header("User-Agent", ua)
-        spec.referer?.takeIf { it.isNotBlank() }?.let { builder.header("Referer", it) }
+        (spec.referer ?: spec.headers.entries.firstOrNull { it.key.equals("Referer", true) }?.value)
+            ?.takeIf { it.isNotBlank() }?.let { builder.header("Referer", it) }
         spec.headers.forEach { (key, value) ->
             if (key.isNotBlank() && value.isNotBlank() &&
                 !key.equals("User-Agent", true) && !key.equals("Referer", true) &&
@@ -57,17 +56,16 @@ object Http {
         if (rangeHeader != null) builder.header("Range", rangeHeader)
     }
 
-    /** 可取消的同步请求：协程取消时真正 cancel 掉 socket，而不是等超时。 */
-    suspend fun Call.await(): Response = suspendCancellableCoroutine { cont ->
-        enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                if (cont.isActive) cont.resumeWithException(e)
-            }
-
-            override fun onResponse(call: Call, response: Response) {
-                if (cont.isActive) cont.resume(response) else response.close()
-            }
-        })
-        cont.invokeOnCancellation { runCatching { cancel() } }
+    fun requireRange(response: Response, start: Long, endInclusive: Long, total: Long? = null) {
+        val match = Regex("""bytes\s+(\d+)-(\d+)/(\d+|\*)""")
+            .matchEntire(response.header("Content-Range").orEmpty())
+        if (response.code != 206 || match == null ||
+            match.groupValues[1].toLongOrNull() != start ||
+            match.groupValues[2].toLongOrNull() != endInclusive ||
+            (total != null && match.groupValues[3].toLongOrNull() != total)
+        ) throw IOException("服务器返回了不匹配的字节范围")
     }
+
+    /** Cancellation closes the call and waits for the body consumer before cleanup or resume. */
+    suspend fun <T> Call.await(consume: (Response) -> T): T = withCancellableResponse { consume(it) }
 }

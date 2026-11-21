@@ -33,9 +33,10 @@ object DownloadNames {
 
     /** `UTF-8''%E8%A7%86...`（也可能省略 charset）。 */
     private fun decodeExtended(value: String): String? {
-        val charset = value.substringBefore("''").takeIf { value.contains("''") }?.ifBlank { "UTF-8" } ?: "UTF-8"
-        val encoded = if (value.contains("''")) value.substringAfter("''") else value
-        return runCatching { URLDecoder.decode(encoded, charset) }.getOrNull()
+        val parts = value.split('\'', limit = 3)
+        val charset = if (parts.size == 3) parts[0].ifBlank { "UTF-8" } else "UTF-8"
+        val encoded = if (parts.size == 3) parts[2] else value
+        return runCatching { URLDecoder.decode(encoded.replace("+", "%2B"), charset) }.getOrNull()
     }
 
     /** 去掉路径、控制字符与首尾引号；空串视为没有文件名。 */

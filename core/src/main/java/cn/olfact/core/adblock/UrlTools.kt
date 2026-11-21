@@ -86,63 +86,32 @@ object UrlTools {
         return out
     }
 
-    /**
-     * URL 的匹配 token：按非字母数字切开，每个片段产出「整段 + 前 3 字符 + 前 4 字符」。
-     *
-     * 为什么带前缀：规则侧用 pattern 里最长片段的**前 4 个字符**做倒排 key（见 [bucketTokenOf]），
-     * 而 URL 里的片段可能更长（`banner42` vs 规则里的 `banner`），只有加前缀才能命中。
-     */
+    /** Index every three-character ASCII window; rules may match inside a URL segment. */
     fun tokensOf(url: String): Set<String> {
         val out = HashSet<String>(32)
-        var start = -1
+        var run = 0
         for (i in url.indices) {
             val c = url[i]
-            val alnum = (c in 'a'..'z') || (c in '0'..'9')
-            if (alnum) {
-                if (start < 0) start = i
-            } else if (start >= 0) {
-                addToken(out, url, start, i)
-                start = -1
-            }
+            run = if (c in 'a'..'z' || c in '0'..'9') run + 1 else 0
+            if (run >= 3) out.add(url.substring(i - 2, i + 1))
         }
-        if (start >= 0) addToken(out, url, start, url.length)
         return out
     }
 
-    /**
-     * 从 ABP pattern 里抽倒排索引 key：
-     * 取最长字母数字片段，长度 ≥4 用前 4 字符，恰为 3 用整段；否则返回 null（进 generic 桶）。
-     */
+    /** Raw regex literals are not necessarily required (alternation, optional groups, etc.). */
     fun bucketTokenOf(pattern: String): String? {
-        var best = ""
+        if (pattern.length > 2 && pattern.startsWith('/') && pattern.endsWith('/')) return null
         var start = -1
-        fun flush(end: Int) {
-            if (start >= 0 && end - start >= 3 && end - start > best.length) {
-                best = pattern.substring(start, end).lowercase()
-            }
-            start = -1
-        }
+        var end = 0
+        var run = 0
         for (i in pattern.indices) {
             val c = pattern[i]
-            val alnum = (c in 'a'..'z') || (c in 'A'..'Z') || (c in '0'..'9')
-            if (alnum) {
-                if (start < 0) start = i
-            } else {
-                flush(i)
+            run = if (c in 'a'..'z' || c in 'A'..'Z' || c in '0'..'9') run + 1 else 0
+            if (run > end - start && run >= 3) {
+                start = i - run + 1
+                end = i + 1
             }
         }
-        flush(pattern.length)
-        return when {
-            best.length >= 4 -> best.substring(0, 4)
-            best.length == 3 -> best
-            else -> null
-        }
-    }
-
-    private fun addToken(out: MutableSet<String>, s: String, from: Int, to: Int) {
-        if (to - from < 3) return
-        out.add(s.substring(from, to))
-        out.add(s.substring(from, from + 3))
-        if (to - from > 4) out.add(s.substring(from, from + 4))
+        return if (start >= 0) pattern.substring(start, start + 3).lowercase() else null
     }
 }

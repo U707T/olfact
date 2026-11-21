@@ -52,6 +52,15 @@ class SessionStickyTest {
     }
 
     @Test
+    fun `导航到非 DoH 页面后停止登记第三方主机`() {
+        val sticky = SessionSticky()
+        sticky.onMainFrame("tab1", "example.com", true)
+        sticky.onMainFrame("tab1", "baidu.com", false)
+        sticky.touch("tab1", "cdn.baidu.com")
+        assertFalse(sticky.isStickyHost("cdn.baidu.com"))
+    }
+
+    @Test
     fun `主域与子域互相不误判`() {
         val sticky = SessionSticky()
         sticky.onMainFrame("tab1", "example.com", useDoh = true)

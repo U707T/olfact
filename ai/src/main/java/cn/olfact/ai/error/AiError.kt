@@ -12,7 +12,7 @@ sealed class AiError(message: String, cause: Throwable? = null) : Exception(mess
 
     class Timeout(message: String = "请求超时，请检查网络或换一个供应商") : AiError(message)
 
-    class ContextTooLong(message: String = "内容太长，超出模型上下文，已自动截断后再试") : AiError(message)
+    class ContextTooLong(message: String = "内容太长，超出模型上下文，请缩短输入后重试") : AiError(message)
 
     class ServerError(val code: Int, message: String) : AiError(message)
 

@@ -33,7 +33,7 @@ class QrShareFragment : Fragment(R.layout.fragment_page) {
         val url = requireArguments().getString(ARG_URL).orEmpty().ifBlank {
             cn.olfact.app.data.BrowserSession.current()?.url.orEmpty()
         }
-        val qr = runCatching { renderQr(url) }.getOrNull()
+        val qr = if (url.isBlank()) null else runCatching { renderQr(url) }.getOrNull()
 
         b.content.gravity = Gravity.CENTER_HORIZONTAL
         b.content.setPadding(0, dp(24), 0, dp(24))

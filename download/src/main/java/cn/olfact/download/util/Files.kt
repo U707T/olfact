@@ -46,7 +46,7 @@ object Files {
     }
 
     /** 同名文件自动加 (1)(2)…，不覆盖已有文件。 */
-    fun uniqueFile(dir: File, baseName: String, extension: String): File {
+    fun uniqueFile(dir: File, baseName: String, extension: String, reserved: Set<File> = emptySet()): File {
         dir.mkdirs()
         val full = ensureExtension(baseName, extension)
         val dot = full.lastIndexOf('.')
@@ -55,12 +55,53 @@ object Files {
         val ext = if (hasExt) full.substring(dot) else ""
         var candidate = File(dir, full)
         var index = 1
-        while (candidate.exists()) {
+        while (candidate.exists() || candidate in reserved) {
             candidate = File(dir, "$stem($index)$ext")
             index++
             if (index > 9999) break
         }
         return candidate
+    }
+
+    /** Publish a fully written file without replacing another download with the same name. */
+    @Synchronized
+    fun publish(staged: File, preferred: File, checkActive: () -> Unit = {}): File {
+        checkActive()
+        preferred.parentFile?.mkdirs()
+        val target = uniqueFile(preferred.parentFile ?: File("."), preferred.name, "")
+        // Reserve the selected name before rename (which can replace existing files on Android).
+        if (!target.createNewFile()) return publish(staged, preferred, checkActive)
+        try {
+            if (!staged.renameTo(target)) {
+                // Internal cache and external downloads can be different filesystems.
+                // Copy to a sibling first, so process death cannot leave a truncated final file.
+                val local = File.createTempFile(".olfact-", ".tmp", target.parentFile)
+                try {
+                    staged.inputStream().use { input ->
+                        local.outputStream().use { output ->
+                            val buffer = ByteArray(64 * 1024)
+                            while (true) {
+                                checkActive()
+                                val count = input.read(buffer)
+                                if (count < 0) break
+                                output.write(buffer, 0, count)
+                            }
+                            output.fd.sync()
+                        }
+                    }
+                    checkActive()
+                    if (!target.delete() || !local.renameTo(target)) throw java.io.IOException("无法发布下载文件")
+                    staged.delete()
+                } finally {
+                    local.delete()
+                }
+            }
+            checkActive()
+        } catch (e: Exception) {
+            target.delete()
+            throw e
+        }
+        return target
     }
 
     fun sizeOf(vararg files: File): Long = files.sumOf { if (it.exists()) it.length() else 0L }

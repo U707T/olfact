@@ -7,27 +7,27 @@ import cn.olfact.ai.ChatParams
 import cn.olfact.ai.TokenUsage
 import cn.olfact.ai.error.AiError
 import cn.olfact.ai.error.AiErrorMapper
+import cn.olfact.core.net.AppDns
+import cn.olfact.core.network.requireAtMost
+import cn.olfact.core.network.withCancellableResponse
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.retryWhen
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import java.util.concurrent.TimeUnit
 
-/**
- * OpenAI 兼容的流式客户端。
- * - 流式：SSE 逐帧回调，可随时取消（连接会真的断）；
- * - 失败重试：只在"还没吐出任何字节"时重试（避免重复文本）；
- * - token：优先用服务端 usage，没有就估算。
- */
+/** OpenAI-compatible SSE and non-streaming requests. Only retry before any result text. */
 class ChatClient(
     private val client: OkHttpClient = defaultClient(),
 ) {
@@ -42,28 +42,68 @@ class ChatClient(
             topP = provider.topP,
         ),
     ): Flow<ChatDelta> = flow {
-        val key = apiKey?.takeIf { it.isNotBlank() }
-            ?: throw AiError.ProviderNotConfigured("供应商「${provider.name}」还没填 API Key")
-
-        var attempt = 0
-        while (true) {
-            var emitted = false
+        var emittedText = false
+        channelFlow<ChatDelta> {
             try {
-                collectStream(provider, key, messages, params) { delta ->
-                    if (delta.text.isNotEmpty()) emitted = true
-                    emit(delta)
-                }
-                return@flow
-            } catch (t: Throwable) {
-                val error = AiErrorMapper.fromThrowable(t)
-                if (emitted || attempt >= MAX_RETRIES || !AiErrorMapper.isRetryable(error)) throw error
-                attempt++
-                delay(RETRY_BASE_MS * attempt)
-            }
-        }
-    }.flowOn(Dispatchers.IO)
+                val request = buildRequest(provider, apiKey, OpenAiWire.requestBody(provider, messages, params, stream = true))
+                client.newCall(request).withCancellableResponse { response ->
+                    checkHttp(response)
+                    val source = response.body.source()
+                    val framer = SseFramer()
+                    var hasText = false
+                    var finish: String? = null
 
-    /** 一次性返回（用于分块摘要这种不需要流式的中间步骤）。 */
+                    suspend fun accept(event: SseEvent): Boolean {
+                        val data = event.data.trim()
+                        if (data == "[DONE]") return true
+                        if (data.isEmpty()) return false
+                        OpenAiWire.parseError(data)?.let { throw AiError.Unknown(it) }
+                        val delta = OpenAiWire.parseChunk(data) ?: return false
+                        if (delta.text.isNotBlank()) hasText = true
+                        delta.finishReason?.let { finish = it }
+                        send(delta.copy(done = false))
+                        return false
+                    }
+
+                    var done = false
+                    while (!done) {
+                        currentCoroutineContext().ensureActive()
+                        if (source.exhausted()) {
+                            done = framer.end()?.let { accept(it) } == true
+                            break
+                        }
+                        val newline = source.indexOf('\n'.code.toByte(), 0, MAX_SSE_LINE_BYTES + 1)
+                        val line = if (newline >= 0) {
+                            source.readUtf8LineStrict(MAX_SSE_LINE_BYTES)
+                        } else {
+                            if (source.request(MAX_SSE_LINE_BYTES + 1)) throw AiError.Unknown("AI 响应单行过大")
+                            source.readUtf8()
+                        }
+                        val event = framer.feedLine(line) ?: continue
+                        done = accept(event)
+                    }
+                    if (!done && finish == null) throw AiError.Network("AI 响应意外中断，请重试")
+                    checkFinish(finish)
+                    if (!hasText) throw AiError.Unknown("服务端返回了空内容")
+                    send(ChatDelta(done = true, finishReason = finish))
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                currentCoroutineContext().ensureActive()
+                throw AiErrorMapper.fromThrowable(e)
+            }
+        }.buffer(0).retryWhen { error, attempt ->
+            val retry = !emittedText && attempt < MAX_RETRIES && AiErrorMapper.isRetryable(error)
+            if (retry) delay(RETRY_BASE_MS * (attempt + 1))
+            retry
+        }.collect { delta ->
+            if (delta.text.isNotEmpty()) emittedText = true
+            emit(delta)
+        }
+    }
+
+    /** 一次性返回（用于分块摘要等中间步骤）。 */
     suspend fun complete(
         provider: AiProvider,
         apiKey: String?,
@@ -74,84 +114,60 @@ class ChatClient(
             topP = provider.topP,
             stream = false,
         ),
-    ): String = withContext(Dispatchers.IO) {
-        val key = apiKey?.takeIf { it.isNotBlank() }
-            ?: throw AiError.ProviderNotConfigured("供应商「${provider.name}」还没填 API Key")
-        val request = buildRequest(provider, key, OpenAiWire.requestBody(provider, messages, params, stream = false))
-        client.newCall(request).await().use { response ->
-            val body = response.body?.string()
-            if (!response.isSuccessful) throw AiErrorMapper.fromHttp(response.code, body)
-            OpenAiWire.parseCompletion(body.orEmpty())
+    ): String = try {
+        val request = buildRequest(provider, apiKey, OpenAiWire.requestBody(provider, messages, params, stream = false))
+        client.newCall(request).withCancellableResponse { response ->
+            checkHttp(response)
+            val body = response.body.requireAtMost(MAX_COMPLETION_BYTES).string()
+            OpenAiWire.parseError(body)?.let { throw AiError.Unknown(it) }
+            checkFinish(OpenAiWire.parseCompletionFinishReason(body))
+            OpenAiWire.parseCompletion(body)?.takeIf { it.isNotBlank() }
                 ?: throw AiError.Unknown("服务端返回了空内容")
         }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        currentCoroutineContext().ensureActive()
+        throw AiErrorMapper.fromThrowable(e)
     }
 
-    private suspend fun collectStream(
-        provider: AiProvider,
-        apiKey: String,
-        messages: List<ChatMessage>,
-        params: ChatParams,
-        onDelta: suspend (ChatDelta) -> Unit,
-    ) = withContext(Dispatchers.IO) {
-        val request = buildRequest(provider, apiKey, OpenAiWire.requestBody(provider, messages, params, stream = true))
-        val call = client.newCall(request)
-        // 协程被取消时把底层连接一起断掉。
-        // 循环里的 ensureActive() 只在两行之间生效：卡在 readUtf8Line() 里时，
-        // 要等满 readTimeout(120s) 才会退出，这段时间连接和 token 一直在烧，
-        // 与「可随时取消（连接会真的断）」的说法不符。
-        val cancelOnCompletion = currentCoroutineContext()[Job]?.invokeOnCompletion { cause ->
-            if (cause != null) call.cancel()
-        }
-        try {
-            call.await().use { response ->
-                if (!response.isSuccessful) {
-                    throw AiErrorMapper.fromHttp(response.code, response.body?.string())
-                }
-                val source = response.body?.source() ?: throw AiError.Network("响应体为空")
-                val framer = SseFramer()
-                while (true) {
-                    currentCoroutineContext().ensureActive()
-                    val line = source.readUtf8Line() ?: break
-                    val event = framer.feedLine(line) ?: continue
-                    val data = event.data.trim()
-                    if (data.isEmpty()) continue
-                    if (data == "[DONE]") {
-                        onDelta(ChatDelta(done = true))
-                        break
-                    }
-                    val delta = OpenAiWire.parseChunk(data) ?: continue
-                    onDelta(delta)
-                    if (delta.done) break
-                }
-                framer.end()?.let { trailing ->
-                    if (trailing.data.isNotBlank() && trailing.data != "[DONE]") {
-                        OpenAiWire.parseChunk(trailing.data)?.let { onDelta(it) }
-                    }
-                }
-            }
-        } catch (t: Throwable) {
-            if (t is AiError) throw t
-            throw AiErrorMapper.fromThrowable(t)
-        } finally {
-            cancelOnCompletion?.dispose()
+    private fun checkHttp(response: Response) {
+        if (response.isSuccessful) return
+        val errorBody = response.peekBody(MAX_ERROR_BYTES).string()
+        throw AiErrorMapper.fromHttp(response.code, errorBody)
+    }
+
+    private fun checkFinish(reason: String?) {
+        when (reason) {
+            "length" -> throw AiError.Unknown("结果达到供应商输出上限，请调高最大 Token 数后重试")
+            "content_filter" -> throw AiError.Unknown("供应商过滤了部分输出，无法取得完整结果")
         }
     }
 
-    private fun buildRequest(provider: AiProvider, apiKey: String, body: String): Request {
+    private fun buildRequest(provider: AiProvider, apiKey: String?, body: String): Request {
+        if (!provider.enabled) throw AiError.ProviderNotConfigured("供应商「${provider.name}」已禁用")
+        val key = apiKey?.takeIf { it.isNotBlank() }
+        if (key == null && provider.requiresApiKey()) {
+            throw AiError.ProviderNotConfigured("供应商「${provider.name}」还没填 API Key")
+        }
         val builder = Request.Builder()
             .url(provider.endpoint())
-            .header("Authorization", "Bearer $apiKey")
             .post(body.toRequestBody(JSON))
-        provider.extraHeaders.forEach { (key, value) -> builder.header(key, value) }
+        key?.let { builder.header("Authorization", "Bearer $it") }
+        provider.extraHeaders.forEach { (name, value) -> builder.header(name, value) }
         return builder.build()
     }
 
     companion object {
         private val JSON = "application/json; charset=utf-8".toMediaType()
-        private const val MAX_RETRIES = 2
+        private const val MAX_RETRIES = 2L
         private const val RETRY_BASE_MS = 900L
+        private const val MAX_ERROR_BYTES = 16L * 1024
+        private const val MAX_SSE_LINE_BYTES = 1024L * 1024
+        private const val MAX_COMPLETION_BYTES = 4L * 1024 * 1024
 
         fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
+            .dns(AppDns)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(120, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
@@ -159,7 +175,6 @@ class ChatClient(
             .retryOnConnectionFailure(true)
             .build()
 
-        /** 从 delta 流里累计 usage（最后一个 chunk 才带）。 */
         fun mergeUsage(current: TokenUsage?, incoming: TokenUsage?): TokenUsage? = incoming ?: current
     }
 }

@@ -148,7 +148,7 @@ object HistoryStore {
     }
 
     private fun limit(): Int =
-        runCatching { AppSettings.get(K.HISTORY_LIMIT).toInt() }.getOrDefault(1000)
+        AppSettings.get(K.HISTORY_LIMIT).toIntOrNull()?.coerceAtLeast(0) ?: 1000
 
     /**
      * 批量导入（备份恢复）：保留访问时间，按时间倒序合并，重复 URL 跳过。

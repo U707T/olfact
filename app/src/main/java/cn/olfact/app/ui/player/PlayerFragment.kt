@@ -109,13 +109,23 @@ class PlayerFragment : Fragment(R.layout.fragment_player) {
                 Action(R.drawable.ic_play, "播放") { startPlayback(url, title) },
                 Action(R.drawable.ic_list, "嗅探结果") { SnifferSheet.show(requireActivity()) },
                 Action(R.drawable.ic_download, "下载") {
-                    // Referer 用当前页面地址：媒体直链通常有防盗链，缺 Referer 会 403。
+                    // 媒体直链可能带 Cookie / Authorization / 专用 UA；和嗅探面板一样透传完整元数据。
+                    val sniffed = SnifferFeed.items.firstOrNull { it.url == url }
                     val page = BrowserSession.current()
+                    val request = mediaDownloadContext(
+                        sniffedPageUrl = sniffed?.pageUrl,
+                        currentPageUrl = page?.url.orEmpty(),
+                        headers = sniffed?.headers.orEmpty(),
+                        mimeType = sniffed?.mimeType
+                    )
                     OlfactServices.downloads?.enqueue(
                         url = url,
                         name = title,
-                        pageUrl = page?.url.orEmpty(),
-                        referer = page?.url.orEmpty()
+                        pageUrl = request.pageUrl,
+                        referer = request.referer,
+                        userAgent = request.userAgent,
+                        mimeType = request.mimeType,
+                        headers = request.headers
                     )
                     Nav.toast("已加入下载")
                 }

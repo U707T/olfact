@@ -2,8 +2,14 @@ package cn.olfact.core.b4
 
 import java.io.File
 import java.io.FileOutputStream
+import java.io.FilterOutputStream
 import java.io.IOException
+import java.io.OutputStream
 import java.nio.charset.StandardCharsets
+import okio.FileSystem
+import okio.Path.Companion.toOkioPath
+
+fun writeAtomicTextFile(file: File, text: String) = StoreFiles.writeAtomic(file, text)
 
 /** 订阅清单 / 脚本索引 / 备份状态共用的原子文件读写。 */
 internal object StoreFiles {
@@ -20,21 +26,26 @@ internal object StoreFiles {
         }
     }
 
-    /** 先写 `.tmp` 再 rename，断电/杀进程不会留下半截 JSON。 */
-    fun writeAtomic(target: File, text: String) {
+    /** 写完并同步同目录临时文件后再原子替换，失败时保留旧文件。 */
+    fun writeAtomic(target: File, text: String) = writeAtomic(target) {
+        it.write(text.toByteArray(StandardCharsets.UTF_8))
+    }
+
+    fun writeAtomic(target: File, write: (OutputStream) -> Unit) {
         val parent = target.parentFile ?: throw IOException("no parent: $target")
-        ensureDir(parent)
-        val tmp = File(parent, target.name + ".tmp")
-        FileOutputStream(tmp).use { out ->
-            out.write(text.toByteArray(StandardCharsets.UTF_8))
-            out.flush()
-            out.fd.sync()
-        }
-        if (target.exists() && !target.delete()) {
-            throw IOException("无法替换 ${target.absolutePath}")
-        }
-        if (!tmp.renameTo(target)) {
-            tmp.copyTo(target, overwrite = true)
+        if (!ensureDir(parent) && !parent.isDirectory) throw IOException("无法创建目录 $parent")
+        val tmp = File.createTempFile("olfact-", ".tmp", parent)
+        try {
+            FileOutputStream(tmp).use { out ->
+                // ZIP writer may close its stream; keep the descriptor open until sync succeeds.
+                write(object : FilterOutputStream(out) {
+                    override fun write(bytes: ByteArray, offset: Int, length: Int) = out.write(bytes, offset, length)
+                    override fun close() = flush()
+                })
+                out.fd.sync()
+            }
+            FileSystem.SYSTEM.atomicMove(tmp.toOkioPath(), target.toOkioPath())
+        } finally {
             tmp.delete()
         }
     }

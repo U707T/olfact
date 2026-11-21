@@ -30,6 +30,10 @@ class DnsCache(
 
     private var hits = 0L
     private var misses = 0L
+    private var generation = 0L
+
+    /** 发起解析前保存，写回时带上；clear 后旧解析只能返回给原调用方。 */
+    fun generation(): Long = synchronized(lock) { generation }
 
     fun lookup(prefix: String, host: String, type: Int): Lookup {
         val key = keyOf(prefix, host, type)
@@ -57,22 +61,26 @@ class DnsCache(
             else -> null
         }
 
-    fun put(prefix: String, host: String, type: Int, addresses: List<InetAddress>, ttlSeconds: Int) {
+    fun put(
+        prefix: String, host: String, type: Int, addresses: List<InetAddress>, ttlSeconds: Int,
+        expectedGeneration: Long? = null
+    ) {
         if (addresses.isEmpty()) {
-            putNegative(prefix, host, type)
+            putNegative(prefix, host, type, expectedGeneration)
             return
         }
         val ttlMs = (ttlSeconds.coerceAtLeast(0) * 1000L).coerceIn(minTtlMs, maxTtlMs)
-        putEntry(prefix, host, type, Entry(addresses.toList(), clock() + ttlMs))
+        putEntry(prefix, host, type, Entry(addresses.toList(), clock() + ttlMs), expectedGeneration)
     }
 
-    fun putNegative(prefix: String, host: String, type: Int) {
-        putEntry(prefix, host, type, Entry(null, clock() + negativeTtlMs.coerceAtLeast(0)))
+    fun putNegative(prefix: String, host: String, type: Int, expectedGeneration: Long? = null) {
+        putEntry(prefix, host, type, Entry(null, clock() + negativeTtlMs.coerceAtLeast(0)), expectedGeneration)
     }
 
-    private fun putEntry(prefix: String, host: String, type: Int, entry: Entry) {
+    private fun putEntry(prefix: String, host: String, type: Int, entry: Entry, expectedGeneration: Long?) {
         val key = keyOf(prefix, host, type)
         synchronized(lock) {
+            if (expectedGeneration != null && expectedGeneration != generation) return
             map[key] = entry
             if (map.size > maxEntries) {
                 val iterator = map.keys.iterator()
@@ -87,6 +95,7 @@ class DnsCache(
     /** @param prefix 传 null 清全部；推荐分别清 `doh:` / `sys:` */
     fun clear(prefix: String? = null) {
         synchronized(lock) {
+            generation++
             if (prefix == null) {
                 map.clear()
             } else {

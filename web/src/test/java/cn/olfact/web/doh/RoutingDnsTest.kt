@@ -81,6 +81,20 @@ class RoutingDnsTest {
     }
 
     @Test
+    fun `system lookup cannot repopulate cache cleared while resolving`() {
+        val cache = DnsCache()
+        val system = object : Dns {
+            override fun lookup(hostname: String): List<InetAddress> {
+                cache.clear()
+                return listOf(ip(2))
+            }
+        }
+        val routing = RoutingDns({ DnsRules.of(DohMode.ONLY_LISTED) }, FakeDns(ip(1)), system, cache)
+        assertEquals(listOf(ip(2)), routing.lookup("local.example"))
+        assertEquals(0, cache.size())
+    }
+
+    @Test
     fun `规则变化立即生效`() {
         val doh = FakeDns(ip(1))
         val system = FakeDns(ip(2))

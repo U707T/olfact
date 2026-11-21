@@ -76,6 +76,18 @@ class DnsCacheTest {
     }
 
     @Test
+    fun `clear invalidates pending positive and negative writes`() {
+        val cache = DnsCache()
+        val generation = cache.generation()
+        cache.clear(DnsCache.PREFIX_DOH)
+        cache.put(DnsCache.PREFIX_DOH, "late.com", 1, listOf(ip(1, 2, 3, 4)), 300, generation)
+        cache.putNegative(DnsCache.PREFIX_DOH, "negative.com", 1, generation)
+        assertEquals(0, cache.size())
+        cache.put(DnsCache.PREFIX_DOH, "new.com", 1, listOf(ip(1, 2, 3, 4)), 300, cache.generation())
+        assertEquals(1, cache.size())
+    }
+
+    @Test
     fun `命中率统计`() {
         var now = 0L
         val cache = DnsCache(clock = { now })

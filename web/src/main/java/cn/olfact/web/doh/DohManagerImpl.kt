@@ -47,11 +47,16 @@ class DohManagerImpl(
     private var transport: DohTransport? = null
     private var pool: UpstreamPool? = null
     private var dohDns: DohDns? = null
+    @Volatile
     private var routing: RoutingDns? = null
     @Volatile
     private var tunnel: TunnelProxy? = null
     private var watcher: NetworkWatcher? = null
     private var watchdog: Job? = null
+    private var startup: Job? = null
+    private val lifecycleLock = Any()
+    @Volatile private var lifecycleGeneration = 0L
+    private var tunnelRevision = 0L
 
     private val bridge = ProxyBridge(
         threshold = 3,
@@ -62,14 +67,17 @@ class DohManagerImpl(
         onStateChanged = { publish() }
     )
 
-    override fun start(cfg: DohConfig) {
+    override fun start(cfg: DohConfig) = synchronized(lifecycleLock) {
         if (!cfg.enabled) {
             stop()
-            return
+            return@synchronized
         }
         stop()
+        val runId = lifecycleGeneration
+        cache.clear()
+        sticky.reset()
         config = cfg
-        currentRules = cfg.rules
+        currentRules = cfg.rules.withMode(cfg.mode)
         lastError = null
 
         val poolUpstreams = when {
@@ -88,9 +96,11 @@ class DohManagerImpl(
             upstreams = poolUpstreams,
             scope = scope,
             onEvent = { message ->
-                lastError = null
-                publish()
-                onLog?.invoke(message)
+                if (runId == lifecycleGeneration && running) {
+                    lastError = null
+                    publish()
+                    onLog?.invoke(message)
+                }
             },
             preferredId = cfg.preferredUpstreamId,
             failureThreshold = cfg.circuitBreakerThreshold
@@ -109,18 +119,22 @@ class DohManagerImpl(
         running = true
         newPool.reraceAsync()
         if (cfg.useProxy) {
-            // 隧道启动要做自检（一次真实 CONNECT），不能在主线程做
-            scope.launch {
-                startTunnel()
-                startWatchdog()
-                publish()
-            }
+            rebuildTunnel()
+            startWatchdog()
         }
-        watcher = NetworkWatcher(context, onChanged = { reason -> onNetworkChanged(reason) }).also { it.start() }
+        watcher = NetworkWatcher(context, onChanged = { reason ->
+            if (runId == lifecycleGeneration) onNetworkChanged(reason)
+        }).also { it.start() }
         publish()
     }
 
-    override fun stop() {
+    override fun stop() = synchronized(lifecycleLock) {
+        running = false
+        routing = null
+        lifecycleGeneration++
+        tunnelRevision++
+        startup?.cancel()
+        startup = null
         watchdog?.cancel()
         watchdog = null
         bridge.detach()
@@ -170,7 +184,7 @@ class DohManagerImpl(
     override fun rules(): DnsRules = currentRules
 
     override fun enableForHost(host: String): DnsRules {
-        val updated = currentRules.plus(host)
+        val updated = if (currentRules.mode == DohMode.EXCLUDE_LISTED) currentRules.minus(host) else currentRules.plus(host)
         currentRules = updated
         clearCache()
         publish()
@@ -183,10 +197,10 @@ class DohManagerImpl(
         publish()
     }
 
-    override fun appDns(): Dns? = routing
+    override fun appDns(): Dns? = if (running) routing else null
 
     override fun wrap(client: OkHttpClient): OkHttpClient {
-        val dns = routing ?: return client
+        val dns = appDns() ?: return client
         return client.newBuilder().dns(dns).build()
     }
 
@@ -202,32 +216,54 @@ class DohManagerImpl(
 
     var onLog: ((String) -> Unit)? = null
 
-    private fun startTunnel() {
-        if (!running) return
+    /** 调用方持有 lifecycleLock；联网自检在后台，提交代理配置只占短锁。 */
+    private fun rebuildTunnel() {
+        val revision = ++tunnelRevision
         val cfg = config
-        val resolver: (String) -> List<java.net.InetAddress> = { host ->
-            routing?.lookup(host) ?: Dns.SYSTEM.lookup(host)
+        val resolver = routing ?: return
+        startup?.cancel()
+        bridge.detach()
+        tunnel?.stop()
+        tunnel = null
+        startup = scope.launch {
+            val newTunnel = TunnelProxy(
+                resolver = resolver::lookup,
+                onEvent = { message -> onLog?.invoke(message) }
+            )
+            val port = try {
+                newTunnel.start(cfg.proxyPort)
+            } catch (error: Exception) {
+                newTunnel.stop()
+                synchronized(lifecycleLock) {
+                    if (running && revision == tunnelRevision) {
+                        lastError = "隧道启动失败：${error.message}"
+                        publish()
+                    }
+                }
+                return@launch
+            }
+            synchronized(lifecycleLock) {
+                if (!running || revision != tunnelRevision) {
+                    newTunnel.stop()
+                    return@launch
+                }
+                // 自检尚未完成时 stop/切网也必须能关闭它。
+                tunnel = newTunnel
+            }
+            val checked = selfCheck(port, cfg)
+            synchronized(lifecycleLock) {
+                if (!running || revision != tunnelRevision) {
+                    newTunnel.stop()
+                    return@launch
+                }
+                if (!bridge.attach(port) { checked }) {
+                    newTunnel.stop()
+                    tunnel = null
+                    lastError = "代理自检未通过，已回退为仅应用内 DoH"
+                }
+                publish()
+            }
         }
-        val newTunnel = TunnelProxy(
-            resolver = resolver,
-            onEvent = { message -> onLog?.invoke(message) }
-        )
-        val port = runCatching { newTunnel.start(cfg.proxyPort) }.getOrElse { error ->
-            lastError = "隧道启动失败：${error.message}"
-            onLog?.invoke(lastError!!)
-            return
-        }
-        if (!running) {
-            newTunnel.stop()
-            return
-        }
-        val attached = bridge.attach(port) { selfCheck(port) }
-        if (!attached) {
-            newTunnel.stop()
-            lastError = "代理自检未通过，已回退为仅应用内 DoH"
-            return
-        }
-        tunnel = newTunnel
     }
 
     /**
@@ -249,11 +285,11 @@ class DohManagerImpl(
         }
     }
 
-    private fun selfCheck(port: Int): Boolean = runCatching {
-        val probeHost = config.probeHost
+    private fun selfCheck(port: Int, cfg: DohConfig): Boolean = runCatching {
+        val probeHost = cfg.probeHost
         Socket().use { socket ->
             socket.connect(InetSocketAddress("127.0.0.1", port), 1_200)
-            socket.soTimeout = config.timeoutMs.toInt().coerceAtLeast(1_000)
+            socket.soTimeout = cfg.timeoutMs.toInt().coerceAtLeast(1_000)
             socket.getOutputStream().apply {
                 write(
                     "CONNECT $probeHost:443 HTTP/1.1\r\nHost: $probeHost:443\r\n\r\n"
@@ -266,21 +302,12 @@ class DohManagerImpl(
         }
     }.getOrDefault(false)
 
-    private fun onNetworkChanged(reason: String) {
-        if (!running) return
+    private fun onNetworkChanged(reason: String) = synchronized(lifecycleLock) {
+        if (!running) return@synchronized
         onLog?.invoke("网络变化：$reason，清理缓存并重新竞速")
         clearCache()
         pool?.reraceAsync()
-        if (config.useProxy) {
-            // 切网后旧隧道的出口 IP 已失效，重建（自检是阻塞 IO，放后台）
-            bridge.detach()
-            tunnel?.stop()
-            tunnel = null
-            scope.launch {
-                startTunnel()
-                publish()
-            }
-        }
+        if (config.useProxy) rebuildTunnel()
         publish()
     }
 

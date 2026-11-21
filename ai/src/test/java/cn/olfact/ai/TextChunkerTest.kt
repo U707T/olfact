@@ -37,6 +37,20 @@ class TextChunkerTest {
     }
 
     @Test
+    fun `重叠不能挤出下一段正文或撑破上限`() {
+        val text = "a".repeat(60) + "\n\n" + "b".repeat(95)
+        val chunks = TextChunker.chunk(text, maxChars = 100, overlapChars = 40)
+        assertTrue(chunks.all { it.length <= 100 })
+        assertTrue(chunks.last().endsWith("b".repeat(95)))
+    }
+
+    @Test
+    fun `硬切不能把 Unicode 字符拆成两半`() {
+        val chunks = TextChunker.chunk("a😀bc", maxChars = 2, overlapChars = 0)
+        assertEquals(listOf("a", "😀", "bc"), chunks)
+    }
+
+    @Test
     fun `重叠内容保留上下文`() {
         val text = (1..10).joinToString("\n\n") { "段落$it：" + "x".repeat(50) }
         val chunks = TextChunker.chunk(text, maxChars = 120, overlapChars = 40)

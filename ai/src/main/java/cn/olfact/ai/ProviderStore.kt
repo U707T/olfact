@@ -1,6 +1,7 @@
 package cn.olfact.ai
 
 import cn.olfact.ai.crypto.SecretBox
+import cn.olfact.core.b4.writeAtomicTextFile
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -32,7 +33,6 @@ class ProviderStore(
         val state = synchronized(lock) { load() }
         return state.providers.firstOrNull { it.id == state.selectedId && it.enabled }
             ?: state.providers.firstOrNull { it.enabled }
-            ?: state.providers.firstOrNull()
     }
 
     fun selectedId(): String? = synchronized(lock) { load().selectedId }
@@ -50,13 +50,16 @@ class ProviderStore(
             val updated = state.providers.toMutableList()
             val index = updated.indexOfFirst { it.id == provider.id }
             if (index >= 0) updated[index] = provider else updated.add(provider)
-            if (state.selectedId == null) {
-                persist(state.copy(providers = updated, selectedId = provider.id))
-            } else {
-                persist(state.copy(providers = updated))
+            persist(state.copy(providers = updated, selectedId = state.selectedId ?: provider.id))
+            if (apiKey != null) {
+                try {
+                    if (apiKey.isBlank()) secrets.remove(provider.keyRef) else secrets.put(provider.keyRef, apiKey)
+                } catch (e: Exception) {
+                    runCatching { persist(state) }.onFailure { e.addSuppressed(it) }
+                    throw e
+                }
             }
         }
-        if (apiKey != null) secrets.put(provider.keyRef, apiKey)
     }
 
     fun remove(id: String) {
@@ -84,15 +87,7 @@ class ProviderStore(
         return runCatching { decode(text) }.getOrElse { State(AiProvider.presets(), null) }
     }
 
-    private fun persist(state: State) {
-        file.parentFile?.mkdirs()
-        val tmp = File(file.parentFile, file.name + ".tmp")
-        runCatching {
-            tmp.writeText(encode(state))
-            if (file.exists()) file.delete()
-            tmp.renameTo(file)
-        }
-    }
+    private fun persist(state: State) = writeAtomicTextFile(file, encode(state))
 
     private fun encode(state: State): String = buildJsonObject {
         put("selectedId", JsonPrimitive(state.selectedId))
@@ -119,9 +114,9 @@ class ProviderStore(
 
     private fun decode(text: String): State {
         val root = Json.parseToJsonElement(text).jsonObject
-        val providers = root["providers"]?.jsonArray?.map { element -> decodeProvider(element.jsonObject) }.orEmpty()
+        val providers = root["providers"]?.jsonArray?.map { element -> decodeProvider(element.jsonObject) }
         val selected = (root["selectedId"] as? JsonPrimitive)?.takeIf { it.isString }?.content
-        return State(providers.ifEmpty { AiProvider.presets() }, selected)
+        return State(providers ?: AiProvider.presets(), selected)
     }
 
     private fun decodeProvider(obj: JsonObject): AiProvider {

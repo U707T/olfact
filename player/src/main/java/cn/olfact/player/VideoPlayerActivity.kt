@@ -56,6 +56,7 @@ class VideoPlayerActivity : Activity(), PlayerControlsView.Listener, PlayerGestu
     private var lastError: PlaybackException? = null
     /** onStop 时释放过播放器：回前台要按进度重建，否则只剩一块黑屏。 */
     private var releasedInBackground = false
+    private var session: PlaybackSession? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -100,6 +101,7 @@ class VideoPlayerActivity : Activity(), PlayerControlsView.Listener, PlayerGestu
         findViewById<View>(R.id.btn_retry).setOnClickListener { retry() }
 
         startPositionMs = resolveStartPosition()
+        session = PlaybackSession(startPositionMs, initialSpeed())
         preparePlayer(startPositionMs)
     }
 
@@ -138,7 +140,9 @@ class VideoPlayerActivity : Activity(), PlayerControlsView.Listener, PlayerGestu
         updatePipParams()
     }
 
-    private fun currentSpeed(): Float =
+    private fun currentSpeed(): Float = session?.snapshot?.speed ?: initialSpeed()
+
+    private fun initialSpeed(): Float =
         if (options.rememberSpeed) prefs.playbackSpeed else PlayerPrefs.clampSpeed(options.speed)
 
     private fun displayTitle(): String =
@@ -211,7 +215,7 @@ class VideoPlayerActivity : Activity(), PlayerControlsView.Listener, PlayerGestu
 
     override fun onPlayPauseClick() {
         val p = player ?: return
-        if (p.isPlaying) p.pause() else p.play()
+        if (p.playWhenReady) p.pause() else p.play()
     }
 
     override fun onSeekTo(positionMs: Long, fromUser: Boolean) {
@@ -247,6 +251,7 @@ class VideoPlayerActivity : Activity(), PlayerControlsView.Listener, PlayerGestu
 
     private fun applySpeed(speed: Float) {
         val v = PlayerPrefs.clampSpeed(speed)
+        session?.setSpeed(v)
         player?.setPlaybackSpeed(v)
         controls.setSpeedLabel(v)
         if (options.rememberSpeed) prefs.playbackSpeed = v
@@ -269,7 +274,7 @@ class VideoPlayerActivity : Activity(), PlayerControlsView.Listener, PlayerGestu
     override fun onSkipOutroClick() {
         val duration = player?.duration ?: return
         if (duration > 0) {
-            player?.seekTo((duration - options.skipOutroMs).coerceAtLeast(0L))
+            player?.seekTo(duration)
             controls.flashFeedback(getString(R.string.player_skip_outro))
         }
     }
@@ -319,7 +324,7 @@ class VideoPlayerActivity : Activity(), PlayerControlsView.Listener, PlayerGestu
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (!options.autoPipOnLeave || !pip.isSupported) return
+        if (!::pip.isInitialized || !options.autoPipOnLeave || !pip.isSupported || player?.isPlaying != true) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) return // 系统已自动进入
         updatePipParams()
         pip.enter()
@@ -341,14 +346,18 @@ class VideoPlayerActivity : Activity(), PlayerControlsView.Listener, PlayerGestu
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        setIntent(intent)
         val newSource = PlaybackIntents.readSource(intent) ?: return
-        if (newSource.url == source.url) return
+        val newOptions = PlaybackIntents.readOptions(intent)
+        setIntent(intent)
+        if (newSource == source && newOptions == options) return
         // 换片之前先把当前片的进度落盘，否则「看到一半点另一个视频」会丢进度。
         savePosition()
         source = newSource
-        options = PlaybackIntents.readOptions(intent)
+        options = newOptions
         startPositionMs = resolveStartPosition()
+        session = PlaybackSession(startPositionMs, initialSpeed())
+        videoAspect = null
+        releasedInBackground = false
         controls.setSkipPoints(options.skipIntroMs, options.skipOutroMs)
         preparePlayer(startPositionMs)
     }
@@ -364,16 +373,16 @@ class VideoPlayerActivity : Activity(), PlayerControlsView.Listener, PlayerGestu
         // 回前台必须按上次进度重建，不能留一个没有 player 的 PlayerView。
         if (releasedInBackground) {
             releasedInBackground = false
-            startPositionMs = resolveStartPosition()
-            preparePlayer(startPositionMs, autoPlay = playOnReturn)
+            val snapshot = session?.snapshot ?: return
+            preparePlayer(snapshot.positionMs, autoPlay = snapshot.playWhenReady)
         }
     }
 
     override fun onStop() {
+        if (::gestures.isInitialized) gestures.cancel()
+        player?.let { session?.capture(it.currentPosition, it.playbackParameters.speed, it.playWhenReady) }
         savePosition()
-        // 记下「离开时是不是在播」，回前台重建时用它初始化 playWhenReady。
-        playOnReturn = player?.isPlaying == true
-        if (!isInPictureInPictureModeCompat()) {
+        if (player != null && !isInPictureInPictureModeCompat()) {
             releasePlayer()
             releasedInBackground = true
         }
@@ -382,7 +391,7 @@ class VideoPlayerActivity : Activity(), PlayerControlsView.Listener, PlayerGestu
 
     override fun onDestroy() {
         releasePlayer()
-        controls.detach()
+        if (::controls.isInitialized) controls.detach()
         super.onDestroy()
     }
 
@@ -401,14 +410,12 @@ class VideoPlayerActivity : Activity(), PlayerControlsView.Listener, PlayerGestu
         }
     }
 
-    /** 离开前后台时的播放状态：回前台重建播放器时沿用（暂停着切出去不该自己播）。 */
-    private var playOnReturn: Boolean = true
-
     private fun releasePlayer() {
+        if (::controls.isInitialized) controls.detach()
         player?.removeListener(playerListener)
         player?.release()
         player = null
-        playerView.player = null
+        if (::playerView.isInitialized) playerView.player = null
     }
 
     private fun retry() {
@@ -431,7 +438,7 @@ class VideoPlayerActivity : Activity(), PlayerControlsView.Listener, PlayerGestu
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus && !controls.isLocked) hideSystemBars()
+        if (hasFocus && ::controls.isInitialized && !controls.isLocked) hideSystemBars()
     }
 
     companion object {

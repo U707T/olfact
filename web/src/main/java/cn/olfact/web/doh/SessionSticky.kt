@@ -18,10 +18,12 @@ class SessionSticky(
     /** 主文档加载时调用。useDoh 为该主域是否已经决定走 DoH。 */
     fun onMainFrame(tabId: String, host: String, useDoh: Boolean) {
         val h = host.normalizeHost()
-        if (h.isEmpty() || !useDoh) return
         synchronized(lock) {
+            // 粘性属于当前文档，不能在导航到非 DoH 页面后永久沿用。
+            stickyTabs.remove(tabId)
+            if (h.isEmpty() || !useDoh) return
             stickyHosts[h] = clock() + ttlMs
-            stickyTabs.getOrPut(tabId) { HashSet() }.add(h)
+            stickyTabs[tabId] = hashSetOf(h)
         }
     }
 

@@ -3,6 +3,8 @@ package cn.olfact.core.adblock
 import android.content.Context
 import cn.olfact.core.api.AdBlockHook
 import cn.olfact.core.b4.B4Log
+import cn.olfact.core.backup.SubscriptionBackupSection
+import cn.olfact.core.backup.WhitelistBackupSection
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -238,6 +240,10 @@ class AdBlockManager(private val config: AdBlockConfig) : AdBlockHook, Closeable
     }
 
     fun whitelist(): List<String> = whitelist.all()
+
+    /** Backup must see the same live stores as the settings UI. */
+    fun subscriptionBackupSection() = SubscriptionBackupSection(store)
+    fun whitelistBackupSection() = WhitelistBackupSection(whitelist)
 
     fun setSubscriptionEnabled(id: String, value: Boolean) {
         val changed = store.update(id) { it.copy(enabled = value) } != null

@@ -26,7 +26,7 @@ data class DownloadSpec(
     val allowDuplicate: Boolean = false,
 ) {
     val dedupKey: String
-        get() = "${url}|${subDir}|${fileName}".lowercase()
+        get() = "${url}|${subDir}|${fileName}"
 
     fun newId(): String = UUID.randomUUID().toString()
 }

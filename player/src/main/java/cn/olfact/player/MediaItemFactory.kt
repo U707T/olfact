@@ -23,7 +23,8 @@ class MediaItemFactory(private val defaultUserAgent: String? = null) {
                 headers[key] = value
             }
         }
-        source.referer?.takeIf { it.isNotBlank() }?.let { headers["Referer"] = it }
+        (source.referer ?: source.headers.entries.firstOrNull { it.key.equals("Referer", true) }?.value)
+            ?.takeIf { it.isNotBlank() }?.let { headers["Referer"] = it }
 
         val ua = source.userAgent
             ?: source.headers.entries.firstOrNull { it.key.equals("User-Agent", true) }?.value

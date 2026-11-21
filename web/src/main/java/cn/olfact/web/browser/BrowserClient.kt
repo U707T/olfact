@@ -44,6 +44,8 @@ class BrowserClient(
 
     private val seenMedia = ConcurrentHashMap<String, Long>()
     private val blockedCount = AtomicInteger()
+    @Volatile private var pageUrl: String = ""
+    @Volatile private var pageUa: String? = null
 
     fun blockedRequestCount(): Int = blockedCount.get()
 
@@ -56,7 +58,7 @@ class BrowserClient(
 
         val hook = adblock
         if (hook != null && !request.isForMainFrame) {
-            val blocked = runCatching { hook.shouldBlock(url, host) }.getOrDefault(false)
+            val blocked = runCatching { hook.shouldBlock(url, hostOf(pageUrl)) }.getOrDefault(false)
             if (blocked) {
                 blockedCount.incrementAndGet()
                 runCatching { hook.recordBlocked() }
@@ -67,10 +69,11 @@ class BrowserClient(
         val mediaType = MediaTypes.of(url)
         val snifferRef = sniffer
         if (mediaType != null && snifferRef != null && !seenRecently(url)) {
-            val referer = view.url
+            val referer = pageUrl
             val headers = buildMap {
-                referer?.let { put("Referer", it) }
-                configProvider().customUa?.let { put("User-Agent", it) }
+                if (referer.isNotEmpty()) put("Referer", referer)
+                pageUa?.let { put("User-Agent", it) }
+                request.requestHeaders?.forEach { (name, value) -> put(name, value) }
             }
             runCatching {
                 snifferRef.onMediaDetected(
@@ -89,6 +92,8 @@ class BrowserClient(
 
     override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
         super.onPageStarted(view, url, favicon)
+        pageUrl = url
+        pageUa = view.settings.userAgentString
         val host = hostOf(url)
         if (host.isNotEmpty()) {
             sticky?.onMainFrame(tabId, host, dohPredicate(host))
@@ -121,7 +126,10 @@ class BrowserClient(
         return when (scheme) {
             "http", "https", "about", "file", "data", "blob" -> false
             null -> false
-            else -> onExternalScheme(uri.toString())
+            else -> {
+                if (request.isForMainFrame) runCatching { onExternalScheme(uri.toString()) }
+                true
+            }
         }
     }
 

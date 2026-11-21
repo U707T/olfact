@@ -12,8 +12,8 @@ class PlayerPrefs(context: Context) {
         .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     var playbackSpeed: Float
-        get() = prefs.getFloat(KEY_SPEED, 1f).coerceIn(MIN_SPEED, MAX_SPEED)
-        set(value) = prefs.edit().putFloat(KEY_SPEED, value.coerceIn(MIN_SPEED, MAX_SPEED)).apply()
+        get() = clampSpeed(prefs.getFloat(KEY_SPEED, 1f))
+        set(value) = prefs.edit().putFloat(KEY_SPEED, clampSpeed(value)).apply()
 
     fun positionOf(resumeKey: String): Long = prefs.getLong(KEY_POSITION + resumeKey.hashCode().toUInt(), 0L)
 
@@ -42,7 +42,7 @@ class PlayerPrefs(context: Context) {
 
         val SPEED_STEPS = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f)
 
-        fun clampSpeed(speed: Float): Float = speed.coerceIn(MIN_SPEED, MAX_SPEED)
+        fun clampSpeed(speed: Float): Float = if (speed.isFinite()) speed.coerceIn(MIN_SPEED, MAX_SPEED) else 1f
 
         /** 倍速向下取最近一档（长按倍速时保证不会超过 3.0x）。 */
         fun speedLabel(speed: Float): String {

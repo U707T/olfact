@@ -18,10 +18,8 @@ class KotlinAdBlockEngine(
 
     private val buckets: Map<String, List<NetworkRule>>
     private val generic: List<NetworkRule>
-    private val cosmeticByDomain: Map<String, List<String>>
-    private val cosmeticGeneric: List<String>
-    private val cosmeticExceptions: Map<String, Set<String>>
-    private val cosmeticGenericExceptions: Set<String>
+    private val cosmeticByDomain: Map<String, List<CosmeticRule>>
+    private val cosmeticGeneric: List<CosmeticRule>
 
     override val kind: EngineKind = EngineKind.KOTLIN
     override val ruleCount: Int
@@ -56,22 +54,20 @@ class KotlinAdBlockEngine(
         buckets = bucketMap
         generic = genericList
 
-        val byDomain = HashMap<String, MutableList<String>>(128)
-        val genericSet = LinkedHashSet<String>(256)
-        val exMap = HashMap<String, MutableSet<String>>(32)
-        val genericEx = HashSet<String>(16)
-        for (r in parsed.cosmeticRules) {
-            when {
-                r.isException && r.domainsInclude.isEmpty() -> genericEx.add(r.selector)
-                r.isException -> for (d in r.domainsInclude) exMap.getOrPut(d) { HashSet(2) }.add(r.selector)
-                r.domainsInclude.isEmpty() -> genericSet.add(r.selector)
-                else -> for (d in r.domainsInclude) byDomain.getOrPut(d) { ArrayList(4) }.add(r.selector)
+        val byDomain = HashMap<String, MutableList<CosmeticRule>>(128)
+        val genericRules = ArrayList<CosmeticRule>(256)
+        for (rule in parsed.cosmeticRules) {
+            if (rule.domainsInclude.isEmpty()) {
+                genericRules.add(rule)
+            } else {
+                for (domain in rule.domainsInclude) {
+                    val key = domain.removePrefix("*.").trimStart('.')
+                    byDomain.getOrPut(key) { ArrayList(4) }.add(rule)
+                }
             }
         }
         cosmeticByDomain = byDomain
-        cosmeticGeneric = genericSet.toList()
-        cosmeticExceptions = exMap
-        cosmeticGenericExceptions = genericEx
+        cosmeticGeneric = genericRules
 
         ruleCount = limited.size + parsed.cosmeticRules.size
         if (all.size > maxRules) {
@@ -81,7 +77,7 @@ class KotlinAdBlockEngine(
 
     override fun check(url: String, sourceUrl: String?, type: ResourceType): Boolean {
         if (buckets.isEmpty() && generic.isEmpty()) return false
-        val u = UrlTools.stripFragment(url).lowercase()
+        val u = UrlTools.stripFragment(url)
         if (u.length < 4) return false
         val host = UrlTools.hostOf(u)
         val pageHost = sourceUrl?.let { UrlTools.hostOf(it) }?.takeIf { it.isNotEmpty() }
@@ -100,7 +96,7 @@ class KotlinAdBlockEngine(
             }
         }
 
-        for (token in UrlTools.tokensOf(u)) {
+        for (token in UrlTools.tokensOf(u.lowercase())) {
             val list = buckets[token] ?: continue
             for (i in list.indices) eval(list[i])
         }
@@ -115,20 +111,17 @@ class KotlinAdBlockEngine(
         if (host.isEmpty()) return emptyList()
         val suffixes = UrlTools.suffixesOf(host)
 
-        val banned = HashSet<String>(cosmeticGenericExceptions)
-        for (suffix in suffixes) {
-            cosmeticExceptions[suffix]?.let { banned.addAll(it) }
-        }
-
+        val banned = HashSet<String>()
         val out = LinkedHashSet<String>(32)
         for (suffix in suffixes) {
-            cosmeticByDomain[suffix]?.let { out.addAll(it) }
-        }
-        if (out.size < maxGenericCosmetic) {
-            for (s in cosmeticGeneric) {
-                if (out.size >= maxGenericCosmetic) break
-                out.add(s)
+            cosmeticByDomain[suffix]?.forEach { rule ->
+                if (rule.appliesTo(host)) (if (rule.isException) banned else out).add(rule.selector)
             }
+        }
+        for (rule in cosmeticGeneric) {
+            if (!rule.appliesTo(host)) continue
+            if (rule.isException) banned.add(rule.selector)
+            else if (out.size < maxGenericCosmetic) out.add(rule.selector)
         }
         out.removeAll(banned)
         return out.toList()

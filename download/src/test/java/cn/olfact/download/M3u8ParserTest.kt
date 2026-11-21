@@ -131,4 +131,26 @@ class M3u8ParserTest {
     fun `非 m3u8 内容直接抛错`() {
         M3u8Parser.parse("<html>404</html>", "https://a.com/x.m3u8")
     }
+
+    @Test fun `implicit ranges are resolved before any ad filtering`() {
+        val parsed = M3u8Parser.parse("""
+            #EXTM3U
+            #EXT-X-MAP:URI="all.mp4",BYTERANGE="12@0"
+            #EXT-X-BYTERANGE:20@12
+            #EXTINF:1,
+            all.mp4
+            #EXT-X-BYTERANGE:30
+            #EXTINF:1,
+            all.mp4
+        """.trimIndent(), "https://example.com/index.m3u8")
+        assertEquals(listOf(12L, 32L), parsed.segments.map { it.byteRangeOffset })
+        assertEquals(12L, parsed.segments.first().mapByteRangeLength)
+        assertEquals(0L, parsed.segments.first().mapByteRangeOffset)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `implicit byte range cannot continue a different resource`() {
+        M3u8Parser.parse("#EXTM3U\n#EXT-X-BYTERANGE:3@0\na.ts\n#EXT-X-BYTERANGE:3\nb.ts",
+            "https://example.com/index.m3u8")
+    }
 }

@@ -132,7 +132,8 @@ class UrlSuggestPopup(
         popup.height = space.coerceIn(activity.dpF(96f), maxHeight)
 
         if (popup.isShowing) {
-            popup.update(anchor, 0, 0, -1, -1)
+            val offset = if (above) -(anchor.height + popup.height) else activity.dpF(4f)
+            popup.update(anchor, 0, offset, popup.width, popup.height)
         } else if (above) {
             // 向上弹：底部对齐到锚点上方，列表从下往上长，避免遮住输入框。
             popup.showAsDropDown(anchor, 0, -(anchor.height + popup.height), Gravity.BOTTOM)

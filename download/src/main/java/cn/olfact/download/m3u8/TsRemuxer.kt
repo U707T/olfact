@@ -19,7 +19,7 @@ import androidx.media3.muxer.Muxer
 import java.io.File
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
-import java.nio.ByteBuffer
+import java.util.concurrent.CancellationException
 
 /**
  * TS → MP4 的 remux：TsExtractor 解复用 → Mp4Muxer 封装。
@@ -31,7 +31,7 @@ object TsRemuxer {
 
     class RemuxException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
-    fun remux(segments: List<File>, output: File): File {
+    fun remux(segments: List<File>, output: File, checkActive: () -> Unit = {}): File {
         val files = segments.filter { it.exists() && it.length() > 0 }
         if (files.isEmpty()) throw RemuxException("没有可 remux 的分片")
 
@@ -41,13 +41,19 @@ object TsRemuxer {
         val totalLength = files.sumOf { it.length() }
         val reader = MultiFileDataReader(files)
         val stream = FileOutputStream(output)
-        val muxer = Mp4Muxer.Builder(stream).build()
+        val muxer = try { Mp4Muxer.Builder(stream).build() } catch (e: Exception) {
+            stream.close()
+            reader.close()
+            output.delete()
+            throw RemuxException("无法创建 MP4：${e.message}", e)
+        }
+        var extractor: Extractor? = null
         try {
             val output2 = MuxerExtractorOutput(muxer)
             // 拼接后的 HLS 分片每段都有自己的 PAT/PMT，必须显式用 (mode, flags)。
             // 注意单参构造函数是「payload reader flags」且已废弃：直接传 MODE_HLS
             // 会被当成 FLAG_ALLOW_NON_IDR_KEYFRAMES，模式仍是 MODE_SINGLE_PMT。
-            val extractor: Extractor = TsExtractor(
+            extractor = TsExtractor(
                 TsExtractor.MODE_HLS,
                 0,
                 TsExtractor.DEFAULT_TIMESTAMP_SEARCH_BYTES
@@ -58,14 +64,23 @@ object TsRemuxer {
             var position = 0L
             var result = Extractor.RESULT_CONTINUE
             while (result != Extractor.RESULT_END_OF_INPUT) {
+                checkActive()
                 result = extractor.read(input, positionHolder)
                 if (result == Extractor.RESULT_SEEK) {
                     position = positionHolder.position.coerceAtLeast(0L)
                     throw RemuxException("TS 需要随机 seek（position=$position），降级拼接")
                 }
             }
-            extractor.release()
             output2.flush()
+            checkActive()
+            // close finalizes MP4 indexes; a close failure is a failed remux, not a playable result.
+            muxer.close()
+            stream.close()
+        } catch (e: CancellationException) {
+            runCatching { muxer.close() }
+            runCatching { stream.close() }
+            output.delete()
+            throw e
         } catch (e: RemuxException) {
             runCatching { muxer.close() }
             runCatching { stream.close() }
@@ -77,11 +92,10 @@ object TsRemuxer {
             output.delete()
             throw RemuxException("remux 失败：${e.message}", e)
         } finally {
+            runCatching { extractor?.release() }
             runCatching { reader.close() }
         }
 
-        runCatching { muxer.close() }
-        runCatching { stream.close() }
         if (!output.exists() || output.length() == 0L) {
             output.delete()
             throw RemuxException("remux 输出为空")
@@ -126,6 +140,7 @@ object TsRemuxer {
         override fun seekMap(seekMap: SeekMap) = Unit
 
         fun flush() {
+            if (tracks.values.none { it.samplesWritten > 0 }) throw RemuxException("没有提取到媒体样本")
             tracks.values.forEach { it.flush() }
         }
     }
@@ -134,6 +149,8 @@ object TsRemuxer {
         private var trackId = -1
         private var buffer = ByteArray(INITIAL_BUFFER)
         private var pending = 0
+        var samplesWritten = 0
+            private set
 
         override fun format(format: Format) {
             if (trackId < 0) {
@@ -175,14 +192,10 @@ object TsRemuxer {
                 pending = 0
                 return
             }
-            val sampleSize = if (size > 0) minOf(size, pending) else pending
-            if (sampleSize <= 0) {
-                pending = 0
-                return
+            pending = consumeSample(buffer, pending, size, offset) { byteBuffer ->
+                muxer.writeSampleData(trackId, byteBuffer, BufferInfo(timeUs, size, flags))
+                samplesWritten++
             }
-            val byteBuffer = ByteBuffer.wrap(buffer, 0, sampleSize)
-            muxer.writeSampleData(trackId, byteBuffer, BufferInfo(timeUs, sampleSize, flags))
-            pending = 0
         }
 
         fun flush() {

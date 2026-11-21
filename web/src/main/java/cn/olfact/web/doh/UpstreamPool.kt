@@ -30,12 +30,12 @@ class UpstreamPool(
     )
 
     @Volatile
-    private var domesticBest: DohUpstream? = DohUpstream.byId(preferredId)
+    private var domesticBest: DohUpstream? = upstreams.firstOrNull { it.id == preferredId }
         ?.takeIf { it.region == DohUpstream.Region.DOMESTIC }
         ?: upstreams.firstOrNull { it.region == DohUpstream.Region.DOMESTIC }
 
     @Volatile
-    private var foreignBest: DohUpstream? = DohUpstream.byId(preferredId)
+    private var foreignBest: DohUpstream? = upstreams.firstOrNull { it.id == preferredId }
         ?.takeIf { it.region == DohUpstream.Region.FOREIGN }
         ?: upstreams.firstOrNull { it.region == DohUpstream.Region.FOREIGN }
 

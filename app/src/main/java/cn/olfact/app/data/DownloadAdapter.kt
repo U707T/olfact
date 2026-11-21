@@ -14,6 +14,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 
 /** `core/api` 下载面板 → B3 的 `DownloadFacade`。 */
@@ -22,6 +24,8 @@ class DownloadAdapter(
     private val scope: CoroutineScope,
     private val appContext: Context
 ) : DownloadCenter {
+
+    private val queueUpdates = Mutex()
 
     override fun tasks(): List<DownloadTask> =
         facade.queue.items.value.map { it.toTask(speed = facade.queue.speedOf(it.id)) }
@@ -61,16 +65,31 @@ class DownloadAdapter(
         }
     }
 
-    override fun pause(id: String) = facade.pause(id)
+    override fun pause(id: String) { updateQueue { facade.pause(id) } }
 
-    override fun resume(id: String) = facade.resume(id)
+    override fun resume(id: String) { updateQueue { facade.resume(id) } }
+
+    private fun updateQueue(operation: () -> Unit) {
+        scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            try {
+                queueUpdates.withLock { withContext(Dispatchers.IO) { operation() } }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.w("olfact", "下载队列更新失败", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(appContext, "操作失败：${e.message ?: "无法保存下载队列"}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
 
     /**
      * 删除记录：删除的是**记录**，文件是否保留由 [deleteFile] 决定。
      * 旧实现把 false 映射成 cancel()，结果记录没删、状态还变成「失败」。
      */
     override fun remove(id: String, deleteFile: Boolean) {
-        facade.remove(id, deleteFile)
+        updateQueue { facade.remove(id, deleteFile) }
     }
 
     /** 「清空已下载」= 只删记录，绝不删用户已经下载好的文件。 */
@@ -78,7 +97,7 @@ class DownloadAdapter(
         val ids = facade.queue.items.value.filter { it.status.isTerminal }.map { it.id }
         if (ids.isEmpty()) return
         // 批量：之前逐条 remove，200 条历史＝写 200 次 queue.json + 推 200 次列表。
-        facade.removeAll(ids, deleteFile = false)
+        updateQueue { facade.removeAll(ids, deleteFile = false) }
     }
 
     override val changes: Flow<Unit> = facade.queue.items.map { }

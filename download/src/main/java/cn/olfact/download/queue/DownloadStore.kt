@@ -3,6 +3,8 @@ package cn.olfact.download.queue
 import cn.olfact.download.DownloadRecord
 import cn.olfact.download.DownloadStatus
 import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -50,20 +52,17 @@ class JsonDownloadStore(private val file: File) : DownloadStore {
     override fun get(id: String): DownloadRecord? = synchronized(lock) { load()[id] }
 
     override fun upsert(record: DownloadRecord) = synchronized(lock) {
-        load()[record.id] = record
-        persist()
+        persist(LinkedHashMap(load()).apply { put(record.id, record) })
     }
 
     override fun remove(id: String) = synchronized(lock) {
-        load().remove(id)
-        persist()
+        if (load().containsKey(id)) persist(LinkedHashMap(load()).apply { remove(id) })
     }
 
     override fun removeAll(ids: Collection<String>) = synchronized(lock) {
-        val map = load()
-        var changed = false
-        ids.forEach { if (map.remove(it) != null) changed = true }
-        if (changed) persist()
+        val map = LinkedHashMap(load())
+        val changed = ids.map { map.remove(it) }.any { it != null }
+        if (changed) persist(map)
     }
 
     override fun nextQueued(): DownloadRecord? = synchronized(lock) {
@@ -77,25 +76,43 @@ class JsonDownloadStore(private val file: File) : DownloadStore {
     private fun load(): MutableMap<String, DownloadRecord> {
         cache?.let { return it }
         val map = LinkedHashMap<String, DownloadRecord>()
+        val backup = File(file.parentFile, file.name + ".bak")
+        if (!file.exists() && backup.exists() && !backup.renameTo(file)) {
+            throw IOException("无法恢复下载队列")
+        }
         if (file.exists() && file.length() > 0) {
-            val text = runCatching { file.readText() }.getOrDefault("")
-            DownloadRecordCodec.decodeAll(text).forEach { map[it.id] = it }
+            val records = try { DownloadRecordCodec.decodeAllChecked(file.readText()) }
+            catch (e: Exception) { throw IOException("下载队列无法读取，已保留原文件", e) }
+            records.forEach { map[it.id] = it }
         }
         cache = map
         return map
     }
 
-    private fun persist() {
-        val snapshot = cache ?: return
+    private fun persist(snapshot: MutableMap<String, DownloadRecord>) {
         val payload = DownloadRecordCodec.encodeAll(snapshot.values.toList())
         file.parentFile?.mkdirs()
         val tmp = File(file.parentFile, file.name + ".tmp")
-        runCatching {
-            tmp.writeText(payload)
-            if (file.exists()) file.delete()
-            tmp.renameTo(file)
+        val backup = File(file.parentFile, file.name + ".bak")
+        try {
+            FileOutputStream(tmp).use { stream ->
+                stream.write(payload.toByteArray(Charsets.UTF_8))
+                stream.fd.sync()
+            }
+            if (file.exists()) {
+                if (backup.exists() && !backup.delete()) throw IOException("无法更新下载队列备份")
+                if (!file.renameTo(backup)) throw IOException("无法备份下载队列")
+            }
+            if (!tmp.renameTo(file)) {
+                if (backup.exists() && !backup.renameTo(file)) throw IOException("下载队列保存失败，原记录保留在 .bak")
+                throw IOException("无法保存下载队列")
+            }
+            cache = snapshot
+            revision.incrementAndGet()
+            backup.delete()
+        } finally {
+            tmp.delete()
         }
-        revision.incrementAndGet()
     }
 }
 

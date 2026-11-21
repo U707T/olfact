@@ -27,6 +27,10 @@ object M3u8Parser {
         var pendingByteRangeOffset: Long? = null
         var currentKey: M3u8Key? = null
         var currentMap: String? = null
+        var mapRangeLength: Long? = null
+        var mapRangeOffset: Long? = null
+        var lastRangeUri: String? = null
+        var lastRangeEnd: Long? = null
         var inAdBreak = false
         var adRemainingMs = 0L
         var sequence = 0L
@@ -59,8 +63,12 @@ object M3u8Parser {
                 }
 
                 line.startsWith("#EXT-X-MAP") -> {
-                    currentMap = parseAttributes(line.substringAfter(':')).get("URI")
-                        ?.let { resolve(baseUrl, it) }
+                    val attrs = parseAttributes(line.substringAfter(':'))
+                    currentMap = attrs["URI"]?.let { resolve(baseUrl, it) }
+                    val range = attrs["BYTERANGE"]
+                    mapRangeLength = range?.substringBefore('@')?.toLongOrNull()
+                    mapRangeOffset = range?.substringAfter('@', "0")?.toLongOrNull()
+                    if (range != null) requireValidRange(mapRangeLength, mapRangeOffset)
                 }
 
                 line.startsWith("#EXT-X-BYTERANGE") -> {
@@ -111,18 +119,28 @@ object M3u8Parser {
                     } else {
                         val duration = if (pendingDurationMs >= 0) pendingDurationMs else 0L
                         val ad = inAdBreak
+                        val uri = resolve(baseUrl, line)
+                        val rangeLength = pendingByteRangeLength
+                        val rangeOffset = if (rangeLength != null) {
+                            pendingByteRangeOffset ?: lastRangeEnd?.takeIf { lastRangeUri == uri }
+                        } else null
+                        if (rangeLength != null) requireValidRange(rangeLength, rangeOffset)
                         segments += M3u8Segment(
-                            uri = resolve(baseUrl, line),
+                            uri = uri,
                             durationMs = duration,
                             sequence = sequence,
                             discontinuity = pendingDiscontinuity,
                             key = currentKey,
                             mapUri = currentMap,
                             byteRangeLength = pendingByteRangeLength,
-                            byteRangeOffset = pendingByteRangeOffset,
+                            byteRangeOffset = rangeOffset,
+                            mapByteRangeLength = mapRangeLength,
+                            mapByteRangeOffset = mapRangeOffset,
                             title = pendingTitle,
                             adBreak = ad,
                         )
+                        lastRangeUri = if (rangeLength != null) uri else null
+                        lastRangeEnd = if (rangeLength != null && rangeOffset != null) rangeOffset + rangeLength else null
                         sequence++
                         pendingDurationMs = -1L
                         pendingTitle = null
@@ -153,6 +171,12 @@ object M3u8Parser {
             totalDurationMs = segments.sumOf { it.durationMs },
             hasEncryption = hasEncryption,
         )
+    }
+
+    private fun requireValidRange(length: Long?, offset: Long?) {
+        require(length != null && length > 0 && offset != null && offset >= 0 && offset <= Long.MAX_VALUE - length) {
+            "无效的 HLS 字节范围"
+        }
     }
 
     private fun parseVariant(line: String): M3u8Variant {

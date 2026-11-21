@@ -16,6 +16,7 @@ import android.widget.TextView
 import android.widget.Toast
 import cn.olfact.ai.AiProvider
 import cn.olfact.ai.error.AiError
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -58,20 +59,28 @@ class SelectionTranslator(
             })
         }
         popup = window
+        window.setOnDismissListener {
+            if (popup === window) dismiss()
+        }
         window.showAtLocation(anchor, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL, 0, dp(90))
 
+        fun updateBody(text: String?) {
+            main.post { if (popup === window) bodyView?.text = text }
+        }
         job = scope.launch {
             val builder = StringBuilder()
             try {
                 translator.translate(provider, apiKeySupplier(provider), content, targetLanguage)
                     .collect { piece ->
                         builder.append(piece)
-                        main.post { bodyView?.text = builder.toString() }
+                        updateBody(builder.toString())
                     }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: AiError) {
-                main.post { bodyView?.text = e.message }
-            } catch (t: Throwable) {
-                main.post { bodyView?.text = t.message ?: "翻译失败" }
+                updateBody(e.message)
+            } catch (t: Exception) {
+                updateBody(t.message ?: "翻译失败")
             }
         }
     }
@@ -79,8 +88,9 @@ class SelectionTranslator(
     fun dismiss() {
         job?.cancel()
         job = null
-        popup?.dismiss()
+        val window = popup
         popup = null
+        window?.dismiss()
         bodyView = null
         titleView = null
     }

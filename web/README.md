@@ -1,146 +1,85 @@
-# web · 浏览内核 + DoH（B2）
+# web · 浏览内核与 DoH
 
-分支 `feat/b2-web`。只改 `web/**`（另有两处跨批必要改动，见文末“越界说明”）。
+本模块提供 WebView 请求链、页面设置和 DNS 分流。当前浏览器集成在 `app/ui/browser/WebBrowserSurface`；标签页与 surface 缓存由 app 管理。旧 B2 文档提到的 `TabManager`、`BrowserHostImpl`、`UrlBarController`、`PageTools` 已不在本模块，请以当前代码为准。
 
-## 1. 这个模块给了什么
+## 浏览器接入
 
-### 浏览内核 `cn.olfact.web.browser`
-
-| 文件 | 职责 |
+| 组件 | 当前职责 |
 |---|---|
-| `BrowserView` | `WebView` 子类：UA、缩放、无图、夜间（`setAlgorithmicDarkeningAllowed` + CSS 兜底）、长按命中、下载监听、document-start 脚本 |
-| `BrowserClient` | 请求链路：`shouldInterceptRequest` 里做拦截 → 嗅探 → 粘性打点；页面生命周期回调 |
-| `BrowserChromeClient` | 进度 / 标题 / 图标 / `target=_blank` |
-| `TabManager` | 最多 8 个活 WebView，LRU 回收（保留 URL，切回重建），`saveState` / `restoreState` |
-| `Tab`（内部类） | 标签状态：id / url / title / incognito / lastUsed |
-| `CookieJar` | 普通 vs 无痕隔离（快照-清空-恢复，见 §4） |
-| `UrlBarController` | 输入判定、200ms 防抖建议、文本提链、提交 |
-| `SuggestionEngine` | 纯逻辑：URL 判定、协议补全、候选排序 |
-| `LinkExtractor` | 纯逻辑：`http(s)://` / `www.` / 裸域名提取，去重，最多 5 条 |
-| `PageTools` | 页内查找、无图、夜间、缩放、桌面模式 |
-| `UaManager` | 移动 / 桌面 / 自定义 / 按域名 |
-| `SiteConfigStore` | 按域名配置（JS/图片/夜间/桌面 UA/DoH），DataStore 存 JSON 映射 |
-| `BrowserHostImpl` | 实现 `core/api/BrowserHost`，B5 的唯一入口 |
-| `LongPressTarget` / `DownloadRequest` | 长按菜单与下载的跨模块数据 |
-| `BrowserEvents` | 历史 / 标题 / 进度出口（无痕不触发 `onPageVisited`） |
+| `BrowserView` | UA、缩放、无图、第三方 Cookie、夜间模式、长按/下载、document-start 脚本注册与撤销 |
+| `BrowserClient` | 广告拦截、媒体嗅探、会话粘性、页面/错误/渲染进程回调、外部协议分派 |
+| `BrowserChromeClient` | 进度、标题、图标；当前 WebView 不启用多窗口，链接默认在当前视图处理 |
+| `BrowserConfig` / `UaManager` | 页面配置及移动/桌面/自定义 UA |
+| `DownloadNames` / `LongPressTarget` / `MediaTypes` | 下载文件名、长按命中和媒体 URL 分类 |
+| `SuggestionEngine` / `LinkExtractor` | 纯逻辑输入识别、候选与文本提链 |
+| `SiteConfig` / `SiteConfigStore` | 可复用站点覆盖及 DataStore 存储辅助；不代表 app 已接入所有字段 |
+| `CookieJar` | 未接入当前 app 的历史快照辅助，不提供真正的 WebView profile 隔离 |
 
-### DoH `cn.olfact.web.doh`
+`BrowserClient.shouldInterceptRequest` 在 WebView 工作线程运行。媒体 Referer/UA 从主线程页面事件保存的快照读取，请求实际携带的头一并透传；广告钩子的第二参数是**页面 host**，用于 `$domain` 与白名单匹配。自定义协议只对主框架调用外部处理器，子框架请求直接消费；处理器拒绝或失败时也消费该 URL，避免把它作为 WebView 网络错误再次加载。
 
-| 文件 | 职责 |
+页面导航开始前调用 `BrowserView.applyDocumentStartScripts`，包括关闭脚本时传空列表撤销旧注册。脚本匹配、document-end/idle 调度由 app/core 负责。旧 WebView 不支持 `DOCUMENT_START_SCRIPT` 时没有伪造 document-start 兜底。夜间 CSS 与广告隐藏 CSS 使用独立 DOM 槽，关闭夜间不会删除隐藏规则。
+
+## DoH 请求链
+
+| 组件 | 当前职责 |
 |---|---|
-| `DohManagerImpl` | 总装：L1 + L2 + 竞速 + 缓存 + 熔断 + 切网重建 + 看门狗 |
-| `DohManager` | 接口（`start/stop/status/clearCache/rerace/isProxying` + `statusFlow`） |
-| `DnsRules` / `DnsRule` | 精确 > 通配 > 正则；`re:` / `*.` / `+.` / 裸域名；txt 导入导出；内置 60+ 条 |
-| `DomesticSites` | 国内域名判定（后缀 + 站点表，无需联网） |
-| `DnsCache` | TTL（60s~1h）+ 负缓存 30s + `doh:` / `sys:` 前缀隔离 + 命中率 |
-| `DnsMessage` | 自研 RFC1035/8484 编解码（A/AAAA + EDNS0 ECS），为了拿到 TTL |
-| `DohTransport` | RFC8484 POST + bootstrap IP 表（打破 DoH 域名解析的鸡生蛋） |
-| `UpstreamPool` | 5 路并发竞速，国内/国外各记最快，连续 3 次失败重竞速 |
-| `DohDns` | `okhttp3.Dns` 实现：A/AAAA 并发、缓存、失败兜底系统 DNS |
-| `RoutingDns` | 按规则分流 DoH / 系统，两条通道各自前缀缓存 |
-| `SessionSticky` | 会话粘性：主域命中后页内所有 host 走 DoH（10 分钟 TTL） |
-| `TunnelProxy` | 本地 `ServerSocket`，只处理 80/443 的 CONNECT 与明文 GET，**不解密 TLS** |
-| `ProxyBridge` | `ProxyController.setProxyOverride` + 自检 + 连续 3 次失败熔断 |
-| `NetworkWatcher` | `NetworkCallback` + 500ms 防抖 → 清缓存 / 重竞速 / 重建隧道 |
-| `DohStats` | 平均耗时（EMA）/ 命中率 / 失败数 / 今日查询 |
-| `DohPanelView` + `res/layout/view_doh_panel.xml` | 状态面板，B5 直接 `bind(status)` |
-
-## 2. 接入方式
-
-### app 侧（B5）
+| `DohManagerImpl` | L1 分流、L2 隧道、启停、切网、缓存失效、竞速与看门狗 |
+| `DnsRules` / `DomesticSites` | 精确/通配/正则规则、智能/仅指定/仅排除三档模式、国内站点判断 |
+| `DnsMessage` | DNS A/AAAA、CNAME TTL、压缩名称及 EDNS0 ECS；国际化域名转 ASCII；IPv4/IPv6 ECS 保留原地址族 |
+| `DohTransport` / `BootstrapDns` | RFC 8484 POST、独立 bootstrap 解析、单次 call 超时；拒绝截断/超长/格式异常响应 |
+| `DohDns` | A/AAAA 并发；按查询类型合并和缓存，两个地址族共用一次等待期限，失败回落系统 DNS |
+| `DnsCache` | 正缓存 60 秒至 1 小时、负缓存 30 秒、LRU 上限、`doh:`/`sys:` 隔离、失效代号防迟到写入 |
+| `RoutingDns` / `SessionSticky` | 分流与会话登记；浏览器与 manager 必须注入同一个 sticky 实例，销毁标签时 `closeTab` |
+| `UpstreamPool` / `DohUpstream` | 五路后台竞速、国内/国外池、用户首选与自定义上游；首选必须属于本次配置集合 |
+| `TunnelProxy` | 本地 80/443 CONNECT 与明文 HTTP 转发，不解密 TLS；停止时关闭处理、排队及连接中的 socket |
+| `ProxyBridge` / `NetworkWatcher` | 自检后挂代理、迟到回调隔离、熔断、默认网络变化防抖 |
+| `DohStats` / `DohStatus` / `DohPanelView` | 统计快照与可复用状态面板 |
 
 ```kotlin
-// 1) DoH 单例（Application 或 MainActivity 里）
-val doh = DohManagerImpl(context)
-doh.start(DohConfig(
-    mode = DohMode.SMART,
-    rules = DnsRules.builtin(DohMode.SMART),
-    useProxy = true,
-    ecsSubnet = "116.24.0.0/16"     // 可选，国内池带 ECS
-))
-doh.statusFlow.collect { status -> panelView.bind(status, doh::rerace, doh::clearCache) }
-
-// 2) 标签页
-val tabs = TabManager(
-    context = activity,
-    container = binding.webContainer,          // FrameLayout
-    deps = BrowserDependencies(
-        sniffer = mediaSniffer,                // B3 实现
-        adblock = adBlockHook,                 // B4 实现
-        scripts = scriptSource,                // B4 实现
-        sticky = SessionSticky(),              // 或与 DohManagerImpl 共用一个
-        siteConfigStore = siteConfigStore,
-        uaManager = UaManager(UaManager.systemMobileUa(context)),
-        configFor = { host -> /* 读设置仓库，合成本页 BrowserConfig */ BrowserConfig() },
-        dohPredicate = doh::isDohHost,         // 供粘性判定
-        events = object : BrowserEvents { ... },
-        externalUrlHandler = { url -> /* 拉起外部 App */ true },
-        downloadHandler = { req -> /* 交给 download 模块 */ }
-    )
-)
-
-// 3) 对外入口
-val host: BrowserHost = BrowserHostImpl(tabs) { startActivity(Intent(this, SettingsActivity::class.java)) }
+val sticky = SessionSticky()
+val manager = DohManagerImpl(context, sticky = sticky)
+manager.start(DohConfig(mode = DohMode.SMART, useProxy = true))
+// 将同一个 sticky 交给 BrowserClient；由 app 将 statusFlow 绑定到 UI。
+// 一次性包装现有 OkHttpClient：
+val client = manager.wrap(existingClient)
+// 长生命周期客户端应动态读取 manager.appDns()；未启动时返回 null，使用系统 DNS。
 ```
 
-### L1：让下载/嗅探/AI 也走 DoH
+L1 只有实际使用分流 DNS 的客户端才生效。DoH 传输本身使用独立 `BootstrapDns`，不要给它再接入应用级 DNS 代理，否则会递归。
 
-```kotlin
-val client = doh.wrap(OkHttpClient.Builder().build())   // dns 被换成 RoutingDns
+启停与隧道重建使用代号隔离旧任务。自检在后台执行，新隧道在自检完成前已登记，关闭 DoH 或再次切网会关闭它。`ProxyBridge` 忽略旧 attach/clear 回调；缓存也拒绝清除之前启动的解析结果写回。应用保留的旧 `wrap` 客户端在解析器停用后回落系统 DNS。
+
+## 本地轻量验证与 CI
+
+在仓库根目录运行：
+
+```powershell
+# 首次下载轻量测试的三个依赖；缓存位于已忽略的 web/build/pure-jvm-deps。
+python web/tools/fetch-test-deps.py
+pwsh -File web/tools/test-web.ps1
+# 可覆盖工具目录、java.exe 和依赖目录：
+pwsh -File web/tools/test-web.ps1 -ToolRoot <JVM工具目录> -Java <java.exe> -DependencyDirectory <依赖目录>
 ```
 
-## 3. 关键设计决定
+工具目录布局为 `kotlin/kotlinc/lib`、`lib`、`jdk21/jdk-21.0.13.1+2/bin/java.exe`；`lib` 需 JUnit 4.13.2、Hamcrest 1.3、coroutines-core/test JVM 1.11.0。默认复用工作区 `.panelfm-tools`，不修改全局 PATH，不安装 Android SDK。下载脚本固定使用项目当前 OkHttp 5.5.1 对应的 okhttp-jvm 与 Okio 3.18.1；JSON 20240303 只用于轻量替身环境。
 
-1. **自研 DNS 报文编解码**（`DnsMessage`）：OkHttp 的 `DnsOverHttps` 不暴露 TTL，无法做 TTL 感知缓存与负缓存，所以按 RFC 8484 直接 POST `application/dns-message`，自己解析 A/AAAA/TTL/rcode。
-2. **bootstrap IP 表**：DoH 服务器域名本身也要解析，用硬编码 IP 建连（`BootstrapDns`），避免“用被污染的 DNS 去解析 DoH 域名”。
-3. **缓存前缀隔离**：`doh:` / `sys:` 分开，切换模式或切网时按前缀清，避免同一域名换通道后拿到旧结果。
-4. **失败兜底**：DoH 全失败时 `DohDns` 回落到系统 DNS，宁可退化成明文也不白屏。
-5. **L2 不做 MITM**：`TunnelProxy` 只搬字节，不解 TLS、不装 CA；代价是 HTTP/3（UDP 443）绕行，L2 覆盖约 90%。
-6. **粘性会话**：主域命中后，页内第三方 host 逐个登记（10 分钟 TTL），把拦截率从 ~60% 拉到 ~90%。
+2026-11-21 本次实跑：JDK 21、Kotlin 2.4.10、协程 1.11.0、真实 OkHttp/Okio，105 个 JUnit 用例无失败，其中 2 个 LiveDoH 用例按假设检查默认跳过。轻量编译包含 31 个实际模块主源码，排除 `SiteConfigStore` 的 DataStore 和 `DohPanelView` 的 Android 布局；测试使用 13 个模块测试文件，另有 `tools/tests/PlatformBoundaryTest`。
 
-## 4. 已知边界（写进设置页说明）
+`tools/support` 是明确的 Android/WebKit 替身：校验代理迟到回调、媒体线程边界、样式槽和外部协议分派，不模拟真实 WebView 渲染、Cookie 持久化、Android 网络回调或 ProxyController 底层行为。它也不替代正式版本 catalog（Kotlin 2.3.20、协程 1.9.0）的 Gradle 编译。完整 Android 编译、Gradle 单测与 lint 由项目 CI 执行：
 
-- **无痕 Cookie 隔离是“快照”方案**：Android 的 `CookieManager` 是进程级单例，没有双 profile。进入无痕时把普通模式访问过的域名 Cookie 存内存并清空全局库，退出时写回。进程被杀会丢快照（表现为普通模式需重登）。
-- **HTTP/3 不走代理**：`ProxyController` 只接管 TCP，QUIC 直接绕过。
-- **DoH 不解决封锁**：只防 DNS 污染/劫持；IP 封锁、SNI 阻断不在范围。
-- **代理自检依赖网络**：`DohManagerImpl.selfCheck` 会真的 CONNECT 一次 `www.gstatic.com:443`，网络差时会退回“仅应用内 DoH”而不是白屏。
-- **看门狗周期 1s**：隧道监听线程死掉后约 3s 触发 `clearProxyOverride`。
-
-## 5. 验收对照
-
-| 项 | 证据 |
-|---|---|
-| 多标签 / 后台不丢 / 无痕不落历史 | `TabManager` LRU + `saveState`/`restoreState`；`BrowserClient` 对 incognito 不调 `onPageVisited` |
-| 无图 / 页内查找 / 夜间 | `BrowserView.setImagesEnabled` / `PageTools.find` / `setNightMode` |
-| 嗅探 m3u8 回调 `MediaSniffer` | `BrowserClient.shouldInterceptRequest` → `MediaTypes.of` → `sniffer.onMediaDetected` |
-| DoH 五项指标 | 缓存 + 竞速 + 切网重建 + 熔断 + 统计，见 §1；联网实测见 §6 |
-| 熔断 3 秒内恢复直连 | `DohManagerImpl.startWatchdog`（1s × 3）+ `ProxyBridge.detach()` |
-
-## 6. 测试
-
-```bash
-./gradlew :web:testDebugUnitTest            # 46+ 纯 JVM 单测，不联网
-./gradlew :web:testDebugUnitTest -Polfact.liveDoh=1 --tests '*LiveDohTest*'   # 真联网
+```powershell
+.\gradlew.bat :web:testDebugUnitTest
+.\gradlew.bat :web:lintDebug
+# 显式联网验证，仅在可联网且具备 Android Gradle 环境时运行：
+.\gradlew.bat :web:testDebugUnitTest -Polfact.liveDoh=1 --tests '*LiveDohTest*'
 ```
 
-真联网实测（本机一次结果）：
+本轮未运行真实 DoH 或 Android 构建，不把历史联网日志作为本轮验证。逐文件覆盖与修复依据见 [本轮审计记录](AUDIT-2026-11-21.md)。
 
-```
-selection=Selection(domestic=阿里 DoH, foreign=Cloudflare, latencies={cloudflare=1628, tencent=1026, ali=641})
-www.example.com -> [172.66.147.243, 104.20.23.154, 2606:4700:10:0:0:0:ac42:93f3, ...]
-stats=Snapshot(avgLatencyMs=269, cacheHitRate=0.5, failures=0)
-CONNECT status=HTTP/1.1 200 Connection Established
-```
+## 运行边界
 
-覆盖：`DnsRules` 匹配优先级/三档模式/导入导出/ECS 截断、`DnsCache` TTL 与负缓存/前缀隔离、`DnsMessage` 编解码与压缩指针、`LinkExtractor` 提链边界、`SuggestionEngine` 判定与排序、`SessionSticky` 粘性与过期、`RoutingDns` 分流与缓存、`TunnelProxy` 端到端（CONNECT 透传 / 端口拒绝 / 明文 GET 改写）。
-
-## 7. 越界说明（需 B1 认领）
-
-B2 开工时 `core/api` 还是空目录，`web` 无法编译。为了让本批次可独立验证，做了两处**最小跨批改动**：
-
-1. `core/src/main/java/cn/olfact/core/api/`：按 `docs/tasks/README.md` §3 原样落了 5 个接口 + `MediaItem` / `MediaType` / `settingsKey`。
-   B1 落地时若签名一致，可直接 `git checkout master -- core/src/main/java/cn/olfact/core/api` 覆盖；若不一致，以 B1 版本为准，`web` 侧只依赖这几个签名。
-2. 根 `build.gradle.kts`：加了 `subprojects { plugins.withId("org.jetbrains.kotlin.android") { ... jvmTarget = JVM_17 } }`。
-   原因：AGP 9 + 外部 KGP 时 Java 目标 17、Kotlin 跟工具链 21，`:core:compileDebugKotlin` 直接报 `Inconsistent JVM Target Compatibility`。不修则任何模块都编不过。
-
-`web/build.gradle.kts` 另加了 `androidx.datastore:datastore-preferences`（站点配置）与 `junit`（单测），均在方案允许范围内（未引入 Compose / Hilt / Retrofit）。
+- 普通与无痕 WebView 共享进程 Cookie/缓存；无痕历史与标签持久化由 app 控制，不能宣传为独立 profile。`CookieJar` 的旧快照方案未接入，也不能完整保存 Cookie 属性。
+- L2 不做 MITM，不装 CA，不解密 TLS；HTTP/3/QUIC 不由 TCP 隧道处理。不承诺 HTTP/3 覆盖比例。
+- DoH 防 DNS 污染，不解决 IP/SNI 阻断；DoH 失败会回落系统 DNS。未开启加密的通道仍按规则使用系统解析。
+- 代理自检默认 CONNECT `www.gstatic.com:443`，依赖真实网络，自检失败退回仅应用内 DoH。
+- 看门狗每秒检查监听状态，连续 3 次异常清代理；是否真实恢复直连需设备验收。WebView 代理能力还取决于系统与 WebView provider。

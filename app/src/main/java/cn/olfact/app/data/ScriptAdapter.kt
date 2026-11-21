@@ -42,14 +42,13 @@ class ScriptAdapter(
 
     override fun save(script: UserScript) {
         val existing = store.find(script.id)
-        val meta = cn.olfact.core.script.UserScript(
-            id = script.id,
+        val meta = (existing ?: cn.olfact.core.script.UserScript(id = script.id, name = script.name)).copy(
             name = script.name,
             version = script.version,
-            matches = script.matches.ifEmpty { listOf("*://*/*") },
-            runAt = if (script.runAtStart) RunAt.DOCUMENT_START else RunAt.DOCUMENT_END,
-            enabled = script.enabled,
-            installedAt = existing?.installedAt ?: 0L
+            matches = script.matches.ifEmpty { existing?.matches ?: listOf("*://*/*") },
+            runAt = if (script.runAtStart) RunAt.DOCUMENT_START else existing?.runAt
+                ?.takeIf { it != RunAt.DOCUMENT_START } ?: RunAt.DOCUMENT_END,
+            enabled = script.enabled
         )
         // 列表页 / 删除撤销拿到的对象可能没有正文：空即「保持原样」，不能拿空串覆盖已有脚本。
         val body = script.code.ifBlank { store.body(script.id).orEmpty() }

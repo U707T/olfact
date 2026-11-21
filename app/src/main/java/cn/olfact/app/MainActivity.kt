@@ -141,6 +141,7 @@ class MainActivity : AppCompatActivity() {
             AppLog.i("privacy", "退出清数据：$cleared")
         }
         super.onDestroy()
+        cn.olfact.app.ui.browser.SurfaceCache.destroyCurrent()
     }
 
     private var fullscreen = false
@@ -198,7 +199,8 @@ class MainActivity : AppCompatActivity() {
                     // 已在首页：回到顶部；否则回首页根页面
                     if (home != null) home.scrollToTop() else Nav.goHome()
                 }
-                "back" -> (Nav.current() as? BrowserFragment)?.goBack() ?: Nav.pop()                "refresh" -> when (val f = Nav.current()) {
+                "back" -> (Nav.current() as? BrowserFragment)?.goBack() ?: Nav.pop()
+                "refresh" -> when (val f = Nav.current()) {
                     is BrowserFragment -> f.refreshOrForward()
                     is HomeFragment -> f.refresh()
                     is TabsFragment -> f.refresh()
@@ -289,6 +291,7 @@ class MainActivity : AppCompatActivity() {
 
     /** 底栏随当前页面更新：胶囊显示页面标题，第四格显示标签数，第二格是刷新/前进。 */
     fun refreshBottomBar() {
+        cn.olfact.app.ui.browser.SurfaceCache.retainTabs(BrowserSession.tabs.mapTo(mutableSetOf()) { it.id })
         if (!::binding.isInitialized) return
         val browser = Nav.current() as? BrowserFragment
         // 「前进后退」变体（原版 bottom3）第二格固定是右箭头前进，不随历史变化。
@@ -362,7 +365,12 @@ class MainActivity : AppCompatActivity() {
         }
         when (intent.action) {
             Intent.ACTION_VIEW -> {
-                val url = intent.dataString ?: return false
+                val uri = intent.data ?: return false
+                if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrBlank()) {
+                    toast("仅支持打开 http 或 https 网页链接")
+                    return false
+                }
+                val url = uri.toString()
                 AppLog.i("intent", "VIEW $url")
                 Nav.openBrowser(url)
                 return true

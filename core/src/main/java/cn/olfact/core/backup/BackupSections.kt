@@ -1,6 +1,7 @@
 package cn.olfact.core.backup
 
 import cn.olfact.core.adblock.Subscription
+import cn.olfact.core.adblock.SubscriptionCatalog
 import cn.olfact.core.adblock.SubscriptionStore
 import cn.olfact.core.adblock.WhitelistStore
 import cn.olfact.core.script.ScriptStore
@@ -14,7 +15,7 @@ import cn.olfact.core.script.UserScriptParser
  */
 interface SettingsSection {
     fun exportSettings(): Map<String, String>
-    fun importSettings(values: Map<String, String>, overwrite: Boolean): MergeReport
+    suspend fun importSettings(values: Map<String, String>, overwrite: Boolean): MergeReport
 }
 
 interface ListSection<T> {
@@ -42,8 +43,12 @@ class BackupProviders(
 /** 脚本：导出元数据 + 脚本体；导入按 id 合并，不删已有脚本。 */
 class ScriptBackupSection(private val store: ScriptStore) : ListSection<ScriptRecord> {
 
-    override fun exportItems(): List<ScriptRecord> =
-        store.list().map { ScriptRecord(meta = it, body = store.body(it.id).orEmpty()) }
+    override fun exportItems(): List<ScriptRecord> = synchronized(store) {
+        store.list().map { script ->
+            val body = store.body(script.id) ?: throw java.io.IOException("无法读取脚本 ${script.name}")
+            ScriptRecord(meta = script, body = body)
+        }
+    }
 
     override fun importItems(items: List<ScriptRecord>, options: MergeOptions): MergeReport {
         var added = 0
@@ -83,34 +88,34 @@ class SubscriptionBackupSection(private val store: SubscriptionStore) : ListSect
         )
     }
 
-    override fun importItems(items: List<SubscriptionRecord>, options: MergeOptions): MergeReport {
+    override fun importItems(items: List<SubscriptionRecord>, options: MergeOptions): MergeReport = synchronized(store) {
+        val current = store.items.value.associateByTo(LinkedHashMap()) { it.id }
         var added = 0
         var updated = 0
         var skipped = 0
-        val current = store.items.value.associateBy { it.id }
         for (record in items) {
             val existing = current[record.id]
             if (existing == null) {
-                store.upsert(
-                    Subscription(
-                        id = record.id,
-                        title = record.title,
-                        url = record.url,
-                        enabled = record.enabled,
-                        builtinAsset = record.builtinAsset,
-                        lastUpdated = record.lastUpdated,
-                        ruleCount = record.ruleCount
-                    )
+                val builtin = SubscriptionCatalog.builtins().firstOrNull { it.id == record.id }
+                current[record.id] = Subscription(
+                    id = record.id,
+                    title = record.title,
+                    url = record.url,
+                    enabled = record.enabled,
+                    builtinAsset = builtin?.builtinAsset,
+                    order = builtin?.order ?: 100
                 )
                 added++
             } else if (options.preferIncoming && record.lastUpdated > existing.lastUpdated) {
-                store.upsert(existing.copy(enabled = record.enabled, title = record.title, url = record.url))
+                // Do not restore validators/counts for a rule file that was never backed up.
+                current[record.id] = existing.copy(enabled = record.enabled, title = record.title)
                 updated++
             } else {
                 skipped++
             }
         }
-        return MergeReport("subscriptions", added, updated, skipped)
+        if (added + updated > 0) store.save(current.values.toList())
+        MergeReport("subscriptions", added, updated, skipped)
     }
 }
 
@@ -120,12 +125,8 @@ class WhitelistBackupSection(private val store: WhitelistStore) : WhitelistSecti
     override fun exportWhitelist(): List<String> = store.all()
 
     override fun importWhitelist(items: List<String>): MergeReport {
-        var added = 0
-        var skipped = 0
-        for (domain in items) {
-            if (store.add(domain)) added++ else skipped++
-        }
-        return MergeReport("whitelist", added, 0, skipped)
+        val added = store.addAll(items)
+        return MergeReport("whitelist", added, 0, items.size - added)
     }
 }
 

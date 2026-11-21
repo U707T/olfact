@@ -25,7 +25,11 @@ object AddDownloadSheet {
         current = null
     }
 
-    fun show(context: Context, onConfirm: (url: String, name: String?) -> Unit) {
+    fun show(
+        context: Context,
+        initialUrl: String? = null,
+        onConfirm: (url: String, name: String?) -> Unit
+    ) {
         current?.takeIf { it.isShowing }?.dismiss()
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -45,7 +49,13 @@ object AddDownloadSheet {
                 ).apply { topMargin = context.dpF(8f) }
             }
 
-        val url = field("https://example.com/file.mp4", InputType.TYPE_TEXT_VARIATION_URI)
+        val url = field(
+            "https://example.com/file.mp4",
+            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+        ).apply {
+            setText(initialUrl.orEmpty())
+            setSelection(text.length)
+        }
         val name = field("文件名（可空）")
         val ext = field("后缀（可空，如 mp4）")
 

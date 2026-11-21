@@ -30,8 +30,6 @@ abstract class OlfactDatabase : RoomDatabase() {
 
         fun create(context: Context): OlfactDatabase =
             Room.databaseBuilder(context.applicationContext, OlfactDatabase::class.java, DB_NAME)
-                // 1.0 之前允许破坏性升级：表结构还在迭代，正式发版前改成 Migration
-                .fallbackToDestructiveMigration(dropAllTables = true)
                 .build()
     }
 }

@@ -37,4 +37,15 @@ class Aes128DecryptorTest {
         assertEquals(2, parsed[15].toInt())
         assertEquals(16, parsed.size)
     }
+
+    @Test fun `odd length IV is left padded rather than silently becoming zero`() {
+        val parsed = Aes128Decryptor.parseIv("0x1", 0)
+        assertEquals(1, parsed.last().toInt())
+        assertEquals(16, parsed.size)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `oversized IV fails clearly`() {
+        Aes128Decryptor.parseIv("0x" + "11".repeat(17), 0)
+    }
 }

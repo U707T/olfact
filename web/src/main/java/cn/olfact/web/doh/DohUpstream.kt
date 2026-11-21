@@ -16,7 +16,7 @@ data class DohUpstream(
 
     enum class Region { DOMESTIC, FOREIGN }
 
-    val host: String get() = url.removePrefix("https://").substringBefore('/').substringBefore(':')
+    val host: String get() = runCatching { java.net.URI(url).host?.removeSurrounding("[", "]").orEmpty() }.getOrDefault("")
 
     companion object {
         val ALI = DohUpstream(
@@ -75,12 +75,22 @@ data class DohUpstream(
         fun normalizeUrl(raw: String?): String? {
             val text = raw?.trim().orEmpty()
             if (text.isEmpty()) return null
-            val withScheme = if (text.startsWith("http://") || text.startsWith("https://")) {
-                text
-            } else {
-                "https://$text"
-            }
-            return withScheme.trimEnd('/').lowercase()
+            val withScheme = if (text.startsWith("http://", true) || text.startsWith("https://", true)) text else "https://$text"
+            return runCatching {
+                val uri = java.net.URI(withScheme)
+                val scheme = uri.scheme.lowercase(java.util.Locale.ROOT)
+                val host = uri.host?.lowercase(java.util.Locale.ROOT) ?: return null
+                val port = if ((scheme == "https" && uri.port == 443) || (scheme == "http" && uri.port == 80)) -1 else uri.port
+                buildString {
+                    append(scheme).append("://")
+                    uri.rawUserInfo?.let { append(it).append('@') }
+                    append(host)
+                    if (port != -1) append(':').append(port)
+                    append(uri.rawPath.orEmpty().trimEnd('/'))
+                    uri.rawQuery?.let { append('?').append(it) }
+                    uri.rawFragment?.let { append('#').append(it) }
+                }
+            }.getOrNull()
         }
 
         /** bootstrap 表，供 [BootstrapDns] 使用。 */

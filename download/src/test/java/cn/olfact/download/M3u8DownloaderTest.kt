@@ -129,4 +129,74 @@ class M3u8DownloaderTest {
         assertEquals(2, failures)
         assertTrue(result.file.readText().contains("SEG:seg1.ts"))
     }
+
+    @Test fun `byteranges use explicit and implicit offsets instead of downloading whole resources`() = kotlinx.coroutines.runBlocking {
+        val ranges = java.util.Collections.synchronizedList(mutableListOf<String>())
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                if (request.path == "/index.m3u8") return text("""
+                    #EXTM3U
+                    #EXT-X-BYTERANGE:3@0
+                    #EXTINF:1,
+                    all.ts
+                    #EXT-X-BYTERANGE:3
+                    #EXTINF:1,
+                    all.ts
+                    #EXT-X-ENDLIST
+                """.trimIndent())
+                val range = request.getHeader("Range").orEmpty()
+                ranges += range
+                val from = range.substringAfter('=').substringBefore('-').toInt()
+                val end = range.substringAfter('-').toInt()
+                return MockResponse().setResponseCode(206).addHeader("Content-Range", "bytes $from-$end/6")
+                    .setBody("ABCDEF".substring(from, end + 1))
+            }
+        }
+        val result = M3u8Downloader(OkHttpClient(), temp.newFolder("ranges"), 2, fakeMerger)
+            .download(DownloadSpec(server.url("/index.m3u8").toString(), fileName = "ranges"), File(temp.root, "ranges.mp4"))
+        assertEquals("ABCDEF", result.file.readText())
+        assertEquals(setOf("bytes=0-2", "bytes=3-5"), ranges.toSet())
+    }
+
+    @Test fun `changing ad filtering cannot reuse a different segment at the same index`() = kotlinx.coroutines.runBlocking {
+        val downloader = M3u8Downloader(OkHttpClient(), temp.newFolder("filtered"), 2, fakeMerger)
+        val spec = DownloadSpec(server.url("/master.m3u8").toString(), fileName = "same")
+        val unfiltered = downloader.download(spec, File(temp.root, "all.mp4"),
+            cn.olfact.download.m3u8.AdFilterConfig(enabled = false))
+        assertTrue(unfiltered.file.readText().contains("AD|"))
+        val filtered = downloader.download(spec, File(temp.root, "filtered.mp4"))
+        assertEquals("SEG:seg0.ts|SEG:seg1.ts|SEG:seg2.ts|", filtered.file.readText())
+    }
+
+    @Test fun `relative segments are resolved against the redirected playlist URL`() = kotlinx.coroutines.runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/redirect" -> MockResponse().setResponseCode(302).addHeader("Location", "/actual/index.m3u8")
+                "/actual/index.m3u8" -> text("#EXTM3U\n#EXTINF:1,\nsegment.ts\n#EXT-X-ENDLIST")
+                "/actual/segment.ts" -> text("CORRECT")
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val result = M3u8Downloader(OkHttpClient(), temp.newFolder("redirect"), 1, fakeMerger)
+            .download(DownloadSpec(server.url("/redirect").toString(), fileName = "redirect"), File(temp.root, "redirect.mp4"))
+        assertEquals("CORRECT", result.file.readText())
+    }
+
+    @Test fun `unsupported encryption fails instead of reporting encrypted bytes as completed`() = kotlinx.coroutines.runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = text("""
+                #EXTM3U
+                #EXT-X-KEY:METHOD=SAMPLE-AES,URI="key"
+                #EXTINF:1,
+                segment.ts
+                #EXT-X-ENDLIST
+            """.trimIndent())
+        }
+        val result = runCatching {
+            M3u8Downloader(OkHttpClient(), temp.newFolder("unsupported"), 1, fakeMerger)
+                .download(DownloadSpec(server.url("/index.m3u8").toString(), fileName = "unsupported"), File(temp.root, "unsupported.mp4"))
+        }
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()!!.message!!.contains("加密"))
+    }
 }

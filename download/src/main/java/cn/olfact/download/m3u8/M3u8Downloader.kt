@@ -5,6 +5,7 @@ import cn.olfact.download.DownloadResult
 import cn.olfact.download.DownloadSpec
 import cn.olfact.download.util.Http
 import cn.olfact.download.util.Http.await
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -17,21 +18,18 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import java.io.File
 import java.io.IOException
+import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.coroutineContext
 
-/**
- * m3u8 下载：解析 → 广告过滤 → 并发下分片 → 解密 → remux。
- * 分片缓存在 workDir 里，重试时已下载的分片不会重复拉。
- */
+/** Playlist -> ad filter -> resumable segments -> decrypt -> merge. */
 class M3u8Downloader(
     private val client: OkHttpClient = Http.defaultClient(),
     private val workDir: File,
     private val maxConcurrent: Int = 4,
-    private val merger: SegmentMerger = M3u8Merger(),
+    private val merger: SegmentMerger? = null,
 ) {
-
     fun interface ProgressListener {
         fun onProgress(segmentsDone: Int, segmentsTotal: Int, bytesDownloaded: Long)
     }
@@ -42,64 +40,73 @@ class M3u8Downloader(
         adConfig: AdFilterConfig = AdFilterConfig(),
         progress: ProgressListener? = null,
     ): DownloadResult = withContext(Dispatchers.IO) {
+        val context = coroutineContext
         val first = loadPlaylist(spec, spec.url)
         val media = if (first.isMaster) {
             val variant = first.variantFor(MAX_HEIGHT) ?: first.bestVariant()
                 ?: throw IOException("master playlist 里没有可用清晰度")
             loadPlaylist(spec, variant.uri)
-        } else {
-            first
-        }
-        if (media.segments.isEmpty()) throw IOException("m3u8 里没有分片（直播或加密格式不支持）")
+        } else first
+        if (media.segments.isEmpty()) throw IOException("m3u8 里没有分片")
 
         val filterResult = AdBreakFilter.filter(media.segments, adConfig)
         val segments = filterResult.segments
+        segments.forEach { segment ->
+            val key = segment.key
+            if (key?.isEncrypted == true && (!key.isAes128 || key.uri == null ||
+                    (key.keyFormat != null && key.keyFormat != "identity"))) {
+                throw IOException("不支持的 HLS 加密方式：${key.method}")
+            }
+        }
+        val maps = segments.filter { it.mapUri != null }
+            .map { Triple(it.mapUri, it.mapByteRangeLength, it.mapByteRangeOffset) }.distinct()
+        if (maps.size > 1) throw IOException("暂不支持中途切换初始化分片的 HLS")
 
-        val segmentDir = File(workDir, "segments-" + spec.fileName.hashCode().toUInt().toString(16))
-        segmentDir.mkdirs()
-
+        val segmentDir = File(workDir, "segments").also { it.mkdirs() }
         val bytes = AtomicLong(0)
         val done = AtomicLong(0)
         val total = segments.size
         val semaphore = Semaphore(maxConcurrent.coerceIn(1, 8))
         val keyCache = ConcurrentHashMap<String, ByteArray>()
+        suspend fun keyFor(segment: M3u8Segment): ByteArray? {
+            val key = segment.key ?: return null
+            if (!key.isEncrypted) return null
+            val uri = key.uri ?: throw IOException("AES-128 密钥地址为空")
+            return keyCache[uri] ?: fetchBytesWithRetry(spec, uri).also {
+                if (it.size != 16) throw IOException("AES-128 密钥必须是 16 字节")
+                keyCache[uri] = it
+            }
+        }
 
-        // 初始化分片（fMP4 才有）
-        val initUri = segments.firstOrNull { it.mapUri != null }?.mapUri
-        val initFile = initUri?.let { uri ->
-            val file = File(segmentDir, "init.mp4")
+        val initSegment = segments.firstOrNull { it.mapUri != null }
+        val initFile = initSegment?.let { segment ->
+            val file = File(segmentDir, "init-${cacheKey(segment)}.mp4")
             if (!file.exists() || file.length() == 0L) {
-                file.writeBytes(fetchBytes(spec, uri))
+                val key = keyFor(segment)
+                if (key != null && segment.key?.ivHex == null) {
+                    throw IOException("加密初始化分片缺少 IV")
+                }
+                fetchToFile(spec, segment.mapUri!!, file, key,
+                    key?.let { Aes128Decryptor.parseIv(segment.key?.ivHex, segment.sequence) },
+                    segment.mapByteRangeOffset, segment.mapByteRangeLength)
             }
             file
         }
-
         progress?.onProgress(0, total, 0)
-
         val files = coroutineScope {
-            segments.mapIndexed { index, segment ->
+            segments.map { segment ->
                 async(Dispatchers.IO) {
                     semaphore.withPermit {
-                        coroutineContext.ensureActive()
-                        val file = File(segmentDir, "%05d.ts".format(index))
+                        context.ensureActive()
+                        // Content identity, not filtered list index: changed playlists/filters must not reuse old segments.
+                        val file = File(segmentDir, "${cacheKey(segment)}.segment")
                         if (!file.exists() || file.length() == 0L) {
-                            val key = segment.key
-                            val keyBytes = if (key != null && key.isAes128 && key.uri != null) {
-                                keyCache.getOrPut(key.uri) { fetchBytesWithRetry(spec, key.uri) }
-                            } else {
-                                null
-                            }
-                            val iv = if (keyBytes != null && key != null) {
-                                Aes128Decryptor.parseIv(key.ivHex, segment.sequence)
-                            } else {
-                                null
-                            }
-                            // 边下边解密边写文件：不再把整个分片读进 ByteArray
-                            val size = fetchToFile(spec, segment.uri, file, keyBytes, iv)
-                            bytes.addAndGet(size)
-                        } else {
-                            bytes.addAndGet(file.length())
+                            val key = keyFor(segment)
+                            fetchToFile(spec, segment.uri, file, key,
+                                key?.let { Aes128Decryptor.parseIv(segment.key?.ivHex, segment.sequence) },
+                                segment.byteRangeOffset, segment.byteRangeLength)
                         }
+                        bytes.addAndGet(file.length())
                         progress?.onProgress(done.incrementAndGet().toInt(), total, bytes.get())
                         file
                     }
@@ -107,36 +114,25 @@ class M3u8Downloader(
             }.awaitAll()
         }
 
+        context.ensureActive()
         val outputBase = File(target.parentFile, target.nameWithoutExtension)
         target.parentFile?.mkdirs()
-        val outcome = merger.merge(files, outputBase, initFile)
+        val outcome = (merger ?: M3u8Merger(checkActive = { context.ensureActive() }))
+            .merge(files, outputBase, initFile)
         if (outcome.file.length() == 0L) throw IOException("合并后的文件为空")
-
-        DownloadResult(
-            file = outcome.file,
-            bytes = outcome.file.length(),
-            engine = DownloadEngine.M3U8,
-            message = buildString {
-                if (filterResult.dropped > 0) append("已过滤 ${filterResult.dropped} 个广告分片")
-                if (filterResult.fallbackToAll) append("（广告过滤命中全部，已回退完整列表）")
-                outcome.message?.let { if (isNotEmpty()) append("；"); append(it) }
-            }.ifEmpty { null },
-        )
+        DownloadResult(outcome.file, outcome.file.length(), DownloadEngine.M3U8, buildString {
+            if (filterResult.dropped > 0) append("已过滤 ${filterResult.dropped} 个广告分片")
+            if (filterResult.fallbackToAll) append("（广告过滤命中全部，已回退完整列表）")
+            outcome.message?.let { if (isNotEmpty()) append("；"); append(it) }
+        }.ifEmpty { null })
     }
 
-    private suspend fun loadPlaylist(spec: DownloadSpec, url: String): M3u8Playlist {
-        val text = fetchText(spec, url)
-        return M3u8Parser.parse(text, url)
-    }
-
-    private suspend fun fetchText(spec: DownloadSpec, url: String): String {
-        val request = Http.request(spec, url)
-        client.newCall(request).await().use { response ->
+    private suspend fun loadPlaylist(spec: DownloadSpec, url: String): M3u8Playlist =
+        client.newCall(Http.request(spec, url)).await { response ->
             if (!response.isSuccessful) throw IOException("HTTP ${response.code}：$url")
             val body = response.body ?: throw IOException("响应为空：$url")
-            return body.string()
+            M3u8Parser.parse(body.string(), response.request.url.toString())
         }
-    }
 
     private suspend fun fetchBytesWithRetry(spec: DownloadSpec, url: String): ByteArray {
         var attempt = 0
@@ -144,7 +140,12 @@ class M3u8Downloader(
             coroutineContext.ensureActive()
             attempt++
             try {
-                return fetchBytes(spec, url)
+                return client.newCall(Http.request(spec, url)).await { response ->
+                    if (!response.isSuccessful) throw IOException("HTTP ${response.code}：$url")
+                    (response.body ?: throw IOException("响应为空：$url")).bytes()
+                }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 if (attempt >= MAX_ATTEMPTS) throw e
                 delay(RETRY_BASE_DELAY_MS * attempt)
@@ -152,58 +153,67 @@ class M3u8Downloader(
         }
     }
 
-    private suspend fun fetchBytes(spec: DownloadSpec, url: String): ByteArray {
-        client.newCall(Http.request(spec, url)).await().use { response ->
-            if (!response.isSuccessful) throw IOException("HTTP ${response.code}：$url")
-            val body = response.body ?: throw IOException("响应为空：$url")
-            return body.bytes()
-        }
-    }
-
-    /**
-     * 下载分片并直接写文件；AES-128 分片用 [javax.crypto.CipherInputStream] 流式解密。
-     * 失败会删除半成品后重试，避免下次误判为「已下载」。
-     */
+    /** Only fully received/decrypted segments become resumable cache entries. */
     private suspend fun fetchToFile(
         spec: DownloadSpec,
         url: String,
         target: File,
         key: ByteArray?,
-        iv: ByteArray?
+        iv: ByteArray?,
+        offset: Long?,
+        length: Long?,
     ): Long {
+        val context = coroutineContext
+        val staged = File(target.parentFile, target.name + ".part")
         var attempt = 0
         while (true) {
-            coroutineContext.ensureActive()
+            context.ensureActive()
             attempt++
             try {
-                client.newCall(Http.request(spec, url)).await().use { response ->
+                val end = if (length != null && offset != null) offset + length - 1 else null
+                val range = end?.let { "bytes=$offset-$it" }
+                client.newCall(Http.request(spec, url, range)).await { response ->
                     if (!response.isSuccessful) throw IOException("HTTP ${response.code}：$url")
+                    if (end != null) Http.requireRange(response, offset!!, end)
                     val body = response.body ?: throw IOException("响应为空：$url")
-                    target.parentFile?.mkdirs()
                     val raw = body.byteStream()
                     val input = if (key != null && iv != null) {
                         val cipher = javax.crypto.Cipher.getInstance("AES/CBC/PKCS5Padding")
-                        cipher.init(
-                            javax.crypto.Cipher.DECRYPT_MODE,
-                            javax.crypto.spec.SecretKeySpec(key, "AES"),
-                            javax.crypto.spec.IvParameterSpec(iv)
-                        )
+                        cipher.init(javax.crypto.Cipher.DECRYPT_MODE,
+                            javax.crypto.spec.SecretKeySpec(key, "AES"), javax.crypto.spec.IvParameterSpec(iv))
                         javax.crypto.CipherInputStream(raw, cipher)
-                    } else {
-                        raw
-                    }
+                    } else raw
                     input.use { ins ->
-                        target.outputStream().use { outs -> ins.copyTo(outs, 64 * 1024) }
+                        staged.outputStream().use { outs ->
+                            val buffer = ByteArray(64 * 1024)
+                            while (true) {
+                                context.ensureActive()
+                                val count = ins.read(buffer)
+                                if (count < 0) break
+                                outs.write(buffer, 0, count)
+                            }
+                        }
                     }
-                    return target.length()
+                    if (staged.length() == 0L || (key == null && length != null && staged.length() != length)) {
+                        throw IOException("分片数据不完整：$url")
+                    }
                 }
+                context.ensureActive()
+                if (!staged.renameTo(target)) throw IOException("无法保存分片")
+                return target.length()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                runCatching { target.delete() }
                 if (attempt >= MAX_ATTEMPTS) throw e
                 delay(RETRY_BASE_DELAY_MS * attempt)
+            } finally {
+                staged.delete()
             }
         }
     }
+
+    private fun cacheKey(segment: M3u8Segment): String = MessageDigest.getInstance("SHA-256")
+        .digest(segment.toString().toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 
     companion object {
         private const val MAX_ATTEMPTS = 3

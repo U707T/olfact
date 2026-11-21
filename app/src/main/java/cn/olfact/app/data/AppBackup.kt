@@ -2,8 +2,6 @@ package cn.olfact.app.data
 
 import android.content.Context
 import cn.olfact.app.BuildConfig
-import cn.olfact.core.adblock.SubscriptionStore
-import cn.olfact.core.adblock.WhitelistStore
 import cn.olfact.core.backup.AutoBackupScheduler
 import cn.olfact.core.backup.BackupData
 import cn.olfact.core.backup.BackupInterval
@@ -56,16 +54,19 @@ object AppBackup {
     @Volatile
     private var stateStore: BackupStateStore? = null
 
+    private var appContext: Context? = null
+
     fun install(context: Context) {
         val app = context.applicationContext
         if (pipeline != null) return
+        appContext = app
 
         val dir = File(app.filesDir, DIR_NAME).also { it.mkdirs() }
         localDir = dir
 
         val settings = AppSettings.repo as? DataStoreSettingsRepository
-        val scriptStore = ModuleBackends.scriptStore
-        val adblockDir = File(app.filesDir, "adblock")
+        val scriptStore = checkNotNull(ModuleBackends.scriptStore) { "脚本模块未初始化，不能生成完整备份" }
+        val adblock = checkNotNull(ModuleBackends.adBlockManager) { "拦截模块未初始化，不能生成完整备份" }
         val store = BackupStateStore(File(app.filesDir, "backup-state.json"))
         stateStore = store
 
@@ -77,8 +78,8 @@ object AppBackup {
                 history = HistorySection(app),
                 favorites = FavoriteSection(app),
                 scripts = scriptStore?.let { ScriptBackupSection(it) },
-                subscriptions = SubscriptionBackupSection(SubscriptionStore(adblockDir)),
-                whitelist = WhitelistBackupSection(WhitelistStore(File(adblockDir, "whitelist.json")))
+                subscriptions = adblock?.subscriptionBackupSection(),
+                whitelist = adblock?.whitelistBackupSection()
             ),
             targetProvider = { target(app, dir) },
             stateStore = store,
@@ -101,7 +102,9 @@ object AppBackup {
         }
         runCatching {
             val scheduler = AutoBackupScheduler(context.applicationContext)
-            if (interval != null) scheduler.schedule(interval) else scheduler.cancel()
+            if (interval != null) {
+                scheduler.schedule(interval, requireNetwork = AppSettings.get(K.BACKUP_WEBDAV_URL).isNotBlank())
+            } else scheduler.cancel()
         }
     }
 
@@ -122,11 +125,19 @@ object AppBackup {
         val p = pipeline ?: return ImportResult(error = "备份未初始化")
         // 读 zip 放到 IO：备份包可能几十 MB，不能占主线程。
         val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            p.importBytes(file.readBytes(), MergeOptions(overwriteSettings = true))
+            file.inputStream().use { p.importArchive(it, MergeOptions(overwriteSettings = true)) }
         }
         // 脚本/订阅/白名单恢复后让内存态跟上（否则界面还是旧的，注入也不生效）
         ModuleBackends.adBlockManager?.let { manager ->
-            runCatching { manager.reload() }
+            runCatching { manager.refresh() }
+        }
+        if (result.merged.any { it.section == "settings" }) {
+            ModuleBackends.adBlockManager?.setEnabled(AppSettings.get(K.AD_ENABLED))
+            (cn.olfact.core.api.OlfactServices.doh as? DohAdapter)?.let { doh ->
+                if (AppSettings.get(K.DOH_ENABLED)) doh.startFromSettings() else doh.stop()
+            }
+            appContext?.let(::syncSchedule)
+            RuntimeFlags.reloadPagesOnResume = true
         }
         return result
     }
@@ -134,7 +145,7 @@ object AppBackup {
     fun latestLocal(): File? = localFiles().firstOrNull()
 
     fun localFiles(): List<File> =
-        localDir?.listFiles { f -> f.isFile && f.name.startsWith(BackupPipeline.FILE_PREFIX) }
+        localDir?.listFiles { f -> f.isFile && BackupPipeline.isBackupFileName(f.name) }
             ?.sortedByDescending { it.name }
             .orEmpty()
 
@@ -142,7 +153,7 @@ object AppBackup {
 
     /** 只读预览：给「恢复前确认」显示份数。 */
     fun preview(file: File): BackupData? = runCatching {
-        BackupReader().read(file.readBytes()).data
+        file.inputStream().use { BackupReader().read(it).data }
     }.getOrNull()
 
     // ------------------------------------------------------------------ 数据段
@@ -150,10 +161,18 @@ object AppBackup {
     private class SettingsSectionImpl(
         private val repo: DataStoreSettingsRepository
     ) : SettingsSection {
-        override fun exportSettings(): Map<String, String> = repo.exportMap()
+        override fun exportSettings(): Map<String, String> =
+            repo.exportMap() - K.BACKUP_WEBDAV_PASS.name
 
-        override fun importSettings(values: Map<String, String>, overwrite: Boolean): MergeReport {
-            val written = repo.importMap(values, overwrite)
+        override suspend fun importSettings(values: Map<String, String>, overwrite: Boolean): MergeReport {
+            // Keystore ciphertext is tied to its original installation; never replace this device's credential.
+            val portable = values - K.BACKUP_WEBDAV_PASS.name
+            val previousTarget = repo.get(K.BACKUP_WEBDAV_URL) to repo.get(K.BACKUP_WEBDAV_USER)
+            val written = repo.importMap(portable, overwrite)
+            val restoredTarget = repo.get(K.BACKUP_WEBDAV_URL) to repo.get(K.BACKUP_WEBDAV_USER)
+            if (restoredTarget != previousTarget) {
+                repo.importMap(mapOf(K.BACKUP_WEBDAV_PASS.name to "s:"), overwrite = true)
+            }
             return MergeReport("settings", added = written, updated = 0, skipped = values.size - written)
         }
     }

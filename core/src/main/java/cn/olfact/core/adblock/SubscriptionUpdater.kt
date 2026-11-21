@@ -1,7 +1,12 @@
 package cn.olfact.core.adblock
 
 import cn.olfact.core.b4.B4Log
+import cn.olfact.core.net.AppDns
+import cn.olfact.core.network.requireAtMost
+import cn.olfact.core.network.withCancellableResponse
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -68,60 +73,64 @@ class SubscriptionUpdater(
         if (sub.url.isBlank()) return@withContext UpdateResult(error = "订阅地址为空")
         if (!sub.enabled && !force) return@withContext UpdateResult(ruleCount = sub.ruleCount)
 
-        val builder = Request.Builder()
-            .url(sub.url)
-            .header("User-Agent", USER_AGENT)
-            .header("Accept", "text/plain,*/*")
-        if (!force) {
-            sub.etag?.let { builder.header("If-None-Match", it) }
-            sub.lastModified?.let { builder.header("If-Modified-Since", it) }
-        }
-
         try {
-            http.newCall(builder.build()).execute().use { resp ->
+            val builder = Request.Builder()
+                .url(sub.url)
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "text/plain,*/*")
+            if (!force && store.hasRules(sub.id)) {
+                sub.etag?.let { builder.header("If-None-Match", it) }
+                sub.lastModified?.let { builder.header("If-Modified-Since", it) }
+            }
+            http.newCall(builder.build()).withCancellableResponse { resp ->
                 when {
-                    resp.code == 304 -> {
+                    resp.code == 304 && store.hasRules(sub.id) -> {
                         store.update(sub.id) { it.copy(lastUpdated = clock(), lastError = null) }
                         UpdateResult(notModified = true, ruleCount = sub.ruleCount)
                     }
 
-                    !resp.isSuccessful -> {
-                        val msg = "HTTP ${resp.code}"
-                        store.update(sub.id) { it.copy(lastError = msg) }
-                        B4Log.w("SubUpdater", "${sub.title} 更新失败：$msg")
-                        UpdateResult(error = msg, ruleCount = sub.ruleCount)
-                    }
+                    !resp.isSuccessful -> failure(sub, "HTTP ${resp.code}")
 
                     else -> {
-                        val body = resp.body.string()
+                        val body = resp.body.requireAtMost(MAX_BYTES.toLong()).string()
                         val invalid = validate(body)
-                        if (invalid != null) {
-                            store.update(sub.id) { it.copy(lastError = invalid) }
-                            B4Log.w("SubUpdater", "${sub.title} 内容非法：$invalid")
-                            return@use UpdateResult(error = invalid, ruleCount = sub.ruleCount)
-                        }
-                        store.writeRules(sub.id, body)
+                        if (invalid != null) return@withCancellableResponse failure(sub, invalid)
+                        currentCoroutineContext().ensureActive()
                         val count = countRules(body)
-                        store.update(sub.id) {
-                            it.copy(
+                        synchronized(store) {
+                            val actual = store.items.value.firstOrNull { it.id == sub.id && it.url == sub.url }
+                                ?: return@synchronized UpdateResult(error = "订阅已更改")
+                            store.writeRules(actual.id, body)
+                            store.upsert(actual.copy(
                                 ruleCount = count,
                                 lastUpdated = clock(),
                                 etag = resp.header("ETag"),
                                 lastModified = resp.header("Last-Modified"),
                                 lastError = null
-                            )
+                            ))
+                            B4Log.d("SubUpdater", "${sub.title} 更新成功，$count 条")
+                            UpdateResult(updated = true, ruleCount = count)
                         }
-                        B4Log.d("SubUpdater", "${sub.title} 更新成功，$count 条")
-                        UpdateResult(updated = true, ruleCount = count)
                     }
                 }
             }
         } catch (e: IOException) {
-            val msg = e.message ?: "网络错误"
-            store.update(sub.id) { it.copy(lastError = msg) }
-            B4Log.w("SubUpdater", "${sub.title} 更新异常", e)
-            UpdateResult(error = msg, ruleCount = sub.ruleCount)
+            currentCoroutineContext().ensureActive()
+            failure(sub, e.message ?: "网络错误")
+        } catch (e: IllegalArgumentException) {
+            failure(sub, "订阅地址或响应无效：${e.message ?: "未知原因"}")
         }
+    }
+
+    private fun failure(sub: Subscription, message: String): UpdateResult {
+        runCatching {
+            synchronized(store) {
+                val current = store.items.value.firstOrNull { it.id == sub.id && it.url == sub.url }
+                if (current != null) store.upsert(current.copy(lastError = message))
+            }
+        }.onFailure { B4Log.w("SubUpdater", "无法保存订阅错误", it) }
+        B4Log.w("SubUpdater", "${sub.title} 更新失败：$message")
+        return UpdateResult(error = message, ruleCount = sub.ruleCount)
     }
 
     suspend fun updateAll(force: Boolean = false): UpdateSummary = withContext(Dispatchers.IO) {
@@ -180,6 +189,7 @@ class SubscriptionUpdater(
         }
 
         fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
+            .dns(AppDns)
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .callTimeout(60, TimeUnit.SECONDS)

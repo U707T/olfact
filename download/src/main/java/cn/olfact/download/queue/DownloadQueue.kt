@@ -19,18 +19,21 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import okhttp3.OkHttpClient
 import java.io.IOException
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -49,6 +52,9 @@ class DownloadQueue(
     private val _items = MutableStateFlow<List<DownloadRecord>>(emptyList())
     val items: StateFlow<List<DownloadRecord>> = _items.asStateFlow()
 
+    private val stateLock = Any()
+    private val processMutex = Mutex()
+    private val reservedTargets = ConcurrentHashMap<String, File>()
     private val jobs = ConcurrentHashMap<String, Job>()
     /** 同一任务只允许一个执行者（WorkManager 与前台 kick 可能同时触发）。 */
     private val activeIds = ConcurrentHashMap.newKeySet<String>()
@@ -67,7 +73,7 @@ class DownloadQueue(
 
     // ---------- 对外操作 ----------
 
-    fun enqueue(spec: DownloadSpec, engine: DownloadEngine? = null): DownloadRecord {
+    fun enqueue(spec: DownloadSpec, engine: DownloadEngine? = null): DownloadRecord = synchronized(stateLock) {
         val config = configProvider()
         if (!spec.allowDuplicate) {
             store.all().firstOrNull { it.spec.dedupKey == spec.dedupKey && it.status.isActive }?.let { return it }
@@ -82,21 +88,24 @@ class DownloadQueue(
         return record
     }
 
-    fun cancel(id: String) {
+    fun cancel(id: String): Unit = synchronized(stateLock) {
         val record = store.get(id) ?: return
+        if (record.status.isTerminal) return
         store.upsert(record.copy(status = DownloadStatus.CANCELED, updatedAt = now()))
-        jobs.remove(id)?.cancel()
+        jobs[id]?.cancel()
         speedMeter.reset(id)
         record.systemDownloadId?.let { SystemDownloader(context).cancel(it) }
         notifierProvider()?.cancel(id)
         publish()
     }
 
-    fun pause(id: String) {
+    fun pause(id: String): Unit = synchronized(stateLock) {
         val record = store.get(id) ?: return
         if (record.status != DownloadStatus.RUNNING && record.status != DownloadStatus.QUEUED) return
-        store.upsert(record.copy(status = DownloadStatus.PAUSED, updatedAt = now()))
-        jobs.remove(id)?.cancel()
+        store.upsert(record.copy(status = DownloadStatus.PAUSED,
+            systemDownloadId = if (record.engine == DownloadEngine.SYSTEM) null else record.systemDownloadId,
+            updatedAt = now()))
+        jobs[id]?.cancel()
         speedMeter.reset(id)
         // DownloadManager 没有"暂停"语义，只能取消（进度丢失），恢复时重新入队
         if (record.engine == DownloadEngine.SYSTEM) {
@@ -105,10 +114,12 @@ class DownloadQueue(
         publish()
     }
 
-    fun resume(id: String) {
+    fun resume(id: String): Unit = synchronized(stateLock) {
         val record = store.get(id) ?: return
         if (record.status != DownloadStatus.PAUSED && record.status != DownloadStatus.FAILED) return
-        store.upsert(record.copy(status = DownloadStatus.QUEUED, error = null, updatedAt = now()))
+        store.upsert(record.copy(status = DownloadStatus.QUEUED, error = null,
+            systemDownloadId = if (record.engine == DownloadEngine.SYSTEM) null else record.systemDownloadId,
+            updatedAt = now()))
         publish()
     }
 
@@ -124,15 +135,18 @@ class DownloadQueue(
      * 记录反而留着并显示成「失败」；`clearFinished()` 又把用户下载好的文件删了。
      * 现在临时目录（part / 分片）总是清掉，成品文件只在明确要求时删。
      */
-    fun remove(id: String, deleteFile: Boolean = true) {
+    fun remove(id: String, deleteFile: Boolean = true): Unit = synchronized(stateLock) {
         val record = store.get(id)
         if (record != null) {
-            jobs.remove(id)?.cancel()
+            val running = jobs.remove(id)
+            running?.cancel()
             // 记录先消失（UI 立刻有反馈），产物删除丢到 IO 线程：
             // 分片目录里可能躺着上千个 part，在调用线程（多半是主线程）deleteRecursively 会直接 ANR。
             scope.launch {
                 runCatching {
-                    record.systemDownloadId?.let { SystemDownloader(context).cancel(it) }
+                    running?.join()
+                    record.systemDownloadId?.takeIf { shouldRemoveSystemDownload(record, deleteFile) }
+                        ?.let { SystemDownloader(context).cancel(it) }
                     if (deleteFile) deleteArtifact(record)
                     DownloadPaths.workDir(context, id).deleteRecursively()
                 }.onFailure { android.util.Log.w("olfact", "删除下载产物失败 id=$id", it) }
@@ -152,15 +166,18 @@ class DownloadQueue(
      * 清空几百条历史会明显卡；这里一次落盘、一次推列表。
      * 产物删除同样丢到 IO 线程（见 [remove]）。
      */
-    fun removeAll(ids: Collection<String>, deleteFile: Boolean = false) {
+    fun removeAll(ids: Collection<String>, deleteFile: Boolean = false): Unit = synchronized(stateLock) {
         if (ids.isEmpty()) return
         val records = ids.mapNotNull { store.get(it) }
-        records.forEach { jobs.remove(it.id)?.cancel() }
+        val running = records.mapNotNull { jobs.remove(it.id) }
+        running.forEach { it.cancel() }
         if (records.isNotEmpty()) {
             scope.launch {
                 runCatching {
+                    running.forEach { it.join() }
                     records.forEach { record ->
-                        record.systemDownloadId?.let { SystemDownloader(context).cancel(it) }
+                        record.systemDownloadId?.takeIf { shouldRemoveSystemDownload(record, deleteFile) }
+                            ?.let { SystemDownloader(context).cancel(it) }
                         if (deleteFile) deleteArtifact(record)
                         DownloadPaths.workDir(context, record.id).deleteRecursively()
                     }
@@ -200,11 +217,11 @@ class DownloadQueue(
     }
 
     /** 系统下载器在进程外继续跑：重新进入应用时把状态对齐。 */
-    fun reconcile() {
+    fun reconcile(): Unit = synchronized(stateLock) {
         val system = SystemDownloader(context)
         store.all()
             .filter { it.engine == DownloadEngine.SYSTEM && it.systemDownloadId != null }
-            .filter { it.status == DownloadStatus.RUNNING || it.status == DownloadStatus.PAUSED }
+            .filter { it.status == DownloadStatus.RUNNING || it.status == DownloadStatus.QUEUED }
             .forEach { record ->
                 val id = record.systemDownloadId ?: return@forEach
                 val progress = system.progressOf(id) ?: return@forEach
@@ -240,92 +257,110 @@ class DownloadQueue(
      * 处理队列。由 [DownloadWorker] 调用；也可以在界面里直接调（前台下载）。
      * 并发上限 [DownloadConfig.maxConcurrentTasks]。
      */
-    suspend fun processQueue(): Int = coroutineScope {
+    suspend fun processQueue(): Int = processMutex.withLock { coroutineScope {
         val config = configProvider()
         // 上次进程被杀时处于 RUNNING 的任务：自研引擎重新排队续传；系统下载器保留 id 继续跟踪。
         // 本进程正在跑的不算「上次进程留下的」，见 [requeueCandidates]。
-        requeueCandidates(store.all(), activeIds).forEach { store.upsert(it.copy(updatedAt = now())) }
+        synchronized(stateLock) {
+            requeueCandidates(store.all(), activeIds).forEach { store.upsert(it.copy(updatedAt = now())) }
+        }
         publish()
 
-        val queued = store.all().filter { it.status == DownloadStatus.QUEUED }.sortedBy { it.createdAt }
-        val tracking = store.all()
-            .filter { it.status == DownloadStatus.RUNNING && it.engine == DownloadEngine.SYSTEM && it.systemDownloadId != null }
-            .map { it.id }
-        val ids = (queued.map { it.id } + tracking).distinct()
-        if (ids.isEmpty()) return@coroutineScope 0
-
-        val semaphore = Semaphore(config.maxConcurrentTasks.coerceIn(1, 4))
-        ids.map { id ->
-            async { semaphore.withPermit { runOne(id, config) } }
-        }.awaitAll()
-        queued.size
-    }
+        val semaphore = Semaphore(config.maxConcurrentTasks.coerceIn(1, 5))
+        val pending = LinkedHashMap<String, Job>()
+        val processed = HashSet<String>()
+        while (true) {
+            currentCoroutineContext().ensureActive()
+            pending.entries.removeAll { it.value.isCompleted }
+            val eligible = store.all().filter {
+                it.status == DownloadStatus.QUEUED || (it.status == DownloadStatus.RUNNING &&
+                    it.engine == DownloadEngine.SYSTEM && it.systemDownloadId != null)
+            }.sortedBy { it.createdAt }
+            eligible.forEach { record ->
+                if (record.id !in pending) {
+                    processed += record.id
+                    pending[record.id] = launch { semaphore.withPermit { runOne(record.id, config) } }
+                }
+            }
+            if (pending.isEmpty()) break
+            // Pick up downloads added/resumed while another long task is still running.
+            delay(UI_PUSH_INTERVAL_MS)
+        }
+        processed.size
+    } }
 
     // ---------- 内部 ----------
 
     private suspend fun runOne(id: String, config: DownloadConfig) {
-        var record = store.get(id) ?: return
-        val isSystemTracking = record.status == DownloadStatus.RUNNING &&
-            record.engine == DownloadEngine.SYSTEM && record.systemDownloadId != null
-        if (record.status != DownloadStatus.QUEUED && !isSystemTracking) return
-        if (!activeIds.add(id)) return
-
-        record = record.copy(status = DownloadStatus.RUNNING, error = null, updatedAt = now())
-        store.upsert(record)
-        publish()
-        if (config.notifyProgress) notifierProvider()?.notifyProgress(record, force = true)
-        val job = kotlinx.coroutines.currentCoroutineContext()[Job]
-        if (job == null) {
-            // 理论上不会发生；真发生也要把占位还回去，否则这条任务以后再也调不动。
-            activeIds.remove(id)
-            return
+        val job = currentCoroutineContext()[Job] ?: return
+        val record = synchronized(stateLock) {
+            val latest = store.get(id) ?: return
+            val tracking = latest.status == DownloadStatus.RUNNING &&
+                latest.engine == DownloadEngine.SYSTEM && latest.systemDownloadId != null
+            if (latest.status != DownloadStatus.QUEUED && !tracking) return
+            if (!activeIds.add(id)) return
+            jobs[id] = job
+            latest.copy(status = DownloadStatus.RUNNING, error = null, updatedAt = now())
         }
-        jobs[id] = job
-
         try {
+            synchronized(stateLock) {
+                if (store.get(id)?.status != DownloadStatus.QUEUED && store.get(id)?.status != DownloadStatus.RUNNING) return
+                store.upsert(record)
+                publish()
+            }
+            currentCoroutineContext().ensureActive()
+            if (config.notifyProgress) notifierProvider()?.notifyProgress(record, force = true)
             val finished = when (record.engine) {
                 DownloadEngine.SYSTEM -> runSystem(record, config)
                 DownloadEngine.CHUNKED -> runChunked(record, config)
                 DownloadEngine.M3U8 -> runM3U8(record, config)
             }
-            // 用户可能在下载结束前删掉了这条记录：别把结果写回去，否则任务会「复活」。
-            if (store.get(id) == null) return
-            store.upsert(finished)
-            publish()
-            if (config.notifyProgress) notifierProvider()?.notifyCompleted(finished)
-        } catch (e: CancellationException) {
-            val latest = store.get(id)
-            if (latest != null && latest.status == DownloadStatus.RUNNING) {
-                store.upsert(latest.copy(status = DownloadStatus.PAUSED, error = "已暂停", updatedAt = now()))
+            currentCoroutineContext().ensureActive()
+            synchronized(stateLock) {
+                if (store.get(id)?.status != DownloadStatus.RUNNING) return
+                store.upsert(finished)
+                publish()
+                if (config.notifyProgress) notifierProvider()?.notifyCompleted(finished)
             }
-            publish()
+        } catch (e: CancellationException) {
+            synchronized(stateLock) {
+                val latest = store.get(id)
+                if (latest?.status == DownloadStatus.RUNNING) {
+                    // Worker cancellation (constraints/process stop) must remain eligible for rescheduling.
+                    store.upsert(latest.copy(status = DownloadStatus.QUEUED, error = null, updatedAt = now()))
+                }
+                publish()
+            }
             throw e
         } catch (e: Exception) {
-            // 记录可能已经被 remove() 删掉了（先删记录、再取消 Job，取消是协作式的，
-            // 阻塞中的 OkHttp 调用仍会抛 IOException）：这时候写回失败状态＝任务复活。
-            if (store.get(id) == null) {
+            synchronized(stateLock) {
+                val latest = store.get(id) ?: return
+                if (latest.status != DownloadStatus.RUNNING || !job.isActive) return
+                val failed = latest.copy(status = DownloadStatus.FAILED,
+                    error = e.message ?: e.javaClass.simpleName, updatedAt = now())
+                store.upsert(failed)
                 publish()
-                return
+                if (config.notifyProgress) notifierProvider()?.notifyFailed(failed)
             }
-            val failed = record.copy(
-                status = DownloadStatus.FAILED,
-                error = e.message ?: e.javaClass.simpleName,
-                updatedAt = now(),
-            )
-            store.upsert(failed)
-            publish()
-            if (config.notifyProgress) notifierProvider()?.notifyFailed(failed)
         } finally {
             jobs.remove(id)
             activeIds.remove(id)
+            reservedTargets.remove(id)
             // 任务结束（完成/失败/暂停/取消）后速度归零，避免 UI 停在最后一个瞬时值。
             speedMeter.reset(id)
         }
     }
 
+    private fun reserveTarget(record: DownloadRecord): File = synchronized(stateLock) {
+        reservedTargets.getOrPut(record.id) {
+            DownloadPaths.resolveTarget(context, record.spec, reservedTargets.values.toSet())
+        }
+    }
+
     private suspend fun runSystem(record: DownloadRecord, config: DownloadConfig): DownloadRecord {
         val downloader = SystemDownloader(context)
-        val subPath = "olfact/" + DownloadPaths.plannedName(record.spec)
+        val subPath = reserveTarget(record).relativeTo(DownloadPaths.downloadsRoot(context).canonicalFile.parentFile!!)
+            .invariantSeparatorsPath
         // 进程重启后 DownloadManager 里的任务还在：复用 id，避免重复下载
         val existingId = record.systemDownloadId
         val systemId = if (existingId != null && downloader.progressOf(existingId) != null) {
@@ -334,8 +369,14 @@ class DownloadQueue(
             downloader.enqueue(record.spec, config, subPath)
         }
         var current = record.copy(systemDownloadId = systemId, updatedAt = now())
-        store.upsert(current)
-        publish()
+        synchronized(stateLock) {
+            if (store.get(record.id)?.status != DownloadStatus.RUNNING) {
+                downloader.cancel(systemId)
+                throw CancellationException("任务已停止")
+            }
+            store.upsert(current)
+            publish()
+        }
 
         // 系统里的任务可能被清理/丢失：progressOf 返回 null 时不能无限 continue，
         // 否则这条记录会永远停在「下载中」，每秒轮询一次直到进程结束。
@@ -380,7 +421,7 @@ class DownloadQueue(
 
     private suspend fun runChunked(record: DownloadRecord, config: DownloadConfig): DownloadRecord {
         val workDir = DownloadPaths.workDir(context, record.id).also { it.mkdirs() }
-        val target = DownloadPaths.resolveTarget(context, record.spec)
+        val target = reserveTarget(record)
         val downloader = ChunkDownloader(client, workDir)
         val threads = record.spec.threadCount.takeIf { it > 0 } ?: config.threadsPerTask
         val chunkSize = record.spec.chunkSizeBytes.takeIf { it > 0 } ?: config.chunkSizeBytes
@@ -401,7 +442,7 @@ class DownloadQueue(
 
     private suspend fun runM3U8(record: DownloadRecord, config: DownloadConfig): DownloadRecord {
         val workDir = DownloadPaths.workDir(context, record.id).also { it.mkdirs() }
-        val target = DownloadPaths.resolveTarget(context, record.spec)
+        val target = reserveTarget(record)
         val downloader = M3u8Downloader(client, workDir, config.threadsPerTask)
 
         val result = downloader.download(record.spec, target, config.adFilter) { done, total, bytes ->
@@ -431,7 +472,8 @@ class DownloadQueue(
      * 终态不经过这里：完成/失败/暂停会走 [publish]，因此 UI 一定收得到最后一条状态，
      * 不会出现「卡在 99%」。
      */
-    private fun pushProgress(record: DownloadRecord) {
+    private fun pushProgress(record: DownloadRecord): Unit = synchronized(stateLock) {
+        if (store.get(record.id)?.status != DownloadStatus.RUNNING) return
         val now = now()
         // 速度只用于展示，不进持久化记录（进程重启后重新估算）。
         speedMeter.sample(record.id, record.bytesDownloaded, now)
@@ -492,3 +534,7 @@ internal fun requeueCandidates(records: List<DownloadRecord>, active: Set<String
         .filterNot { it.engine == DownloadEngine.SYSTEM && it.systemDownloadId != null }
         .filterNot { it.id in active }
         .map { it.copy(status = DownloadStatus.QUEUED, error = "进程重启，自动续传") }
+
+/** DownloadManager.remove deletes completed files as well as cancelling active work. */
+internal fun shouldRemoveSystemDownload(record: DownloadRecord, deleteFile: Boolean): Boolean =
+    deleteFile || record.status != DownloadStatus.COMPLETED

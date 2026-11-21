@@ -23,13 +23,13 @@ enum class DohMode(val label: String) {
     }
 }
 
-internal fun String.normalizeHost(): String =
-    trim()
-        .removePrefix("http://")
-        .removePrefix("https://")
-        .substringBefore('/')
-        .substringBefore('?')
-        .substringBefore('#')
-        .substringBefore(':')
-        .trim('.')
-        .lowercase(Locale.ROOT)
+internal fun String.normalizeHost(): String {
+    val authority = trim().lowercase(Locale.ROOT)
+        .removePrefix("http://").removePrefix("https://")
+        .substringBefore('/').substringBefore('?').substringBefore('#')
+    return when {
+        authority.startsWith('[') -> authority.substringAfter('[').substringBefore(']')
+        authority.count { it == ':' } == 1 -> authority.substringBefore(':')
+        else -> authority
+    }.trim('.')
+}

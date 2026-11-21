@@ -9,13 +9,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * 把本地隧道挂到 WebView 上（`ProxyController`，Android Q+）。
- *
- * 两条硬规则（TECH-PLAN §4.5-6）：
- * 1. 起代理前自检，自检不过绝不 `setProxyOverride`；
- * 2. 连续失败到阈值就 `clearProxyOverride`，宁可退回直连也不白屏。
- */
+/** 自检成功后才设置 WebView 代理；迟到的异步回调不能覆盖后一次 attach/detach。 */
 class ProxyBridge(
     private val executor: Executor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "olfact-proxy-bridge").apply { isDaemon = true }
@@ -24,19 +18,17 @@ class ProxyBridge(
     private val onCircuitOpen: (String) -> Unit = {},
     private val onStateChanged: (Boolean) -> Unit = {}
 ) {
-
     private val attached = AtomicBoolean(false)
     private val failures = AtomicInteger(0)
+    private val lock = Any()
+    private var revision = 0L
 
     fun isSupported(): Boolean =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
             WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)
 
-    /**
-     * @param selfCheck 起代理前的自检，返回 false 则完全不动 WebView 配置
-     * @return 是否成功挂上
-     */
     fun attach(port: Int, selfCheck: () -> Boolean): Boolean {
+        val attempt = synchronized(lock) { ++revision }
         if (!isSupported()) {
             onCircuitOpen("当前 WebView 不支持 ProxyController（需 Android 10+）")
             return false
@@ -49,54 +41,58 @@ class ProxyBridge(
             onCircuitOpen("代理自检失败，保持直连")
             return false
         }
-        return try {
-            val config = ProxyConfig.Builder()
-                .addProxyRule("127.0.0.1:$port")
-                .addBypassRule("127.0.0.1")
-                .addBypassRule("localhost")
-                .addBypassRule("<local>")
-                .build()
-            ProxyController.getInstance().setProxyOverride(config, executor) {
-                attached.set(true)
-                failures.set(0)
-                onStateChanged(true)
+        return synchronized(lock) {
+            if (attempt != revision) return@synchronized false
+            try {
+                val config = ProxyConfig.Builder()
+                    .addProxyRule("127.0.0.1:$port")
+                    .addBypassRule("127.0.0.1")
+                    .addBypassRule("localhost")
+                    .addBypassRule("<local>")
+                    .build()
+                ProxyController.getInstance().setProxyOverride(config, executor) {
+                    synchronized(lock) {
+                        if (attempt == revision) {
+                            attached.set(true)
+                            failures.set(0)
+                            onStateChanged(true)
+                        }
+                    }
+                }
+                true
+            } catch (e: Exception) {
+                onCircuitOpen("setProxyOverride 失败：${e.message}")
+                false
             }
-            true
-        } catch (e: Exception) {
-            onCircuitOpen("setProxyOverride 失败：${e.message}")
-            false
         }
     }
 
     fun detach() {
-        if (!isSupported()) {
+        synchronized(lock) {
+            val attempt = ++revision
             attached.set(false)
-            return
-        }
-        runCatching {
-            ProxyController.getInstance().clearProxyOverride(executor) {
-                attached.set(false)
-                onStateChanged(false)
+            failures.set(0)
+            if (!isSupported()) return
+            runCatching {
+                ProxyController.getInstance().clearProxyOverride(executor) {
+                    synchronized(lock) {
+                        if (attempt == revision) onStateChanged(false)
+                    }
+                }
             }
         }
-        attached.set(false)
     }
 
     fun isAttached(): Boolean = attached.get()
-
     fun consecutiveFailures(): Int = failures.get()
 
-    /** 隧道层报错时调用；到阈值直接熔断。 */
     fun noteFailure(reason: String) {
         if (!attached.get()) return
         if (failures.incrementAndGet() >= threshold) {
-            failures.set(0)
             detach()
             onCircuitOpen("连续 $threshold 次代理失败，已熔断：$reason")
         }
     }
 
-    fun noteSuccess() {
-        failures.set(0)
-    }
+    fun noteSuccess() { failures.set(0) }
 }

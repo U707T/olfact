@@ -101,6 +101,26 @@ class WebDavClientTest {
     }
 
     @Test
+    fun `连接检查不会把根目录 404 当成功`() = runBlocking {
+        assertTrue(WebDavClient("${server.baseUrl}/dav").test())
+        assertFalse(WebDavClient("${server.baseUrl}/missing").test())
+    }
+
+    @Test
+    fun `列表只采信请求目录并正确保留文件名加号`() = runBlocking {
+        fun entry(href: String) = "<D:response><D:href>$href</D:href><D:propstat><D:prop><D:resourcetype/></D:prop>" +
+            "<D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>"
+        MiniHttpServer {
+            val xml = "<D:multistatus xmlns:D=\"DAV:\">" + entry("/dav/olfact/a+b.zip") +
+                entry("/dav/other/ignore.zip") + entry("https://other.invalid/dav/olfact/also-ignore.zip") + "</D:multistatus>"
+            MiniHttpServer.Response(207, xml.toByteArray())
+        }.start().use { listing ->
+            val entries = WebDavClient("${listing.baseUrl}/dav").list("olfact")
+            assertEquals(listOf("a+b.zip"), entries.map { it.name })
+        }
+    }
+
+    @Test
     fun `列表为空时不抛异常`() = runBlocking {
         val client = WebDavClient("${server.baseUrl}/dav")
         assertEquals(0, client.list("nope").size)
