@@ -111,7 +111,16 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Android Lint (${{ matrix.module }})
-        run: ./gradlew :${{ matrix.module }}:lintDebug --stacktrace
+        run: python3 tools/run-lint-ci.py ${{ matrix.module }}
+
+      - name: Upload lint diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-diagnostics-${{ matrix.module }}
+          path: build/lint-diagnostics/${{ matrix.module }}/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload lint report
         if: always()
