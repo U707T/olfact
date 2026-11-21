@@ -43,9 +43,9 @@ cargo ndk -t arm64-v8a -t armeabi-v7a -o ../../../core/src/main/jniLibs build --
 官方发布源码见 [rmp 0.8.14](https://docs.rs/crate/rmp/0.8.14/source/src/decode/mod.rs)
 和 [rmp 0.8.15](https://docs.rs/crate/rmp/0.8.15/source/src/decode/mod.rs)。
 
-> 本机未运行 Rust 编译和 Android NDK/JNI 验证；上述依赖修复仍待 CI 重跑确认。
-> CI 首次成功后应保存并入库实际生成的 `Cargo.lock`，后续构建使用 `--locked` 固定整个依赖图。
-> 带 `.so` 的 APK 仍需验证切换订阅、三方请求及页面样式。
+> 依赖图已从 CI 的实际解析产物保存为 `Cargo.lock`，后续 CI 使用 `--locked`。
+> 第二轮编译同时纠正 `Engine` 的导入为公开入口 `adblock::Engine`，双 ABI 构建待重跑确认。
+> 本机未运行 Rust/NDK；带 `.so` 的 APK 仍需验证切换订阅、三方请求及页面样式。
 
 ## 降级
 

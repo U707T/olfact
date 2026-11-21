@@ -10,7 +10,7 @@
 use std::ffi::{c_char, CStr, CString};
 use std::ptr;
 
-use adblock::engine::Engine;
+use adblock::Engine;
 use adblock::lists::{FilterSet, ParseOptions};
 use adblock::request::Request;
 
