@@ -42,6 +42,8 @@ class ChatClient(
             topP = provider.topP,
         ),
     ): Flow<ChatDelta> = flow {
+        // 定义在重试边界之外：channelFlow 会随每次 retryWhen 重新执行，局部变量每次归零，
+        // 重试就会在“已经吐过正文”后再来一遍（实测 3 次请求、正文重复）。正文是否出现必须跨重试保留。
         var emittedText = false
         channelFlow<ChatDelta> {
             try {
