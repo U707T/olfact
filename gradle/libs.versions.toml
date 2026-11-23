@@ -9,6 +9,7 @@ ksp = "2.3.12"
 
 coreKtx = "1.13.1"
 appcompat = "1.7.1"
+fragment = "1.9.0"
 material = "1.12.0"
 activity = "1.9.3"
 lifecycle = "2.8.7"
@@ -31,6 +32,7 @@ androidxTestCore = "1.6.1"
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
 androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "appcompat" }
+androidx-fragment = { module = "androidx.fragment:fragment", version.ref = "fragment" }
 androidx-material = { module = "com.google.android.material:material", version.ref = "material" }
 androidx-activity-ktx = { module = "androidx.activity:activity-ktx", version.ref = "activity" }
 androidx-lifecycle-runtime-ktx = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "lifecycle" }

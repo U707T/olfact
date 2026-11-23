@@ -127,6 +127,8 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
+    // Fragment 1.9 adds a depth bound to its lifecycle lint traversal (b/380251932).
+    implementation(libs.androidx.fragment)
     implementation(libs.androidx.activity.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.zxing.core)

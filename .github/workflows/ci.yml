@@ -66,48 +66,17 @@ jobs:
           if-no-files-found: ignore
 
   # ── 静态检查：Android Lint（0 error 才放行；warning 只存档不拦）──────────
-  # AGP 9 的 :app:lintDebug 在 GitHub runner 冷缓存下要 60 分钟以上（6 个模块全量分析），
-  # 每次 push 都跑会把整条流水线拖到一个小时。改为 PR / 手动 / 每周定时跑；
-  # push 仍保留单测 + assembleDebug。本地提交前请自己跑一遍（见 README「构建」）。
+  # PR / 手动 / 定时 / 标签检查六个模块；普通分支 push 跑单测和 Debug 构建。
   lint:
     name: lint (${{ matrix.module }})
-    # 2026-11-23：app lint 在本项目/该 runner 上分析耗时不可控（同一检测器递归热点），单次实测 175 分钟仍未完成。
-    # 改为：PR/手动/tag 全量检查照跑，但 app 模块临时 continue-on-error 并记录诊断，避免耗时检查永久阻塞发版；
-    # 其余五个模块仍为阻断项。这是明确记录的未完成项，不是通过检查：
-    # 本次 app 库代码的 lint 结论只能追溯到 rc13 的通过报告，rc14 需要事后在更快机器或调优后的配置上跑通。
-    continue-on-error: ${{ matrix.module == 'app' }}
     if: github.event_name != 'push' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    # 按模块并行：app 要分析全部依赖模块（AGP 9 的 lint 模型是工程级的）；
-    # 其余模块各自分析自己。超时 30 分钟：正常模块 2-3 分钟，app 冷缓存约 10 分钟。
-    # budget 秒数是诊断包装的上限，必须小于 job 超时：卡住时主动落线程栈并失败，而不是被平台硬杀后无报告。
-    # 2026-11-23：app lint 连续两次卡在同一检测器上（见下方 budget 说明），不再给 3 小时空等。
-    timeout-minutes: 30
+    # 包装器的预算小于 job 超时，确保挂起时有时间上传线程诊断并让检查失败。
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - module: app
-            # 已定位的卡点：androidx.fragment 的 UnsafeFragmentLifecycleObserverDetector 在深层嵌套
-            # lambda 上递归遍历，单次 visitClass 可烧掉 16 分钟以上 CPU（AiFragment 9 层那次 3 小时未完成）。
-            # 已把两处最重嵌套拆平（AiFragment 5 层、ScanActivity 相机 lambda）；若再卡住，15 分钟落栈后失败。
-            budget_minutes: 30
-            budget: 1500
-          - module: core
-            budget_minutes: 30
-            budget: 1500
-          - module: web
-            budget_minutes: 30
-            budget: 1500
-          - module: player
-            budget_minutes: 30
-            budget: 1500
-          - module: download
-            budget_minutes: 30
-            budget: 1500
-          - module: ai
-            budget_minutes: 30
-            budget: 1500
+        module: [app, core, web, player, download, ai]
     steps:
       - uses: actions/checkout@v4
 
@@ -127,7 +96,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Android Lint (${{ matrix.module }})
-        run: python3 tools/run-lint-ci.py ${{ matrix.module }} --budget-seconds ${{ matrix.budget }}
+        run: python3 tools/run-lint-ci.py ${{ matrix.module }} --budget-seconds 900
 
       - name: Upload lint diagnostics
         if: always()
