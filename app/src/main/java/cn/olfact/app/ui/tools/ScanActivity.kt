@@ -103,31 +103,38 @@ class ScanActivity : AppCompatActivity() {
     private fun startCamera() {
         binding.hint.text = "将二维码 / 条形码放入框内"
         val future = ProcessCameraProvider.getInstance(this)
-        future.addListener({
-            val cameraProvider = runCatching { future.get() }.getOrNull() ?: run {
-                binding.hint.text = "相机不可用，可手动输入地址"
-                return@addListener
-            }
-            provider = cameraProvider
+        future.addListener({ startCameraProvider(future) }, ContextCompat.getMainExecutor(this))
+    }
 
-            val preview = Preview.Builder().build().also {
-                it.setSurfaceProvider(binding.preview.surfaceProvider)
-            }
-            val analysis = ImageAnalysis.Builder()
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
-                // 1080p 整帧每帧约 2 MB；二维码识别 720p 足够，降下来省 CPU/内存。
-                .setTargetResolution(android.util.Size(1280, 720))
-                .build()
-                .also { it.setAnalyzer(executor, ::analyze) }
+    /**
+     * 拆成独立方法而不是三层嵌套 lambda：androidx.fragment 的 lifecycle lint 检测器会递归遍历
+     * 嵌套调用图，深度每加一层耗时会明显上升（2026-11-23 CI 卡死的就是这类结构）。
+     */
+    private fun startCameraProvider(future: androidx.concurrent.futures.ResolvableFuture<ProcessCameraProvider>) {
+        val cameraProvider = runCatching { future.get() }.getOrNull()
+        if (cameraProvider == null) {
+            binding.hint.text = "相机不可用，可手动输入地址"
+            return
+        }
+        provider = cameraProvider
 
-            runCatching {
-                cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
-            }.onFailure {
-                binding.hint.text = "相机启动失败：${it.message}"
-            }
-        }, ContextCompat.getMainExecutor(this))
+        val preview = Preview.Builder().build().also {
+            it.setSurfaceProvider(binding.preview.surfaceProvider)
+        }
+        val analysis = ImageAnalysis.Builder()
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+            // 1080p 整帧每帧约 2 MB；二维码识别 720p 足够，降下来省 CPU/内存。
+            .setTargetResolution(android.util.Size(1280, 720))
+            .build()
+            .also { it.setAnalyzer(executor, ::analyze) }
+
+        runCatching {
+            cameraProvider.unbindAll()
+            cameraProvider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+        }.onFailure {
+            binding.hint.text = "相机启动失败：${it.message}"
+        }
     }
 
     private fun analyze(image: ImageProxy) {

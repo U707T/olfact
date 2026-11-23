@@ -17,7 +17,9 @@ on:
     - cron: "0 3 * * 1"
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # 2026-11-23: push 与 workflow_dispatch 的 ref 相同，原先共用组会把手动完整检查当场取消。
+  # 分开：分支 push 仍互相取消，手动完整检查彼此取消，但两者不会互相取消。
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -71,37 +73,36 @@ jobs:
     name: lint (${{ matrix.module }})
     if: github.event_name != 'push' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    # 按模块并行：app 要分析全部依赖模块（AGP 9 的 lint 模型是工程级的），给它 175 分钟兜底；
-    # 其余模块各自分析自己，40 分钟足够。某个模块超时不再拖垮其它模块的报告。
-    # budget 秒数是诊断包装的上限，必须略小于 job 超时：超时前主动落线程栈并失败，而不是被平台硬杀后无报告。
-    timeout-minutes: ${{ matrix.budget_minutes }}
+    # 按模块并行：app 要分析全部依赖模块（AGP 9 的 lint 模型是工程级的）；
+    # 其余模块各自分析自己。超时 30 分钟：正常模块 2-3 分钟，app 冷缓存约 10 分钟。
+    # budget 秒数是诊断包装的上限，必须小于 job 超时：卡住时主动落线程栈并失败，而不是被平台硬杀后无报告。
+    # 2026-11-23：app lint 连续两次卡在同一检测器上（见下方 budget 说明），不再给 3 小时空等。
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         include:
           - module: app
-            # 实测：关掉 checkDependencies 后 app 仍要把全部依赖模块分析一遍
-            # （AGP 9 的 lint 模型是工程级的），沙箱/2 核 runner 上 90 分钟不够。
-            # 2026-11-23：androidx.fragment 的 UnsafeFragmentLifecycleObserverDetector 在
-            # 深层嵌套 lambda（AiFragment 9 层）上递归遍历超线性增长，15 分钟预算内跑不完；
-            # 已把该处拆平到 5 层。这里如实保留长预算，不跳过任何检查。
-            budget_minutes: 175
-            budget: 10500
+            # 已定位的卡点：androidx.fragment 的 UnsafeFragmentLifecycleObserverDetector 在深层嵌套
+            # lambda 上递归遍历，单次 visitClass 可烧掉 16 分钟以上 CPU（AiFragment 9 层那次 3 小时未完成）。
+            # 已把两处最重嵌套拆平（AiFragment 5 层、ScanActivity 相机 lambda）；若再卡住，15 分钟落栈后失败。
+            budget_minutes: 30
+            budget: 1500
           - module: core
-            budget_minutes: 40
-            budget: 2400
+            budget_minutes: 30
+            budget: 1500
           - module: web
-            budget_minutes: 40
-            budget: 2400
+            budget_minutes: 30
+            budget: 1500
           - module: player
-            budget_minutes: 40
-            budget: 2400
+            budget_minutes: 30
+            budget: 1500
           - module: download
-            budget_minutes: 40
-            budget: 2400
+            budget_minutes: 30
+            budget: 1500
           - module: ai
-            budget_minutes: 40
-            budget: 2400
+            budget_minutes: 30
+            budget: 1500
     steps:
       - uses: actions/checkout@v4
 
