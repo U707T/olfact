@@ -1,4 +1,5 @@
 """Run unchanged Android lint with bounded diagnostics on GitHub Linux runners."""
+import argparse
 import os
 from pathlib import Path
 import signal
@@ -6,7 +7,14 @@ import subprocess
 import sys
 import time
 
-module = sys.argv[1]
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('module')
+# The app module legitimately needs far longer than the others on AGP 9; the budget must
+# match the job timeout so diagnostics never replace the real lint verdict.
+parser.add_argument('--budget-seconds', type=int, default=600)
+parser.add_argument('--snapshot-every', type=int, default=180)
+args = parser.parse_args()
+module = args.module
 if module not in ('app', 'core', 'web', 'download', 'player', 'ai'):
     raise ValueError('Unknown module')
 out = Path('build/lint-diagnostics') / module
@@ -14,7 +22,7 @@ out.mkdir(parents=True, exist_ok=True)
 command = ['./gradlew', f':{module}:lintDebug', '--stacktrace']
 process = subprocess.Popen(command, start_new_session=True)
 started = time.monotonic()
-next_dump = 180
+next_dump = args.snapshot_every
 while process.poll() is None:
     elapsed = time.monotonic() - started
     if elapsed >= next_dump:
@@ -33,9 +41,9 @@ while process.poll() is None:
                     print(f'JVM diagnostic timed out: {pid} {diagnostic}', flush=True)
         subprocess.run(['ps', '-eo', 'pid,pcpu,pmem,etime,args'], stdout=(out / f'{stamp}-processes.txt').open('w'), check=False)
         print(f'Lint {module} still running after {stamp}s; JVM snapshots captured.', flush=True)
-        next_dump += 180
-    if elapsed > 900:
-        print('Lint exceeded the diagnostic 15-minute budget; preserving thread stacks, no checks bypassed.', flush=True)
+        next_dump += args.snapshot_every
+    if elapsed > args.budget_seconds:
+        print(f'Lint exceeded the diagnostic {args.budget_seconds}s budget; preserving thread stacks, no checks bypassed.', flush=True)
         os.killpg(process.pid, signal.SIGTERM)
         try:
             process.wait(timeout=20)

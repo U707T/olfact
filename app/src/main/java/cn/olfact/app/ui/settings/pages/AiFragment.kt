@@ -90,7 +90,6 @@ class AiFragment : Fragment(R.layout.fragment_page) {
 
     private fun edit(existing: AiProvider?) {
         val ctx = Nav.context() ?: return
-        val store = OlfactServices.aiProviders
         val container = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(ctx.dpF(20f), ctx.dpF(8f), ctx.dpF(20f), 0)
@@ -118,94 +117,113 @@ class AiFragment : Fragment(R.layout.fragment_page) {
             .setNeutralButton(if (existing == null) "取消" else "删除", null)
             .setNegativeButton(if (existing == null) null else "设为当前", null)
             .create()
-            .apply editorDialog@{
-                setOnShowListener {
-                    getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                        val providerName = name.text.toString().trim()
-                        val baseUrl = base.text.toString().trim().trimEnd('/')
-                        val modelName = model.text.toString().trim()
-                        if (providerName.isBlank() || baseUrl.isBlank() || modelName.isBlank()) {
-                            Nav.toast("名称、Base URL 与模型必填")
-                            return@setOnClickListener
-                        }
-                        val activeStore = store
-                        if (activeStore == null) {
-                            Nav.toast("AI 供应商模块未就绪，请稍后重试")
-                            return@setOnClickListener
-                        }
-                        val provider = AiProvider(
-                            id = existing?.id ?: UUID.randomUUID().toString(),
-                            name = providerName,
-                            baseUrl = baseUrl,
-                            apiKey = key.text.toString(),
-                            model = modelName,
-                            enabled = existing?.enabled ?: true
-                        )
-                        runCatching {
-                            activeStore.save(provider)
-                            if (activeStore.activeId() == null) activeStore.setActive(provider.id)
-                        }.onSuccess {
-                            dismiss()
-                            render()
-                        }.onFailure {
-                            Nav.toast("保存失败：${it.message ?: "存储错误"}")
-                        }
-                    }
-
-                    getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
-                        if (existing == null) {
-                            dismiss()
-                            return@setOnClickListener
-                        }
-                        val activeStore = store
-                        if (activeStore == null) {
-                            Nav.toast("AI 供应商模块未就绪，请稍后重试")
-                            return@setOnClickListener
-                        }
-                        val confirm = AlertDialog.Builder(ctx)
-                            .setTitle("删除供应商")
-                            .setMessage("将删除「${existing.name}」及其 API Key，不可恢复。")
-                            .setPositiveButton("删除", null)
-                            .setNegativeButton("取消", null)
-                            .create()
-                            .apply {
-                                setOnShowListener {
-                                    getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                                        runCatching { activeStore.remove(existing.id) }
-                                            .onSuccess {
-                                                dismiss()
-                                                this@editorDialog.dismiss()
-                                                render()
-                                            }
-                                            .onFailure {
-                                                Nav.toast("删除失败：${it.message ?: "存储错误"}")
-                                            }
-                                    }
-                                }
-                            }
-                        confirm.show()
-                    }
-
-                    if (existing != null) {
-                        getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
-                            val activeStore = store
-                            if (activeStore == null) {
-                                Nav.toast("AI 供应商模块未就绪，请稍后重试")
-                                return@setOnClickListener
-                            }
-                            runCatching { activeStore.setActive(existing.id) }
-                                .onSuccess {
-                                    dismiss()
-                                    render()
-                                }
-                                .onFailure {
-                                    Nav.toast("设置当前供应商失败：${it.message ?: "存储错误"}")
-                                }
-                        }
-                    }
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                saveProvider(dialog, existing, name, base, model, key)
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                onNeutralClicked(dialog, existing)
+            }
+            if (existing != null) {
+                dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
+                    makeActive(dialog, existing)
                 }
             }
+        }
         dialog.show()
+    }
+
+    private fun saveProvider(
+        dialog: AlertDialog,
+        existing: AiProvider?,
+        name: EditText,
+        base: EditText,
+        model: EditText,
+        key: EditText
+    ) {
+        val providerName = name.text.toString().trim()
+        val baseUrl = base.text.toString().trim().trimEnd('/')
+        val modelName = model.text.toString().trim()
+        if (providerName.isBlank() || baseUrl.isBlank() || modelName.isBlank()) {
+            Nav.toast("名称、Base URL 与模型必填")
+            return
+        }
+        val store = OlfactServices.aiProviders
+        if (store == null) {
+            Nav.toast("AI 供应商模块未就绪，请稍后重试")
+            return
+        }
+        val provider = AiProvider(
+            id = existing?.id ?: UUID.randomUUID().toString(),
+            name = providerName,
+            baseUrl = baseUrl,
+            apiKey = key.text.toString(),
+            model = modelName,
+            enabled = existing?.enabled ?: true
+        )
+        runCatching {
+            store.save(provider)
+            if (store.activeId() == null) store.setActive(provider.id)
+        }.onSuccess {
+            dialog.dismiss()
+            render()
+        }.onFailure {
+            Nav.toast("保存失败：${it.message ?: "存储错误"}")
+        }
+    }
+
+    private fun makeActive(dialog: AlertDialog, existing: AiProvider) {
+        val store = OlfactServices.aiProviders
+        if (store == null) {
+            Nav.toast("AI 供应商模块未就绪，请稍后重试")
+            return
+        }
+        runCatching { store.setActive(existing.id) }
+            .onSuccess {
+                dialog.dismiss()
+                render()
+            }
+            .onFailure {
+                Nav.toast("设置当前供应商失败：${it.message ?: "存储错误"}")
+            }
+    }
+
+    /** 编辑态是「删除」，新增态是「取消」：两步确认单独成方法，避免深层嵌套 lambda。 */
+    private fun onNeutralClicked(dialog: AlertDialog, existing: AiProvider?) {
+        if (existing == null) {
+            dialog.dismiss()
+            return
+        }
+        val ctx = dialog.context
+        val confirm = AlertDialog.Builder(ctx)
+            .setTitle("删除供应商")
+            .setMessage("将删除「${existing.name}」及其 API Key，不可恢复。")
+            .setPositiveButton("删除", null)
+            .setNegativeButton("取消", null)
+            .create()
+        confirm.setOnShowListener {
+            confirm.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                deleteProvider(dialog, confirm, existing)
+            }
+        }
+        confirm.show()
+    }
+
+    private fun deleteProvider(editor: AlertDialog, confirm: AlertDialog, existing: AiProvider) {
+        val store = OlfactServices.aiProviders
+        if (store == null) {
+            Nav.toast("AI 供应商模块未就绪，请稍后重试")
+            return
+        }
+        runCatching { store.remove(existing.id) }
+            .onSuccess {
+                confirm.dismiss()
+                editor.dismiss()
+                render()
+            }
+            .onFailure {
+                Nav.toast("删除失败：${it.message ?: "存储错误"}")
+            }
     }
 
     override fun onDestroyView() {
