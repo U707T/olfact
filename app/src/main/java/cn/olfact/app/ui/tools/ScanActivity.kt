@@ -18,6 +18,7 @@ import cn.olfact.app.R
 import cn.olfact.app.databinding.ActivityScanBinding
 import cn.olfact.app.link.SearchEngines
 import cn.olfact.app.ui.common.Dialogs
+import com.google.common.util.concurrent.ListenableFuture
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
@@ -110,7 +111,7 @@ class ScanActivity : AppCompatActivity() {
      * 拆成独立方法而不是三层嵌套 lambda：androidx.fragment 的 lifecycle lint 检测器会递归遍历
      * 嵌套调用图，深度每加一层耗时会明显上升（2026-11-23 CI 卡死的就是这类结构）。
      */
-    private fun startCameraProvider(future: androidx.concurrent.futures.ResolvableFuture<ProcessCameraProvider>) {
+    private fun startCameraProvider(future: com.google.common.util.concurrent.ListenableFuture<ProcessCameraProvider>) {
         val cameraProvider = runCatching { future.get() }.getOrNull()
         if (cameraProvider == null) {
             binding.hint.text = "相机不可用，可手动输入地址"
