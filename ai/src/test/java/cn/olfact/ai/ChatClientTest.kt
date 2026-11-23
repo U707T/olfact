@@ -3,6 +3,11 @@ package cn.olfact.ai
 import cn.olfact.ai.error.AiError
 import cn.olfact.ai.net.ChatClient
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -23,7 +28,10 @@ import org.junit.Test
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
+import kotlin.coroutines.CoroutineContext
 
 class ChatClientTest {
     private val local = AiProvider("test", "Test", "http://127.0.0.1/v1", "model")
@@ -32,10 +40,15 @@ class ChatClientTest {
     private val finishFrame = """data: {"choices":[{"delta":null,"finish_reason":"stop"}]}""" + "\n\n"
     private val usageFrame = """data: {"choices":[],"usage":{"total_tokens":12}}""" + "\n\n"
 
-    private fun response(text: String, inspect: (String?) -> Unit = {}): ChatClient {
+    private fun response(text: String, inspect: (String?) -> Unit = {}): ChatClient = responseForRequest {
+        inspect(it)
+        text
+    }
+
+    private fun responseForRequest(body: (String?) -> String): ChatClient {
         val client = OkHttpClient.Builder().addInterceptor { chain ->
             val request = chain.request()
-            inspect(request.header("Authorization"))
+            val text = body(request.header("Authorization"))
             Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(200).message("OK")
                 .body(text.toResponseBody("text/event-stream".toMediaType())).build()
         }.build()
@@ -63,6 +76,53 @@ class ChatClientTest {
         assertEquals(1, requests)
         assertEquals("answer", chunks.joinToString("") { it.text })
         assertFalse(chunks.any { it.done })
+    }
+
+    @Test
+    fun `partial EOF preserves a delta even when the producer fails before the collector resumes`() = runBlocking {
+        val producer = AtomicReference<Job>()
+        val startProducer = CompletableDeferred<Unit>()
+        val resumeCollector = CompletableDeferred<Unit>()
+        val dispatcher = object : CoroutineDispatcher() {
+            override fun dispatch(context: CoroutineContext, block: Runnable) {
+                val job = checkNotNull(context[Job])
+                producer.compareAndSet(null, job)
+                val gate = if (job === producer.get()) startProducer else resumeCollector
+                gate.invokeOnCompletion { Dispatchers.Default.dispatch(context, block) }
+            }
+        }
+        val requests = AtomicInteger()
+        val client = response(textFrame) { requests.incrementAndGet() }
+        val chunks = mutableListOf<ChatDelta>()
+        val result = async(dispatcher, start = CoroutineStart.UNDISPATCHED) {
+            runCatching { client.stream(local, null, messages).toList(chunks) }
+        }
+        try {
+            // The collector is suspended on receive. Let the producer hand off the delta and
+            // terminate on EOF, but don't let the receiver's continuation run until then.
+            startProducer.complete(Unit)
+            withTimeout(4_000) { checkNotNull(producer.get()).join() }
+            assertTrue(chunks.isEmpty())
+        } finally {
+            resumeCollector.complete(Unit)
+        }
+        val error = withTimeout(6_000) { result.await() }.exceptionOrNull()
+        assertTrue(error is AiError.Network)
+        assertEquals(1, requests.get())
+        assertEquals(listOf(ChatDelta(text = "answer")), chunks)
+    }
+
+    @Test
+    fun `EOF before any text retries even after a usage delta`() = runBlocking {
+        val requests = AtomicInteger()
+        val client = responseForRequest {
+            if (requests.incrementAndGet() == 1) usageFrame else textFrame + finishFrame
+        }
+        val chunks = withTimeout(4_000) { client.stream(local, null, messages).toList() }
+        assertEquals(2, requests.get())
+        assertEquals(12, chunks.first().usage?.totalTokens)
+        assertEquals("answer", chunks.joinToString("") { it.text })
+        assertTrue(chunks.last().done)
     }
 
     @Test

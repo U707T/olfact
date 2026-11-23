@@ -4,8 +4,8 @@
 原版（含规则引擎、迅雷 SDK、磁力、投屏等）只作为视觉与行为参照，范围见
 [`docs/TECH-PLAN.md`](docs/TECH-PLAN.md)。
 
-**当前版本：`1.0.0-rc14`（versionCode 14）** ·
-[Release](https://github.com/U707T/olfact/releases/tag/v1.0.0-rc14)
+**源码版本：`1.0.0-rc15`（versionCode 15）** ·
+[已发布版本](https://github.com/U707T/olfact/releases)
 
 - **minSdk 24 / targetSdk 37**，Gradle 9.7.0 + AGP 9.0.1 + Kotlin 2.3.20，JDK 21
 - 纯 View 体系（不引 Compose），release 开 R8 + 资源压缩 + ABI split
@@ -77,7 +77,7 @@ python ./web/tools/fetch-test-deps.py --shared
 
 1. 改 `app/build.gradle.kts` 的 `versionName`（`versionCode` 递增）
 2. `CHANGELOG.md` 顶部加同版本段落（CI 会把它贴进 Release）
-3. push 打 tag：`git tag v1.0.0-rc14 && git push origin v1.0.0-rc14`
+3. 确认候选提交的完整 CI 通过后，创建并推送对应的新 tag，例如 `v1.0.0-rc15`；不要移动已有 tag
 4. CI 跑单测 / lint / debug → 签 `assembleRelease` → 上传 APK 并创建 Release
    （`-rc` / `-beta` 自动标 prerelease）
 

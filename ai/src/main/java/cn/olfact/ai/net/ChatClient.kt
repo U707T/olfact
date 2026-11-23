@@ -18,8 +18,6 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.channelFlow
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.retryWhen
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -41,11 +39,10 @@ class ChatClient(
             maxTokens = provider.maxTokens,
             topP = provider.topP,
         ),
-    ): Flow<ChatDelta> = flow {
-        // 定义在重试边界之外：channelFlow 会随每次 retryWhen 重新执行，局部变量每次归零，
-        // 重试就会在“已经吐过正文”后再来一遍（实测 3 次请求、正文重复）。正文是否出现必须跨重试保留。
-        var emittedText = false
-        channelFlow<ChatDelta> {
+    ): Flow<ChatDelta> = channelFlow {
+        var sentText = false
+        var retries = 0L
+        while (true) {
             try {
                 val request = buildRequest(provider, apiKey, OpenAiWire.requestBody(provider, messages, params, stream = true))
                 client.newCall(request).withCancellableResponse { response ->
@@ -64,6 +61,7 @@ class ChatClient(
                         if (delta.text.isNotBlank()) hasText = true
                         delta.finishReason?.let { finish = it }
                         send(delta.copy(done = false))
+                        if (delta.text.isNotEmpty()) sentText = true
                         return false
                     }
 
@@ -89,21 +87,21 @@ class ChatClient(
                     if (!hasText) throw AiError.Unknown("服务端返回了空内容")
                     send(ChatDelta(done = true, finishReason = finish))
                 }
+                break
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 currentCoroutineContext().ensureActive()
-                throw AiErrorMapper.fromThrowable(e)
+                val error = AiErrorMapper.fromThrowable(e)
+                if (sentText || retries >= MAX_RETRIES || !AiErrorMapper.isRetryable(error)) {
+                    // Signal failure through the channel so an in-flight delta is not cancelled.
+                    close(error)
+                    break
+                }
+                delay(RETRY_BASE_MS * ++retries)
             }
-        }.buffer(0).retryWhen { error, attempt ->
-            val retry = !emittedText && attempt < MAX_RETRIES && AiErrorMapper.isRetryable(error)
-            if (retry) delay(RETRY_BASE_MS * (attempt + 1))
-            retry
-        }.collect { delta ->
-            if (delta.text.isNotEmpty()) emittedText = true
-            emit(delta)
         }
-    }
+    }.buffer(0)
 
     /** 一次性返回（用于分块摘要等中间步骤）。 */
     suspend fun complete(
