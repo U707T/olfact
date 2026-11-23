@@ -70,6 +70,12 @@ python ./web/tools/fetch-test-deps.py --shared
 ```
 
 有对应 Android 环境时也可本地执行；本地审计不安装重型 SDK。完整 CI 与签名产物状态以 GitHub Actions 对应提交/标签的运行结果为准。
+
+app lint 仍是发布门禁。仅在 app 中临时停用 `FragmentLiveDataObserve`、
+`FragmentBackPressedCallback`、`FragmentAddMenuProvider`：它们共用的 AndroidX 检测器在本项目超时，
+[升级到 1.9.0 的试跑](https://github.com/U707T/olfact/actions/runs/45179024643/job/137707847110)也未在预算内结束。
+新增 Fragment 视图相关的观察者、返回回调或菜单注册时，需人工确认使用 `viewLifecycleOwner`；
+现有两处 Fragment 返回回调已核对。检测器修复后应移除此例外。
 签名材料放仓库外，`keystore.properties` 已在 `.gitignore`；CI 使用仓库 secrets
 （`OLFACT_KEYSTORE_B64` / `OLFACT_STORE_PASSWORD` / `OLFACT_KEY_ALIAS` / `OLFACT_KEY_PASSWORD`）。
 

@@ -75,6 +75,9 @@ android {
         // 测试源码不参与分析：单元测试/Instrumentation 各跑一遍分析，
         // 在冷缓存 runner 上等于把时长翻倍，收益极低（测试里的 lint 问题不影响发版）。
         ignoreTestSources = true
+        // All three IDs share a detector that exhausted the CI budget even with Fragment 1.9.0
+        // (run 45179024643; upstream b/380251932 only bounds call depth). Keep all other errors fatal.
+        disable += setOf("FragmentLiveDataObserve", "FragmentBackPressedCallback", "FragmentAddMenuProvider")
     }
 
     testOptions {
@@ -127,8 +130,6 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
-    // Fragment 1.9 adds a depth bound to its lifecycle lint traversal (b/380251932).
-    implementation(libs.androidx.fragment)
     implementation(libs.androidx.activity.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.zxing.core)
