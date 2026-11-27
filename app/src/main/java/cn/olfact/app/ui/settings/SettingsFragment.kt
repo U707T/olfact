@@ -56,15 +56,15 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
 
     private fun render(query: String) {
         val b = binding ?: return
-        val text = query.trim()
+        val needle = query.trim()
         b.sections.removeAllViews()
         var first = true
         var added = 0
         groups().forEach { rows ->
             val filtered = rows.mapNotNull { row ->
-                val hit = if (text.isEmpty()) null else
-                    row.keywords.firstOrNull { it.contains(text, ignoreCase = true) } ?: hitInPage(row.pageId, text)
-                (row to hit).takeIf { hit != null || row.title.contains(text, ignoreCase = true) }
+                val hit = if (needle.isEmpty()) null else
+                    row.keywords.firstOrNull { it.contains(needle, ignoreCase = true) } ?: hitInPage(row.pageId, needle)
+                (row to hit).takeIf { hit != null || row.title.contains(needle, ignoreCase = true) }
             }
             if (filtered.isEmpty()) return@forEach
             val group = SettingGroup(requireContext())
