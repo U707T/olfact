@@ -7,6 +7,11 @@ import cn.olfact.core.api.DohMode
 import cn.olfact.core.api.DohStatus
 import cn.olfact.web.doh.DohManagerImpl
 import cn.olfact.web.doh.DnsRules
+import cn.olfact.web.doh.DohUpstream
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 
 /** `core/api` DoH 契约 → B2 的 `web.doh` 实现。 */
 class DohAdapter(
@@ -14,25 +19,33 @@ class DohAdapter(
     private val settings: cn.olfact.core.api.SettingsRepository
 ) : DohManager, DohController {
 
-    /** 用当前设置里的开关/模式/上游跑一次。 */
-    fun startFromSettings() {
+    private val settingsLock = Any()
+    private val settingsScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var appliedUpstream: String? = null
+    private var appliedRules: Pair<DohMode, String>? = null
+
+    /** 读取并应用最新设置。较早排队的操作不能拿旧开关或旧上游覆盖较新的选择。 */
+    fun applySettings() = synchronized(settingsLock) {
         val mode = DohMode.of(settings.get(K.DOH_MODE))
-        val url = settings.get(K.DOH_UPSTREAM).trim()
-        val preset = presetFor(url)
-        val custom = if (preset == null) customUpstreams(url) else emptyList()
-        impl.start(
-            cn.olfact.web.doh.DohConfig(
-                enabled = true,
-                mode = mode.toWeb(),
-                rules = DnsRules.parse(settings.get(K.DOH_RULES), mode.toWeb()),
-                useProxy = true,
-                preferredUpstreamId = preset?.id,
-                customUpstreams = custom,
-                // 用户显式填的自定义地址：只用它，不再和内置上游混跑
-                customOnly = custom.isNotEmpty()
-            )
-        )
+        val text = settings.get(K.DOH_RULES)
+        val url = selectedUpstreamUrl()
+        val enabled = settings.get(K.DOH_ENABLED)
+        val running = impl.status().running
+        if (!enabled && running) impl.stop()
+        if (enabled && (!running || url != appliedUpstream)) {
+            start(DohConfig(true, mode, listOf(url), text.lines()))
+            appliedUpstream = url
+        } else if (appliedRules != (mode to text)) {
+            impl.updateRules(DnsRules.parse(text, mode.toWeb()))
+        }
+        appliedRules = mode to text
     }
+
+    /** 配置已经保存；即使用户返回上一页，也要完成应用。 */
+    fun applySettingsAsync() = settingsScope.async { applySettings() }
+
+    /** 代理自检、挂载或熔断的状态由 Web 层维护。 */
+    fun proxyError(): String? = impl.status().lastError
 
     /** 当前选中的上游地址（预设或自定义）。 */
     fun selectedUpstreamUrl(): String = settings.get(K.DOH_UPSTREAM).trim()

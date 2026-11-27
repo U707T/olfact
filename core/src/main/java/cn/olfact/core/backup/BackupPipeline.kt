@@ -50,14 +50,20 @@ class BackupPipeline(
     private val appVersion: String = ""
 ) : BackupRunner {
 
-    override suspend fun run(trigger: String): BackupResult = withContext(Dispatchers.IO) {
+    override suspend fun run(trigger: String): BackupResult = runBackup(trigger, null)
+
+    /** 用户导出始终生成本地 ZIP，不受自动备份的 WebDAV 目标影响。 */
+    suspend fun runLocal(dir: File, trigger: String = "manual-local"): BackupResult =
+        runBackup(trigger, BackupTarget.Local(dir))
+
+    private suspend fun runBackup(trigger: String, forcedTarget: BackupTarget?): BackupResult = withContext(Dispatchers.IO) {
         val started = clock()
         var size = 0L
         val result = try {
             val data = collect()
             val context = currentCoroutineContext()
             context.ensureActive()
-            val target = targetProvider()
+            val target = forcedTarget ?: targetProvider()
             val name = fileName(started)
             val location = when (target) {
                 is BackupTarget.Local -> {

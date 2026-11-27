@@ -54,7 +54,8 @@ class UrlBar @JvmOverloads constructor(
         visibility = GONE
         scaleType = ImageView.ScaleType.FIT_CENTER
         setPadding(context.dpF(8f), context.dpF(8f), context.dpF(8f), context.dpF(8f))
-        layoutParams = LayoutParams(context.dpF(32f), context.dpF(32f))
+        layoutParams = LayoutParams(context.dpF(48f), context.dpF(48f))
+        contentDescription = "清除输入"
     }
 
     private val actionIcon = ImageView(context).apply {
@@ -62,12 +63,13 @@ class UrlBar @JvmOverloads constructor(
         imageTintList = ContextCompat.getColorStateList(context, R.color.uikit_text_primary)
         scaleType = ImageView.ScaleType.FIT_CENTER
         setPadding(context.dpF(8f), context.dpF(8f), context.dpF(10f), context.dpF(8f))
-        layoutParams = LayoutParams(context.dpF(42f), context.dpF(42f))
+        layoutParams = LayoutParams(context.dpF(48f), context.dpF(48f))
     }
 
     var onActionClick: (() -> Unit)? = null
     var onBarClick: (() -> Unit)? = null
     var onTextChanged: ((String) -> Unit)? = null
+    var onEditorFocusChanged: ((Boolean) -> Unit)? = null
     var onSubmit: ((String) -> Unit)? = null
 
     private var progress = 0
@@ -118,6 +120,7 @@ class UrlBar @JvmOverloads constructor(
             clearIcon.visibility = if (hasFocus && editor.text.isNotEmpty()) VISIBLE else GONE
             actionIcon.visibility = if (hasFocus && editor.text.isNotEmpty()) GONE else VISIBLE
             if (hasFocus) editor.setSelection(editor.text.length)
+            onEditorFocusChanged?.invoke(hasFocus)
         }
 
         editor.setOnEditorActionListener { _, actionId, event ->
@@ -187,8 +190,10 @@ class UrlBar @JvmOverloads constructor(
     fun focusEditor() {
         editor.requestFocus()
         editor.post {
-            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
-            imm?.showSoftInput(editor, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+            if (editor.hasFocus() && editor.isShown && editor.isAttachedToWindow) {
+                val imm = context.getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+                imm?.showSoftInput(editor, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+            }
         }
     }
 

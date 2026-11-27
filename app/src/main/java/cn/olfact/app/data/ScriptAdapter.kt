@@ -51,6 +51,7 @@ class ScriptAdapter(
             enabled = script.enabled
         )
         // 列表页 / 删除撤销拿到的对象可能没有正文：空即「保持原样」，不能拿空串覆盖已有脚本。
+        // 正文里带 ==UserScript== 头时，名称/匹配/调度以头为准（由 ScriptStore.save 处理）。
         val body = script.code.ifBlank { store.body(script.id).orEmpty() }
         store.save(meta, body)
     }

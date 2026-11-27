@@ -8,6 +8,12 @@ import org.junit.Test
 class PlayerMathTest {
 
     @Test
+    fun `ended playback restarts at zero and non-ended playback keeps toggle behavior`() {
+        assertEquals(0L, PlayerMath.replayPositionIfEnded(true))
+        assertEquals(null, PlayerMath.replayPositionIfEnded(false))
+    }
+
+    @Test
     fun `时间格式化`() {
         assertEquals("00:00", PlayerMath.formatDuration(0))
         assertEquals("00:07", PlayerMath.formatDuration(7_400))

@@ -215,7 +215,11 @@ class VideoPlayerActivity : Activity(), PlayerControlsView.Listener, PlayerGestu
 
     override fun onPlayPauseClick() {
         val p = player ?: return
-        if (p.playWhenReady) p.pause() else p.play()
+        val replayPosition = PlayerMath.replayPositionIfEnded(p.playbackState == Player.STATE_ENDED)
+        if (replayPosition != null) {
+            p.seekTo(replayPosition)
+            p.play()
+        } else if (p.playWhenReady) p.pause() else p.play()
     }
 
     override fun onSeekTo(positionMs: Long, fromUser: Boolean) {
@@ -400,7 +404,7 @@ class VideoPlayerActivity : Activity(), PlayerControlsView.Listener, PlayerGestu
 
     private fun savePosition() {
         val p = player ?: return
-        if (!options.rememberPosition || source.isPrivate || source.live) return
+        if (!options.rememberPosition || source.isPrivate || source.live || p.isCurrentMediaItemLive) return
         val duration = p.duration
         val position = p.currentPosition
         if (duration > 0 && position >= duration - END_THRESHOLD_MS) {

@@ -45,7 +45,8 @@ class DohManagerImpl(
     private var lastError: String? = null
 
     private var transport: DohTransport? = null
-    private var pool: UpstreamPool? = null
+    @Volatile private var pool: UpstreamPool? = null
+    private var poolJob: Job? = null
     private var dohDns: DohDns? = null
     @Volatile
     private var routing: RoutingDns? = null
@@ -91,13 +92,14 @@ class DohManagerImpl(
             bootstrap = DohUpstream.bootstrapTable(poolUpstreams)
         )
         transport = newTransport
+        val newPoolJob = SupervisorJob(scope.coroutineContext[Job])
+        poolJob = newPoolJob
         val newPool = UpstreamPool(
             transport = newTransport,
             upstreams = poolUpstreams,
-            scope = scope,
+            scope = CoroutineScope(scope.coroutineContext + newPoolJob),
             onEvent = { message ->
                 if (runId == lifecycleGeneration && running) {
-                    lastError = null
                     publish()
                     onLog?.invoke(message)
                 }
@@ -123,7 +125,7 @@ class DohManagerImpl(
             startWatchdog()
         }
         watcher = NetworkWatcher(context, onChanged = { reason ->
-            if (runId == lifecycleGeneration) onNetworkChanged(reason)
+            onNetworkChanged(runId, reason)
         }).also { it.start() }
         publish()
     }
@@ -145,6 +147,8 @@ class DohManagerImpl(
         dohDns?.shutdown()
         dohDns = null
         routing = null
+        poolJob?.cancel()
+        poolJob = null
         pool = null
         transport = null
         running = false
@@ -170,8 +174,7 @@ class DohManagerImpl(
     }
 
     override fun clearCache() {
-        cache.clear(DnsCache.PREFIX_DOH)
-        cache.clear(DnsCache.PREFIX_SYSTEM)
+        cache.clear()
         publish()
     }
 
@@ -221,6 +224,7 @@ class DohManagerImpl(
         val revision = ++tunnelRevision
         val cfg = config
         val resolver = routing ?: return
+        lastError = null
         startup?.cancel()
         bridge.detach()
         tunnel?.stop()
@@ -259,7 +263,7 @@ class DohManagerImpl(
                 if (!bridge.attach(port) { checked }) {
                     newTunnel.stop()
                     tunnel = null
-                    lastError = "代理自检未通过，已回退为仅应用内 DoH"
+                    // 保留 ProxyBridge 给出的具体原因：不支持、自检失败或挂载失败。
                 }
                 publish()
             }
@@ -275,11 +279,14 @@ class DohManagerImpl(
         watchdog = scope.launch {
             while (isActive) {
                 delay(WATCHDOG_INTERVAL_MS)
-                val active = tunnel ?: continue
-                if (!active.isRunning()) {
-                    bridge.noteFailure("隧道监听线程已退出")
-                } else {
-                    bridge.noteSuccess()
+                synchronized(lifecycleLock) {
+                    val active = tunnel ?: return@synchronized
+                    if (!active.isRunning()) {
+                        bridge.noteFailure("隧道监听线程已退出")
+                        publish()
+                    } else {
+                        bridge.noteSuccess()
+                    }
                 }
             }
         }
@@ -302,11 +309,11 @@ class DohManagerImpl(
         }
     }.getOrDefault(false)
 
-    private fun onNetworkChanged(reason: String) = synchronized(lifecycleLock) {
-        if (!running) return@synchronized
+    private fun onNetworkChanged(runId: Long, reason: String) = synchronized(lifecycleLock) {
+        if (!running || runId != lifecycleGeneration) return@synchronized
         onLog?.invoke("网络变化：$reason，清理缓存并重新竞速")
         clearCache()
-        pool?.reraceAsync()
+        pool?.onNetworkChanged()
         if (config.useProxy) rebuildTunnel()
         publish()
     }

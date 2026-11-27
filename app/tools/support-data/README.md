@@ -22,7 +22,8 @@ The runner includes existing app pure logic suites, including IntegrationMapping
 
 - BrowserSessionPersistenceTest exercises actual JSON save/restore: never/manual/always policies, selected normal tab, exclusion of private URL/title/id, and legacy private records.
 - DohAdapterIntegrationTest passes actual adapter configurations into the actual manager: preset selection, custom-only local HTTP/IPv6 endpoint, automatic pool, rules and dynamic enabled status. Its StandardTestDispatcher remains unadvanced and is cancelled on cleanup; it never schedules real DNS or tunnel self-check IO. Reflection reads the manager's stored config solely to verify the adapter/manager boundary.
-- StoreSnapshotTest compiles actual BookmarkStore/HistoryStore and FavoriteStore; it checks negative restored history limits on record/import/trim, stable favorite snapshots after add/remove, and snapshot export while another thread edits favorites. In-memory preferences do not prove real SharedPreferences durability.
+- StoreSnapshotTest compiles actual BookmarkStore/HistoryStore and FavoriteStore; it checks negative restored history limits on record/import/trim, safe favorite source metadata, awaited favorite restore JSON commit receipt, stable favorite snapshots after add/remove, and snapshot export while another thread edits favorites. The in-memory preference substitute's synchronous commit does not prove Android disk durability.
+- BrowserFileChooserTest exercises the pure single-flight callback gate, stale-result cancellation, extension-to-MIME normalization, and rejection of non-content/private-provider/ungranted URI metadata. It does not launch a real picker or emulate Android URI grants.
 - SurfaceCachePureTest shares the same retention, eviction, destruction, dead-page and replacement assertions as the formal Robolectric test.
 - AiAdapterIntegrationTest uses the actual file-backed AI ProviderStore and InMemorySecretBox to verify editing visible fields retains keyRef, temperature, maxTokens, topP, prompt and extraHeaders, while blank displayed keys preserve secrets and explicit replacement updates the same key reference.
 - DownloadAdapterDispatchTest uses the actual adapter and an instrumented facade shape to verify pause/resume/remove run off the caller thread in requested order and clearFinished delegates one batch with deletion disabled. It does not exercise the actual download queue implementation or Toast rendering.
@@ -32,7 +33,7 @@ The substitutes in this directory are deliberately narrow:
 | Substitute | What it supplies | What remains unverified |
 |---|---|---|
 | AndroidContext | In-memory SharedPreferences strings, synchronous apply | Android disk writes, lifecycle, async apply durability |
-| AndroidView | Identity token for retained surfaces | WebView state, parents, rendering, actual view attachment |
+| AndroidView / AndroidUri | Identity-only View plus URI type shape | WebView state, attachment and URI grant behavior |
 | AppSettings/K | Memory setting values and the seven keys used by these tests | App/Core/DataStore initialization and full production key wiring |
 | DownloadFacade | Compile-time facade/queue shape | Download execution, queue scheduling and storage |
 | BottomBar / Resources | Item data shape and distinct integer icons | Layout, accessibility, real resource resolution |

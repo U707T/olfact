@@ -101,7 +101,11 @@ object LinkExtractor {
 
     /** 补 scheme；`www.x.com` → `https://www.x.com`，IP / localhost 用 http。 */
     fun normalize(raw: String): String {
-        val s = trimTrailing(raw.trim())
+        val trimmed = raw.trim()
+        // 地址栏中整段输入的合法 URL 必须保留其路径、查询和片段尾部字符；
+        // 提链场景仍由 extract() 对包裹句子的标点单独清理。
+        if (HTTP_URL_ONLY.matches(trimmed)) return trimmed
+        val s = trimTrailing(trimmed)
         if (SCHEME.containsMatchIn(s)) return s
         return if (isLocalAddress(s)) "http://$s" else "https://$s"
     }
@@ -136,17 +140,33 @@ object SearchEngines {
         val text = input.trim()
         if (text.isEmpty()) return "about:blank"
         if (LinkExtractor.looksLikeUrl(text)) return LinkExtractor.normalize(text)
+        return searchUrlFor(text, engineId, customTemplate)
+    }
+
+    /** 显式点「搜索」或使用系统搜索入口时，网址样式的关键词也应被搜索。 */
+    fun searchUrlFor(input: String, engineId: String? = null, customTemplate: String? = null): String {
+        val text = input.trim()
+        if (text.isEmpty()) return "about:blank"
         val id = engineId ?: cn.olfact.app.data.AppSettings.get(cn.olfact.app.data.K.SEARCH_ENGINE)
         val fallback = all.first().template
         val template = if (id == "custom") {
             (customTemplate ?: cn.olfact.app.data.AppSettings.get(cn.olfact.app.data.K.SEARCH_CUSTOM))
                 .trim()
-                .takeIf { it.contains("%s") }
+                .takeIf(::isCustomTemplateValid)
                 ?: fallback
         } else {
             byId(id).template.ifBlank { fallback }
         }
         val encoded = URLEncoder.encode(text, "UTF-8")
-        return if (template.contains("%s")) template.replace("%s", encoded) else template + encoded
+        return template.replace("%s", encoded)
+    }
+
+    fun isCustomTemplateValid(template: String): Boolean {
+        if (!template.contains("%s")) return false
+        return runCatching {
+            val uri = URI(template.replace("%s", "olfact"))
+            (uri.scheme.equals("https", ignoreCase = true) || uri.scheme.equals("http", ignoreCase = true)) &&
+                !uri.host.isNullOrBlank()
+        }.getOrDefault(false)
     }
 }

@@ -15,13 +15,14 @@ data class AdBlockStats(
     val engineName: String = ""
 )
 
-/** 订阅条目（面板展示用）。 */
+/** 订阅条目（面板展示用）。[lastError] 是最近一次拉取/解析失败的原因，成功后清空。 */
 data class AdBlockSubscription(
     val id: String,
     val name: String,
     val url: String,
     val enabled: Boolean = true,
-    val ruleCount: Int = 0
+    val ruleCount: Int = 0,
+    val lastError: String? = null
 )
 
 /**

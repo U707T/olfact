@@ -58,7 +58,6 @@ object K {
     // 嗅探/播放
     val SNIFF_ENABLED = SettingsKey("sniff.enabled", true)
     val SNIFF_TIP = SettingsKey("sniff.tip", true)
-    val SNIFF_FILTER_SMALL = SettingsKey("sniff.filter_small", true)
     val PLAYER_SPEED = SettingsKey("player.speed", "1.0")
     val PLAYER_SKIP_INTRO = SettingsKey("player.skip_intro", true)
     val PLAYER_GRAVITY_ROTATE = SettingsKey("player.gravity_rotate", true)

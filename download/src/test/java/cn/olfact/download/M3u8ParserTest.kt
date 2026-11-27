@@ -148,6 +148,31 @@ class M3u8ParserTest {
         assertEquals(0L, parsed.segments.first().mapByteRangeOffset)
     }
 
+    @Test fun `external audio group is linked from master variant`() {
+        val parsed = M3u8Parser.parse("""
+            #EXTM3U
+            #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud",NAME="English",URI="audio/en.m3u8"
+            #EXT-X-STREAM-INF:BANDWIDTH=900000,AUDIO="aud"
+            video/index.m3u8
+        """.trimIndent(), "https://example.com/master.m3u8")
+        assertEquals(setOf("aud"), parsed.externalAudioGroupIds)
+        assertEquals("aud", parsed.bestVariant()?.audioGroupId)
+    }
+
+    @Test fun `map captures key and IV active at declaration rather than later media key`() {
+        val parsed = M3u8Parser.parse("""
+            #EXTM3U
+            #EXT-X-KEY:METHOD=AES-128,URI="map.key",IV=0x00000000000000000000000000000001
+            #EXT-X-MAP:URI="init.mp4"
+            #EXT-X-KEY:METHOD=AES-128,URI="segment.key",IV=0x00000000000000000000000000000002
+            #EXTINF:1,
+            segment.ts
+        """.trimIndent(), "https://example.com/index.m3u8").segments.single()
+        assertEquals("https://example.com/map.key", parsed.mapKey?.uri)
+        assertEquals("0x00000000000000000000000000000001", parsed.mapKey?.ivHex)
+        assertEquals("https://example.com/segment.key", parsed.key?.uri)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun `implicit byte range cannot continue a different resource`() {
         M3u8Parser.parse("#EXTM3U\n#EXT-X-BYTERANGE:3@0\na.ts\n#EXT-X-BYTERANGE:3\nb.ts",

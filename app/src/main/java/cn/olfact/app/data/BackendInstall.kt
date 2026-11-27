@@ -97,9 +97,7 @@ object ModuleBackends {
         doh = adapter
         OlfactServices.doh = adapter
         OlfactServices.dohController = adapter
-        if (AppSettings.get(K.DOH_ENABLED)) {
-            scope.launch { runCatching { adapter.startFromSettings() } }
-        }
+        adapter.applySettings()
     }
 
     /** B2 渲染器用它判断某个 host 是否该走 DoH（粘性会话决策）。 */
@@ -156,7 +154,7 @@ object ModuleBackends {
 
     private fun installBrowser(app: Context) {
         if (OlfactServices.browserSurfaceFactory != null) return
-        OlfactServices.sniffer = SnifferSink
+        OlfactServices.snifferFactory = ::SnifferSink
         OlfactServices.browserSurfaceFactory = BrowserSurfaceFactory { WebBrowserSurface(app) }
     }
 }

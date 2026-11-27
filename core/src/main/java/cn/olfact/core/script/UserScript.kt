@@ -56,6 +56,9 @@ data class UserScript(
 
     /** `@match` 优先，没有则看 `@include`；`@exclude` 一票否决。 */
     fun matches(url: String): Boolean {
+        // addDocumentStartJavaScript 对 http(s)/file 等所有文档都生效；data:、blob:、
+        // about: 这类页面没有 host，规则无从判断，脚本只会在那里白跑或报错。
+        if (!UrlPatterns.isRunnablePage(url)) return false
         if (excludes.isNotEmpty() && excludes.any { UrlPatterns.matchesGlob(it, url) }) return false
         if (matches.isEmpty() && includes.isEmpty()) return true
         if (matches.any { UrlPatterns.matchesMatchPattern(it, url) }) return true

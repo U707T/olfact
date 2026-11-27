@@ -68,6 +68,8 @@ data class DohUpstream(
         /** 按 URL 找内置上游（忽略大小写、末尾斜杠与默认端口）。 */
         fun byUrl(url: String?): DohUpstream? {
             val target = normalizeUrl(url) ?: return null
+            // 旧设置页曾把这个地址写成 Cloudflare 预设，保留已保存选择。
+            if (target == "https://1.1.1.1/dns-query") return CLOUDFLARE
             return DEFAULTS.firstOrNull { normalizeUrl(it.url) == target }
         }
 

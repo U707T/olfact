@@ -88,4 +88,16 @@ interface BrowserSurfaceHost {
     fun onLongPressAt(url: String?, title: String?, x: Float, y: Float) {
         onLongPress(url, title)
     }
+
+    /** 页面请求上传文件时交给宿主的系统选择器；取消时必须回调 null。 */
+    fun onChooseFiles(
+        mimeTypes: List<String>,
+        allowMultiple: Boolean,
+        onResult: (List<android.net.Uri>?) -> Unit
+    ) {
+        onResult(null)
+    }
+
+    /** WebView崩溃或当前渲染器关闭时，完成未完成的选择回调。 */
+    fun onCancelFileChooser() {}
 }

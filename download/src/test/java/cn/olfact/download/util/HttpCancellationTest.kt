@@ -74,6 +74,54 @@ class HttpCancellationTest {
         }
     }
 
+    @Test fun `auth headers stay on original origin redirect only and cannot reappear after crossing origin`() = runBlocking {
+        val same = MockWebServer()
+        val other = MockWebServer()
+        same.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse = when (request.path) {
+                "/same" -> MockResponse().setResponseCode(302).addHeader("Location", "/same-final")
+                "/cross" -> MockResponse().setResponseCode(302).addHeader("Location", other.url("/to-other").toString())
+                "/back" -> MockResponse().setBody("back")
+                else -> MockResponse().setBody("ok")
+            }
+        }
+        other.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse =
+                MockResponse().setResponseCode(302).addHeader("Location", same.url("/back").toString())
+        }
+        same.start(); other.start()
+        try {
+            val credentials = mapOf(
+                "Cookie" to "sid=fake",
+                "Cookie2" to "legacy=fake",
+                "Authorization" to "Bearer fake",
+                "Proxy-Authorization" to "Basic fake",
+            )
+            val spec = DownloadSpec(same.url("/same").toString(), fileName = "auth", headers = credentials)
+            val client = OkHttpClient.Builder().followRedirects(true).build()
+            assertEquals("ok", Http.execute(client, Http.request(spec)) { it.body!!.string() })
+            val initial = same.takeRequest()
+            val sameHop = same.takeRequest()
+            credentials.forEach { (name, value) ->
+                assertEquals(value, initial.getHeader(name))
+                assertEquals(value, sameHop.getHeader(name))
+            }
+            assertEquals("back", Http.execute(client, Http.request(spec.copy(url = same.url("/cross").toString()))) { it.body!!.string() })
+            val crossStart = same.takeRequest()
+            val crossHop = other.takeRequest()
+            val returnedHop = same.takeRequest()
+            credentials.keys.forEach { name ->
+                assertNotNull(crossStart.getHeader(name))
+                assertNull(crossHop.getHeader(name))
+                assertNull(returnedHop.getHeader(name))
+            }
+            val crossSubresource = Http.request(spec, other.url("/media.ts").toString())
+            credentials.keys.forEach { assertNull(crossSubresource.header(it)) }
+        } finally {
+            same.shutdown(); other.shutdown()
+        }
+    }
+
     @Test fun `referer from custom headers is preserved when no explicit override exists`() {
         val spec = DownloadSpec("https://example.com/media", fileName = "media",
             headers = mapOf("referer" to "https://example.com/page"))

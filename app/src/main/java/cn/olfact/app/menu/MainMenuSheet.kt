@@ -110,23 +110,21 @@ object MainMenuSheet {
             setPadding(activity.dpF(28f), activity.dpF(6f), activity.dpF(28f), activity.dpF(20f))
         }
         listOf(
-            R.drawable.orig_m_power to {
-                activity.finishAffinity()
-            },
-            R.drawable.orig_m_collapse to {
+            Item(R.drawable.orig_m_power, "退出应用") { it.finishAffinity() },
+            Item(R.drawable.orig_m_collapse, "收起菜单") { sheet.dismiss() },
+            Item(R.drawable.orig_m_settings, "打开设置") {
                 sheet.dismiss()
-            },
-            R.drawable.orig_m_settings to {
-                sheet.dismiss()
-                Nav.toggle(SettingsFragment())
+                Nav.openSettings()
             }
-        ).forEach { (icon, action) ->
+        ).forEach { item ->
             footer.addView(ImageView(activity).apply {
-                setImageResource(icon)
+                setImageResource(item.icon)
+                contentDescription = item.label
+                isFocusable = true
                 imageTintList = ContextCompat.getColorStateList(activity, R.color.text_primary)
                 setPadding(activity.dpF(10f), activity.dpF(10f), activity.dpF(10f), activity.dpF(10f))
-                setOnClickListener { action() }
-            }, LinearLayout.LayoutParams(0, activity.dpF(44f), 1f))
+                setOnClickListener { item.action(activity) }
+            }, LinearLayout.LayoutParams(0, activity.dpF(48f), 1f))
         }
         sheet.add(footer)
         sheet.show()
@@ -153,8 +151,7 @@ object MainMenuSheet {
 
     private fun openIncognito(activity: MainActivity) {
         val tab = BrowserSession.open(null, "无痕标签页", incognito = true)
-        // push（不是 root）：返回键能回到上一个页面，也不会把首页从返回栈里清掉。
-        Nav.push(BrowserFragment.newInstance(tab.id, focusUrl = true))
+        Nav.openTab(tab.id)
     }
 
     private fun toggleFullscreen(activity: MainActivity) = activity.toggleFullscreen()
@@ -179,10 +176,16 @@ object MainMenuSheet {
         if (url.isNotBlank()) {
             labels += listOf("复制链接", "分享链接", "二维码分享")
         }
+        // 划词翻译一直没有入口（AiActions.translateSelection 无人调用），
+        // 放在这里：选中文字后点「翻译选中文字」即可。
+        if (AppSettings.get(K.AI_SELECTION)) {
+            labels += "翻译选中文字"
+        }
         labels += "粘贴前往"
         cn.olfact.core.uikit.AnchoredMenu.show(anchor, labels) { index ->
             when (labels[index]) {
                 "回到主页" -> Nav.goHome()
+                "翻译选中文字" -> AiActions.translateSelection(activity)
                 "复制链接" -> {
                     val cm = activity.getSystemService(android.content.ClipboardManager::class.java)
                     cm?.setPrimaryClip(android.content.ClipData.newPlainText("url", url))
@@ -209,7 +212,7 @@ object MainMenuSheet {
             when (labels[index]) {
                 "新建窗口" -> {
                     val tab = BrowserSession.openBlank(reuseBlank = false)
-                    Nav.push(BrowserFragment.newInstance(tab.id, focusUrl = true))
+                    Nav.openTab(tab.id)
                 }
                 "清除其它窗口" -> {
                     val current = BrowserSession.currentId
@@ -217,6 +220,7 @@ object MainMenuSheet {
                         Nav.toast("没有可保留的标签页")
                     } else {
                         BrowserSession.closeOthers(current)
+                        activity.refreshBottomBar()
                         Nav.toast("已清除其它标签页")
                     }
                 }

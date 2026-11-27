@@ -13,6 +13,7 @@ class OlfactApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        installLogSink()
         AppSettings.init(this)
         // 下载设置与设置页共用 DataStore；不绑定的话队列会回退到模块私有 prefs（两套配置源）。
         cn.olfact.download.DownloadSettings.bind(AppSettings.repo)
@@ -23,6 +24,23 @@ class OlfactApp : Application() {
         // 备份流水线在后台链路末尾自行安装
         ModuleBackends.install(this)
         applyNightMode()
+    }
+
+    /**
+     * 核心模块（拦截 / 脚本 / 备份 / 网络）只写 [cn.olfact.core.b4.B4Log]；不接管的话
+     * 它只打到 stderr，「网络日志」页永远只有 app 层自己写的那几条。
+     */
+    private fun installLogSink() {
+        val defaults = cn.olfact.core.b4.B4Log.sink
+        cn.olfact.core.b4.B4Log.sink = { level, tag, message, error ->
+            val text = if (error == null) message else "$message：${error.message ?: error.javaClass.simpleName}"
+            when (level) {
+                0 -> cn.olfact.app.data.AppLog.d(tag, text)
+                1 -> cn.olfact.app.data.AppLog.w(tag, text)
+                else -> cn.olfact.app.data.AppLog.e(tag, text)
+            }
+            runCatching { defaults(level, tag, message, error) }
+        }
     }
 
     private fun applyNightMode() {

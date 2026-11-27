@@ -3,6 +3,8 @@ package cn.olfact.app.data
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
@@ -24,6 +26,13 @@ internal object JsonStore {
         prefs(context).edit().putString(key, array.toString()).apply()
     }
 
+    /** 仅恢复需要同步落盘回执；普通浏览写入仍使用 apply。必须在后台调用。 */
+    fun writeArrayConfirmed(context: Context, key: String, array: JSONArray) {
+        if (!prefs(context).edit().putString(key, array.toString()).commit()) {
+            throw IOException("保存 $key 失败，请检查存储空间后重试恢复")
+        }
+    }
+
     fun objOf(vararg pairs: Pair<String, Any?>): JSONObject = JSONObject().apply {
         pairs.forEach { (k, v) -> put(k, v ?: JSONObject.NULL) }
     }
@@ -42,6 +51,7 @@ internal object JsonPersist {
     }
 
     private val pending = ConcurrentHashMap<String, ScheduledFuture<*>>()
+    private val queueLock = Any()
 
     fun schedule(
         context: Context,
@@ -50,15 +60,33 @@ internal object JsonPersist {
         snapshot: () -> JSONArray
     ) {
         val ctx = context.applicationContext
-        pending.remove(key)?.cancel(false)
-        val future = scheduler.schedule({
-            pending.remove(key)
-            runCatching {
-                val array = snapshot()
-                JsonStore.writeArray(ctx, key, array)
-            }
-        }, delayMs, TimeUnit.MILLISECONDS)
-        pending[key] = future
+        synchronized(queueLock) {
+            pending.remove(key)?.cancel(false)
+            pending[key] = scheduler.schedule({
+                runCatching { JsonStore.writeArray(ctx, key, snapshot()) }
+            }, delayMs, TimeUnit.MILLISECONDS)
+        }
+    }
+
+    /**
+     * 恢复专用：取消尚未开始的旧快照，与已开始的写入串行，等待 commit 的真实回执。
+     * 必须从后台线程调用；失败抛给 BackupPipeline，不能把排程成功当成恢复成功。
+     */
+    fun persistNow(context: Context, key: String, snapshot: () -> JSONArray) {
+        val ctx = context.applicationContext
+        val receipt = synchronized(queueLock) {
+            pending.remove(key)?.cancel(false)
+            scheduler.submit { JsonStore.writeArrayConfirmed(ctx, key, snapshot()) }
+        }
+        try {
+            receipt.get()
+        } catch (e: ExecutionException) {
+            val cause = e.cause ?: e
+            throw IOException("保存 $key 失败：${cause.message ?: "写入错误"}", cause)
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw IOException("等待 $key 落盘被中断；部分数据可能已写入", e)
+        }
     }
 
     /** 进程退出前尽量把待写数据刷掉（SharedPreferences 自身仍是异步 apply）。 */

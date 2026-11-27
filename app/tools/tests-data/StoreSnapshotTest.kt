@@ -37,6 +37,35 @@ class StoreSnapshotTest {
         assertTrue(HistoryStore.items.isEmpty())
     }
 
+    @Test fun `favorite source page strips credentials query and fragment`() {
+        assertEquals(
+            "https://site.example/watch",
+            safeFavoriteSourcePage("https://user:pass@site.example/watch?id=token#section")
+        )
+        assertNull(safeFavoriteSourcePage("javascript:alert(1)"))
+        assertEquals("https://site.example/watch", safeFavoriteSourcePage("https://user:pass@site.example/watch"))
+    }
+
+    @Test fun `favorite restore waits for durable snapshot and excludes source URL tokens`() {
+        val imported = FavoriteStore.Favorite(
+            id = 771,
+            title = "protected media",
+            url = "https://cdn.example/video.m3u8",
+            at = 1234,
+            sourcePage = "https://user:pass@site.example/watch?id=private#fragment",
+            mediaType = "HLS",
+            mimeType = "application/vnd.apple.mpegurl"
+        )
+        FavoriteStore.importAll(context, listOf(imported))
+
+        val persisted = JsonStore.readArray(context, "favorites")
+        assertTrue(persisted.toString().contains("video.m3u8"))
+        assertTrue(persisted.toString().contains("application/vnd.apple.mpegurl"))
+        assertFalse(persisted.toString().contains("user:pass"))
+        assertFalse(persisted.toString().contains("private"))
+        assertEquals("https://site.example/watch", persisted.getJSONObject(0).getString("sourcePage"))
+    }
+
     @Test fun `favorite snapshot remains unchanged after later add and remove`() {
         FavoriteStore.add(context, "first", "https://one.example")
         val first = FavoriteStore.items.single()

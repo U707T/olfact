@@ -45,6 +45,9 @@ class M3u8Downloader(
         val media = if (first.isMaster) {
             val variant = first.variantFor(MAX_HEIGHT) ?: first.bestVariant()
                 ?: throw IOException("master playlist 里没有可用清晰度")
+            if (variant.audioGroupId in first.externalAudioGroupIds) {
+                throw IOException("暂不支持需要外置音轨的 HLS master；为避免只保存视频已拒绝此流")
+            }
             loadPlaylist(spec, variant.uri)
         } else first
         if (media.segments.isEmpty()) throw IOException("m3u8 里没有分片")
@@ -52,10 +55,11 @@ class M3u8Downloader(
         val filterResult = AdBreakFilter.filter(media.segments, adConfig)
         val segments = filterResult.segments
         segments.forEach { segment ->
-            val key = segment.key
-            if (key?.isEncrypted == true && (!key.isAes128 || key.uri == null ||
-                    (key.keyFormat != null && key.keyFormat != "identity"))) {
-                throw IOException("不支持的 HLS 加密方式：${key.method}")
+            listOfNotNull(segment.key, segment.mapKey).forEach { key ->
+                if (key.isEncrypted && (!key.isAes128 || key.uri == null ||
+                        (key.keyFormat != null && key.keyFormat != "identity"))) {
+                    throw IOException("不支持的 HLS 加密方式：${key.method}")
+                }
             }
         }
         val maps = segments.filter { it.mapUri != null }
@@ -68,9 +72,8 @@ class M3u8Downloader(
         val total = segments.size
         val semaphore = Semaphore(maxConcurrent.coerceIn(1, 8))
         val keyCache = ConcurrentHashMap<String, ByteArray>()
-        suspend fun keyFor(segment: M3u8Segment): ByteArray? {
-            val key = segment.key ?: return null
-            if (!key.isEncrypted) return null
+        suspend fun keyFor(key: M3u8Key?): ByteArray? {
+            if (key == null || !key.isEncrypted) return null
             val uri = key.uri ?: throw IOException("AES-128 密钥地址为空")
             return keyCache[uri] ?: fetchBytesWithRetry(spec, uri).also {
                 if (it.size != 16) throw IOException("AES-128 密钥必须是 16 字节")
@@ -80,14 +83,15 @@ class M3u8Downloader(
 
         val initSegment = segments.firstOrNull { it.mapUri != null }
         val initFile = initSegment?.let { segment ->
-            val file = File(segmentDir, "init-${cacheKey(segment)}.mp4")
+            val file = File(segmentDir, "init-${mapCacheKey(segment)}.mp4")
             if (!file.exists() || file.length() == 0L) {
-                val key = keyFor(segment)
-                if (key != null && segment.key?.ivHex == null) {
+                val mapKey = segment.mapKey
+                val key = keyFor(mapKey)
+                if (key != null && mapKey?.ivHex == null) {
                     throw IOException("加密初始化分片缺少 IV")
                 }
                 fetchToFile(spec, segment.mapUri!!, file, key,
-                    key?.let { Aes128Decryptor.parseIv(segment.key?.ivHex, segment.sequence) },
+                    key?.let { Aes128Decryptor.parseIv(mapKey?.ivHex, segment.sequence) },
                     segment.mapByteRangeOffset, segment.mapByteRangeLength)
             }
             file
@@ -101,7 +105,7 @@ class M3u8Downloader(
                         // Content identity, not filtered list index: changed playlists/filters must not reuse old segments.
                         val file = File(segmentDir, "${cacheKey(segment)}.segment")
                         if (!file.exists() || file.length() == 0L) {
-                            val key = keyFor(segment)
+                            val key = keyFor(segment.key)
                             fetchToFile(spec, segment.uri, file, key,
                                 key?.let { Aes128Decryptor.parseIv(segment.key?.ivHex, segment.sequence) },
                                 segment.byteRangeOffset, segment.byteRangeLength)
@@ -128,7 +132,7 @@ class M3u8Downloader(
     }
 
     private suspend fun loadPlaylist(spec: DownloadSpec, url: String): M3u8Playlist =
-        client.newCall(Http.request(spec, url)).await { response ->
+        Http.execute(client, Http.request(spec, url)) { response ->
             if (!response.isSuccessful) throw IOException("HTTP ${response.code}：$url")
             val body = response.body ?: throw IOException("响应为空：$url")
             M3u8Parser.parse(body.string(), response.request.url.toString())
@@ -140,7 +144,7 @@ class M3u8Downloader(
             coroutineContext.ensureActive()
             attempt++
             try {
-                return client.newCall(Http.request(spec, url)).await { response ->
+                return Http.execute(client, Http.request(spec, url)) { response ->
                     if (!response.isSuccessful) throw IOException("HTTP ${response.code}：$url")
                     (response.body ?: throw IOException("响应为空：$url")).bytes()
                 }
@@ -172,7 +176,7 @@ class M3u8Downloader(
             try {
                 val end = if (length != null && offset != null) offset + length - 1 else null
                 val range = end?.let { "bytes=$offset-$it" }
-                client.newCall(Http.request(spec, url, range)).await { response ->
+                Http.execute(client, Http.request(spec, url, range)) { response ->
                     if (!response.isSuccessful) throw IOException("HTTP ${response.code}：$url")
                     if (end != null) Http.requireRange(response, offset!!, end)
                     val body = response.body ?: throw IOException("响应为空：$url")
@@ -211,6 +215,11 @@ class M3u8Downloader(
             }
         }
     }
+
+    private fun mapCacheKey(segment: M3u8Segment): String = MessageDigest.getInstance("SHA-256")
+        .digest(listOf(segment.mapUri, segment.mapByteRangeOffset, segment.mapByteRangeLength, segment.mapKey)
+            .joinToString("|").toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it) }
 
     private fun cacheKey(segment: M3u8Segment): String = MessageDigest.getInstance("SHA-256")
         .digest(segment.toString().toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }

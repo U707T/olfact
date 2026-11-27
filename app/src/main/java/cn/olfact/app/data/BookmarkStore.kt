@@ -92,7 +92,7 @@ object BookmarkStore {
                 added++
             }
         }
-        if (added > 0) persist(context, delayMs = 0)
+        JsonPersist.persistNow(context, KEY) { snapshot() }
         return added
     }
 
@@ -102,12 +102,14 @@ object BookmarkStore {
     fun flush(context: Context) = persist(context, delayMs = 0)
 
     private fun persist(context: Context, delayMs: Long = 150) {
-        JsonPersist.schedule(context, KEY, delayMs) {
-            val snapshot = synchronized(lock) { data.toList() }
-            org.json.JSONArray().apply {
-                snapshot.forEach { b ->
-                    put(JsonStore.objOf("id" to b.id, "title" to b.title, "url" to b.url, "folder" to b.folder, "at" to b.createdAt))
-                }
+        JsonPersist.schedule(context, KEY, delayMs) { snapshot() }
+    }
+
+    private fun snapshot(): org.json.JSONArray {
+        val snapshot = synchronized(lock) { data.toList() }
+        return org.json.JSONArray().apply {
+            snapshot.forEach { b ->
+                put(JsonStore.objOf("id" to b.id, "title" to b.title, "url" to b.url, "folder" to b.folder, "at" to b.createdAt))
             }
         }
     }
@@ -168,7 +170,7 @@ object HistoryStore {
                 trimLocked(limit())
             }
         }
-        if (added > 0) persist(context, delayMs = 0)
+        JsonPersist.persistNow(context, KEY) { snapshot() }
         return added
     }
 
@@ -218,12 +220,14 @@ object HistoryStore {
     fun flush(context: Context) = persist(context, delayMs = 0)
 
     private fun persist(context: Context, delayMs: Long = 800) {
-        JsonPersist.schedule(context, KEY, delayMs) {
-            val snapshot = synchronized(lock) { data.toList() }
-            org.json.JSONArray().apply {
-                snapshot.forEach { e ->
-                    put(JsonStore.objOf("title" to e.title, "url" to e.url, "at" to e.visitedAt))
-                }
+        JsonPersist.schedule(context, KEY, delayMs) { snapshot() }
+    }
+
+    private fun snapshot(): org.json.JSONArray {
+        val snapshot = synchronized(lock) { data.toList() }
+        return org.json.JSONArray().apply {
+            snapshot.forEach { e ->
+                put(JsonStore.objOf("title" to e.title, "url" to e.url, "at" to e.visitedAt))
             }
         }
     }

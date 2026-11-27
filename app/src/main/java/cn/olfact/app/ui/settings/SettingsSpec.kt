@@ -44,6 +44,15 @@ sealed class Row {
         val summary: String? = null
     ) : Row()
 
+    data class TextInput(
+        val title: String,
+        val value: () -> String,
+        val hint: String,
+        val summary: String? = null,
+        val validate: (String) -> String? = { null },
+        val onSave: (String) -> Unit
+    ) : Row()
+
     data class Action(
         val title: String,
         val summary: String? = null,

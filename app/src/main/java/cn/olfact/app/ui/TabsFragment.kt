@@ -103,17 +103,20 @@ class TabsFragment : Fragment(R.layout.fragment_tabs) {
 
         // 会话至少保留一个空白页；「恢复上次标签」仍然要在只有空白页时可见。
         val onlyBlank = BrowserSession.tabs.size <= 1 && BrowserSession.current()?.url.isNullOrBlank()
-        val saved = BrowserSession.savedCount(ctx)
+        val saved = if (onlyBlank) BrowserSession.savedCount(ctx) else 0
         if (onlyBlank && saved > 0) {
             b.tabList.addView(TextView(ctx).apply {
                 text = "恢复上次的 $saved 个标签"
+                minimumHeight = ctx.dpF(48f)
+                isFocusable = true
                 gravity = Gravity.CENTER
                 setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
                 setTextColor(ContextCompat.getColor(ctx, R.color.text_accent))
                 setPadding(0, ctx.dpF(10f), 0, ctx.dpF(10f))
                 setOnClickListener {
-                    BrowserSession.restore(ctx)
+                    val restored = BrowserSession.restore(ctx)
                     render()
+                    Nav.toast(if (restored > 0) "已恢复 $restored 个标签" else "没有可恢复的标签")
                 }
             }, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -125,6 +128,7 @@ class TabsFragment : Fragment(R.layout.fragment_tabs) {
     private fun buildRow(tab: Tab): View {
         val ctx = requireContext()
         val selected = tab.id == BrowserSession.currentId
+        val title = tab.title.ifBlank { tab.url.ifBlank { "新标签页" } }
 
         val row = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -135,13 +139,14 @@ class TabsFragment : Fragment(R.layout.fragment_tabs) {
                 ctx,
                 if (selected) R.drawable.bg_tab_card_selected else R.drawable.bg_tab_card
             )
-            isClickable = true
+            isSelected = selected
+            isFocusable = true
             setOnClickListener { openTab(tab.id) }
         }
 
         row.addView(ImageView(ctx).apply {
             setImageResource(R.drawable.orig_tab_globe)
-            contentDescription = null
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             setPadding(ctx.dpF(6f), ctx.dpF(6f), ctx.dpF(6f), ctx.dpF(6f))
         }, LinearLayout.LayoutParams(ctx.dpF(32f), ctx.dpF(32f)))
 
@@ -149,7 +154,7 @@ class TabsFragment : Fragment(R.layout.fragment_tabs) {
             // 无痕标签在列表里要有可辨认的标记，否则用户分不清哪个窗口不记历史。
             text = buildString {
                 if (tab.incognito) append("无痕 · ")
-                append(tab.title.ifBlank { "新标签页" })
+                append(title)
             }
             setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f)
             setTextColor(
@@ -163,13 +168,15 @@ class TabsFragment : Fragment(R.layout.fragment_tabs) {
 
         row.addView(ImageView(ctx).apply {
             setImageResource(R.drawable.orig_tab_close)
-            contentDescription = "关闭标签"
-            setPadding(ctx.dpF(12f), ctx.dpF(12f), ctx.dpF(12f), ctx.dpF(12f))
+            contentDescription = "关闭标签：$title"
+            isFocusable = true
+            background = ContextCompat.getDrawable(ctx, cn.olfact.core.R.drawable.uikit_ripple_row)
+            setPadding(ctx.dpF(14f), ctx.dpF(14f), ctx.dpF(14f), ctx.dpF(14f))
             setOnClickListener {
                 BrowserSession.close(tab.id)
                 render()
             }
-        }, LinearLayout.LayoutParams(ctx.dpF(40f), ctx.dpF(40f)))
+        }, LinearLayout.LayoutParams(ctx.dpF(48f), ctx.dpF(48f)))
 
         return row
     }

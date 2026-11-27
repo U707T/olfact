@@ -17,7 +17,6 @@ import cn.olfact.app.ui.common.setting
 import cn.olfact.app.ui.common.settingGroup
 import cn.olfact.app.ui.common.toggle
 import cn.olfact.core.api.AdBlockStats
-import cn.olfact.core.api.AdBlockSubscription
 import cn.olfact.core.api.OlfactServices
 import cn.olfact.core.uikit.ListRow
 import cn.olfact.core.uikit.SettingGroup
@@ -58,6 +57,12 @@ class AdBlockFragment : Fragment(R.layout.fragment_page) {
                 AppSettings.set(K.AD_ENABLED, on)
                 controller?.setEnabled(on)
                 render()
+            },
+            toggle("元素隐藏规则", AppSettings.get(K.AD_COSMETIC), "隐藏页面里的广告占位；关闭只拦请求") { on ->
+                AppSettings.set(K.AD_COSMETIC, on)
+                // 已打开的页面需要刷新才会重新注入/移除隐藏样式。
+                cn.olfact.app.data.RuntimeFlags.reloadPagesOnResume = true
+                render()
             }
         ).also { cardBottomMargin(it) })
 
@@ -70,26 +75,40 @@ class AdBlockFragment : Fragment(R.layout.fragment_page) {
         ).also { cardBottomMargin(it) })
 
         b.content.addView(sectionTitle("订阅"))
-        val subs = controller?.subscriptions() ?: defaultSubscriptions()
+        if (controller == null) {
+            b.content.addView(settingGroup(
+                setting("拦截模块未就绪", "正在初始化，稍后重试") { render() }
+            ).also { cardBottomMargin(it) })
+            b.content.addView(note("拦截模块未初始化时不会显示任何订阅，也不接受添加或删除操作。"))
+            return
+        }
+        val subs = controller.subscriptions()
+        if (subs.isEmpty()) {
+            b.content.addView(note("还没有订阅。添加一个订阅地址（例如 EasyList）后点「立即更新规则」才会真正生效。"))
+        }
         val group = SettingGroup(ctx)
         subs.forEach { sub ->
             val row = ListRow(ctx).apply {
                 title = sub.name
-                subtitle = if (sub.ruleCount > 0) "${sub.ruleCount} 条规则" else sub.url
+                subtitle = when {
+                    sub.lastError != null -> "拉取失败：${sub.lastError}"
+                    sub.ruleCount > 0 -> "${sub.ruleCount} 条规则"
+                    else -> sub.url
+                }
                 showChevron(false)
                 isClickable = true
             }
             val sw = cn.olfact.core.uikit.UiSwitch(ctx).apply {
                 setChecked(sub.enabled, false)
                 onCheckedChange = { on ->
-                    controller?.setSubscriptionEnabled(sub.id, on)
+                    controller.setSubscriptionEnabled(sub.id, on)
                     Nav.toast(if (on) "已启用 ${sub.name}" else "已停用 ${sub.name}")
                 }
             }
             row.addTrailing(sw)
             row.setOnLongClickListener {
                 Dialogs.confirm(ctx, "删除订阅", sub.name, danger = true) {
-                    controller?.removeSubscription(sub.id)
+                    controller.removeSubscription(sub.id)
                     render()
                 }
                 true
@@ -102,20 +121,23 @@ class AdBlockFragment : Fragment(R.layout.fragment_page) {
         b.content.addView(settingGroup(
             setting("添加订阅") {
                 Dialogs.input(Nav.context()!!, "订阅地址", hint = "https://…/easylist.txt") { url ->
-                    if (url.isNotBlank()) {
-                        controller?.addSubscription(url.substringAfterLast('/'), url)
-                        Nav.toast("已添加，正在更新规则…")
-                        controller?.refreshAsync { ok, message ->
-                            Nav.toast(if (ok) message else "更新失败：$message")
-                            render()
-                        }
+                    if (url.isBlank()) return@input
+                    val parsed = runCatching { java.net.URI(url.trim()) }.getOrNull()
+                    if (parsed?.host.isNullOrBlank() || parsed.scheme?.lowercase() !in setOf("http", "https")) {
+                        Nav.toast("请输入有效的 HTTP(S) 规则地址")
+                        return@input
+                    }
+                    controller.addSubscription(url.trim().substringAfterLast('/'), url.trim())
+                    Nav.toast("已添加，正在更新规则…")
+                    controller.refreshAsync { ok, message ->
+                        Nav.toast(if (ok) message else "更新失败：$message")
+                        render()
                     }
                 }
             },
             setting("立即更新规则", "拉取全部订阅并重建引擎") {
-                val c = controller ?: return@setting Nav.toast("拦截引擎未接入")
                 Nav.toast("开始更新规则…")
-                c.refreshAsync { ok, message ->
+                controller.refreshAsync { ok, message ->
                     Nav.toast(if (ok) message else "更新失败：$message")
                     render()
                 }
@@ -123,12 +145,12 @@ class AdBlockFragment : Fragment(R.layout.fragment_page) {
         ).also { cardBottomMargin(it) })
 
         b.content.addView(sectionTitle("白名单"))
-        val whitelist = controller?.whitelist() ?: emptyList()
+        val whitelist = controller.whitelist()
         b.content.addView(settingGroup(
             setting("白名单站点", if (whitelist.isEmpty()) "无" else "${whitelist.size} 个"),
             setting("编辑白名单") {
                 Dialogs.input(Nav.context()!!, "白名单", whitelist.joinToString("\n"), "一行一个域名") { text ->
-                    controller?.setWhitelist(text.lines().filter { it.isNotBlank() })
+                    controller.setWhitelist(text.lines().filter { it.isNotBlank() })
                     render()
                 }
             }
@@ -139,12 +161,6 @@ class AdBlockFragment : Fragment(R.layout.fragment_page) {
                 "Rust 编译失败时降级到 Kotlin 匹配器（规则上限 2 万条）。"
         ))
     }
-
-    private fun defaultSubscriptions() = listOf(
-        AdBlockSubscription("easylist-cn", "EasyList China", "https://easylist-downloads.adblockplus.org/easylistchina.txt"),
-        AdBlockSubscription("easylist", "EasyList", "https://easylist-downloads.adblockplus.org/easylist.txt"),
-        AdBlockSubscription("1024", "1024 专项", "https://example.com/1024.txt")
-    )
 
     override fun onDestroyView() {
         binding = null

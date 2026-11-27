@@ -199,6 +199,43 @@ class BrowserSessionTest {
     }
 
     @Test
+    fun `only unused startup blank protects the previous manually restorable session`() {
+        BrowserSession.ensureTab()
+        assertTrue(BrowserSession.hasOnlyStartupPlaceholder())
+        BrowserSession.closeAll()
+        assertTrue(!BrowserSession.hasOnlyStartupPlaceholder())
+    }
+
+    @Test
+    fun `manual restore never reuses a retired tab id and follows the remapped selection`() {
+        val retired = BrowserSession.open("https://first.example")
+        BrowserSession.closeAll()
+        val saved = listOf(Tab(retired.id, "https://first.example"), Tab(15, "https://other.example"))
+        assertEquals(2, BrowserSession.mergeRestored(saved, retired.id))
+        assertNotEquals(retired.id, BrowserSession.currentId)
+        assertEquals("https://first.example", BrowserSession.current()?.url)
+    }
+
+    @Test
+    fun `derived background tab inherits incognito and stays out of persistence`() {
+        val source = BrowserSession.open("https://private.example", incognito = true)
+        val child = BrowserSession.openDerived(source.id, "https://child.example")
+
+        assertTrue(child.incognito)
+        assertEquals(source.id, BrowserSession.currentId)
+        assertTrue(BrowserSession.persistable().none { it.id == child.id })
+    }
+
+    @Test
+    fun `derived tab from normal source remains normal`() {
+        val source = BrowserSession.open("https://normal.example")
+        val child = BrowserSession.openDerived(source.id, "https://child.example")
+
+        assertTrue(!child.incognito)
+        assertEquals(source.id, BrowserSession.currentId)
+    }
+
+    @Test
     fun `incognito tabs are never persisted`() {
         BrowserSession.open("https://normal.example")
         BrowserSession.open("https://secret.example", incognito = true)

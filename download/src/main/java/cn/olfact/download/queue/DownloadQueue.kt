@@ -320,8 +320,12 @@ class DownloadQueue(
                 if (store.get(id)?.status != DownloadStatus.RUNNING) return
                 store.upsert(finished)
                 publish()
-                if (config.notifyProgress) notifierProvider()?.notifyCompleted(finished)
             }
+            if (record.engine == DownloadEngine.M3U8 && finished.status == DownloadStatus.COMPLETED) {
+                runCatching { DownloadPaths.workDir(context, id).deleteRecursively() }
+                    .onFailure { android.util.Log.w("olfact", "清理已完成 HLS 缓存失败 id=$id", it) }
+            }
+            if (config.notifyProgress) notifierProvider()?.notifyCompleted(finished)
         } catch (e: CancellationException) {
             synchronized(stateLock) {
                 val latest = store.get(id)

@@ -92,6 +92,13 @@ class HomeFragment : Fragment(R.layout.fragment_home), ChromeAware {
             }
         }
 
+        b.urlBar.onEditorFocusChanged = { focused ->
+            if (!focused) {
+                searchHandler.removeCallbacks(searchDebounce)
+                suggest?.dismiss()
+            }
+        }
+
         buildShortcuts(b.shortcuts)
         // 关键：签名必须跟着 View 生命周期重置，并且**首次一定强制重建**。
         // HomeFragment 实例会被返回栈保留，但 View 会重建；如果签名还留着、
@@ -177,7 +184,7 @@ class HomeFragment : Fragment(R.layout.fragment_home), ChromeAware {
     private fun openHomeSuggestions() {
         val b = binding ?: return
         val text = b.urlBar.text().trim()
-        if (text.isEmpty()) {
+        if (!b.urlBar.editor.hasFocus() || text.isEmpty()) {
             suggest?.dismiss()
             return
         }
@@ -200,7 +207,7 @@ class HomeFragment : Fragment(R.layout.fragment_home), ChromeAware {
                 onSearch = {
                     b.urlBar.clearFocusCompat()
                     dismiss()
-                    Nav.openBrowser(SearchEngines.urlFor(it), reuseCurrent = true)
+                    Nav.openBrowser(SearchEngines.searchUrlFor(it), reuseCurrent = true)
                 }
             }
         }
@@ -229,7 +236,10 @@ class HomeFragment : Fragment(R.layout.fragment_home), ChromeAware {
             val cell = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER_HORIZONTAL
-                isClickable = true
+                minimumHeight = dp(48)
+                isFocusable = true
+                contentDescription = item.label
+                background = ContextCompat.getDrawable(ctx, cn.olfact.core.R.drawable.uikit_ripple_row)
                 setOnClickListener { item.action() }
                 addView(ImageView(ctx).apply {
                     setImageResource(item.icon)
@@ -237,6 +247,7 @@ class HomeFragment : Fragment(R.layout.fragment_home), ChromeAware {
                 })
                 addView(TextView(ctx).apply {
                     text = item.label
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                     setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f)
                     setTextColor(ContextCompat.getColor(ctx, R.color.text_primary))
                     gravity = Gravity.CENTER
@@ -265,7 +276,8 @@ class HomeFragment : Fragment(R.layout.fragment_home), ChromeAware {
             val row = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                minimumHeight = dp(37)
+                minimumHeight = dp(48)
+                isFocusable = true
                 setPadding(dp(16), 0, dp(12), 0)
                 isClickable = true
                 background = ContextCompat.getDrawable(ctx, cn.olfact.core.R.drawable.uikit_ripple_row)

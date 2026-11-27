@@ -53,7 +53,8 @@ class AiFragment : Fragment(R.layout.fragment_page) {
         b.content.addView(sectionTitle("功能开关"))
         b.content.addView(settingGroup(
             toggle("网页总结", AppSettings.get(K.AI_SUMMARY), "Readability 抽正文 + 分块摘要") { AppSettings.set(K.AI_SUMMARY, it) },
-            toggle("整页翻译", AppSettings.get(K.AI_TRANSLATE), "把当前页正文翻译后显示在结果面板") { AppSettings.set(K.AI_TRANSLATE, it) }
+            toggle("整页翻译", AppSettings.get(K.AI_TRANSLATE), "把当前页正文翻译后显示在结果面板") { AppSettings.set(K.AI_TRANSLATE, it) },
+            toggle("划词翻译", AppSettings.get(K.AI_SELECTION), "长按底栏标题，选择「翻译选中文字」") { AppSettings.set(K.AI_SELECTION, it) }
         ).also { cardBottomMargin(it) })
 
         b.content.addView(sectionTitle("供应商 ${providers.size}"))
@@ -67,12 +68,28 @@ class AiFragment : Fragment(R.layout.fragment_page) {
         }
         providers.forEach { p ->
             val row = ListRow(ctx).apply {
-                title = p.name
+                title = if (p.enabled) p.name else "${p.name}（已禁用）"
                 subtitle = "${p.model} · ${p.baseUrl}"
-                trailing = if (p.id == activeId) "当前" else mask(store?.apiKey(p.id).orEmpty())
+                trailing = when {
+                    !p.enabled -> "已禁用"
+                    p.id == activeId -> "当前"
+                    else -> mask(store?.apiKey(p.id).orEmpty())
+                }
                 showChevron(true)
                 onRowClick = { edit(p) }
             }
+            // 禁用不等于删除：保留 Key 与配置，只是不再参与总结/翻译。
+            row.addTrailing(cn.olfact.core.uikit.UiSwitch(ctx).apply {
+                setChecked(p.enabled, false)
+                onCheckedChange = { on ->
+                    runCatching { store?.setEnabled(p.id, on) }
+                        .onSuccess {
+                            Nav.toast(if (on) "已启用 ${p.name}" else "已禁用 ${p.name}")
+                            render()
+                        }
+                        .onFailure { Nav.toast("保存失败：${it.message ?: "存储错误"}") }
+                }
+            })
             group.addRow(row, dividerInsetDp = 0)
         }
         b.content.addView(group)

@@ -12,7 +12,6 @@ import cn.olfact.core.api.MediaItem
 import cn.olfact.core.api.MediaSniffer
 import cn.olfact.web.doh.SessionSticky
 import java.io.ByteArrayInputStream
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -42,10 +41,15 @@ class BrowserClient(
     private val onRenderProcessGone: (WebView) -> Unit = {}
 ) : WebViewClient() {
 
-    private val seenMedia = ConcurrentHashMap<String, Long>()
+    private data class Page(val url: String, val userAgent: String?, val title: String? = null)
+
     private val blockedCount = AtomicInteger()
-    @Volatile private var pageUrl: String = ""
-    @Volatile private var pageUa: String? = null
+    @Volatile private var page = Page("", null)
+
+    /** WebChromeClient supplies title updates on the WebView owner thread. */
+    fun updatePageTitle(title: String) {
+        page = page.copy(title = title)
+    }
 
     fun blockedRequestCount(): Int = blockedCount.get()
 
@@ -53,12 +57,13 @@ class BrowserClient(
         val uri = request.url ?: return null
         val url = uri.toString()
         val host = uri.host.orEmpty()
+        val pageSnapshot = page
 
         if (host.isNotEmpty()) sticky?.touch(tabId, host)
 
         val hook = adblock
         if (hook != null && !request.isForMainFrame) {
-            val blocked = runCatching { hook.shouldBlock(url, hostOf(pageUrl)) }.getOrDefault(false)
+            val blocked = runCatching { hook.shouldBlock(url, hostOf(pageSnapshot.url)) }.getOrDefault(false)
             if (blocked) {
                 blockedCount.incrementAndGet()
                 runCatching { hook.recordBlocked() }
@@ -66,22 +71,17 @@ class BrowserClient(
             }
         }
 
-        val mediaType = MediaTypes.of(url)
+        val mediaType = if (request.method.equals("GET", ignoreCase = true)) MediaTypes.of(url) else null
         val snifferRef = sniffer
-        if (mediaType != null && snifferRef != null && !seenRecently(url)) {
-            val referer = pageUrl
-            val headers = buildMap {
-                if (referer.isNotEmpty()) put("Referer", referer)
-                pageUa?.let { put("User-Agent", it) }
-                request.requestHeaders?.forEach { (name, value) -> put(name, value) }
-            }
+        if (mediaType != null && snifferRef != null) {
+            val headers = MediaTypes.replayHeaders(request.requestHeaders.orEmpty(), pageSnapshot.userAgent)
             runCatching {
                 snifferRef.onMediaDetected(
                     MediaItem(
                         url = url,
                         type = mediaType,
-                        pageUrl = referer.orEmpty(),
-                        pageTitle = runCatching { snifferRef.currentPageTitle() }.getOrDefault(""),
+                        pageUrl = if (request.isForMainFrame) url else pageSnapshot.url,
+                        pageTitle = pageSnapshot.title.takeUnless { request.isForMainFrame },
                         headers = headers
                     )
                 )
@@ -92,8 +92,7 @@ class BrowserClient(
 
     override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
         super.onPageStarted(view, url, favicon)
-        pageUrl = url
-        pageUa = view.settings.userAgentString
+        page = Page(url, view.settings.userAgentString)
         val host = hostOf(url)
         if (host.isNotEmpty()) {
             sticky?.onMainFrame(tabId, host, dohPredicate(host))
@@ -148,9 +147,8 @@ class BrowserClient(
     }
 
     /**
-     * 主框架的 4xx / 5xx 不会走 [onReceivedError]（那是网络层错误）。
-     * 不补这一层的话，404/502 在 WebView 里就是「加载完了但一片空白」——
-     * 用户看到的是服务端返回的错误页 HTML，界面却以为一切正常，也没有重试入口。
+     * HTTP 状态错误不等同于无法渲染网页。保留 WebView 中服务器返回的正文，
+     * 让验证码、限流说明和错误页上的恢复链接仍可交互；网络层失败仍走 onReceivedError。
      */
     override fun onReceivedHttpError(
         view: WebView,
@@ -158,19 +156,7 @@ class BrowserClient(
         errorResponse: WebResourceResponse
     ) {
         super.onReceivedHttpError(view, request, errorResponse)
-        val code = errorResponse.statusCode
-        if (request.isForMainFrame && code >= 400) {
-            onError(code, "HTTP $code", request.url?.toString().orEmpty())
-        }
-    }
-
-    private fun seenRecently(url: String): Boolean {
-        val now = System.currentTimeMillis()
-        val previous = seenMedia.put(url, now)
-        if (seenMedia.size > 256) {
-            seenMedia.entries.removeAll { now - it.value > SEEN_TTL_MS }
-        }
-        return previous != null && now - previous < SEEN_TTL_MS
+        // Intentionally do not call onError: the response body is still a usable page.
     }
 
     private fun blockedResponse(): WebResourceResponse {
@@ -188,7 +174,4 @@ class BrowserClient(
     private fun hostOf(url: String): String =
         runCatching { Uri.parse(url).host }.getOrNull().orEmpty()
 
-    companion object {
-        private const val SEEN_TTL_MS = 60_000L
-    }
 }

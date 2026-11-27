@@ -39,25 +39,17 @@ class DownloadAdapter(
         mimeType: String?,
         headers: Map<String, String>
     ) {
-        val file = name?.ifBlank { null }
-            ?: url.substringBefore('?').substringAfterLast('/').ifBlank { "download-${UUID.randomUUID()}" }
-        scope.launch {
-            runCatching {
-                facade.enqueue(
-                    DownloadSpec(
-                        url = url,
-                        fileName = file,
-                        mimeType = mimeType,
-                        userAgent = userAgent,
-                        // 页面地址优先当 Referer；没有页面地址时不要瞎填成下载地址本身。
-                        referer = referer.ifBlank { pageUrl }.ifBlank { null },
-                        pageUrl = pageUrl.ifBlank { null },
-                        headers = headers
-                    )
-                )
-            }.onFailure { e ->
-                // 之前这里是静默的：入队失败（目录不可写、队列文件坏、spec 非法）用户只看到「没反应」。
-                android.util.Log.w("olfact", "添加下载失败: $url", e)
+        val spec = downloadSpecForRequest(url, name, pageUrl, referer, userAgent, mimeType, headers)
+        scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            try {
+                queueUpdates.withLock { withContext(Dispatchers.IO) { facade.enqueue(spec) } }
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(appContext, "已加入下载队列", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.w("olfact", "添加下载失败", e)
                 withContext(Dispatchers.Main) {
                     Toast.makeText(appContext, "添加下载失败：${e.message ?: "未知错误"}", Toast.LENGTH_LONG).show()
                 }
@@ -102,6 +94,21 @@ class DownloadAdapter(
 
     override val changes: Flow<Unit> = facade.queue.items.map { }
 }
+
+internal fun downloadSpecForRequest(
+    url: String, name: String?, pageUrl: String, referer: String, userAgent: String?,
+    mimeType: String?, headers: Map<String, String>
+): DownloadSpec = DownloadSpec(
+    url = url,
+    kind = cn.olfact.download.DownloadKind.detect(url, mimeType),
+    fileName = name?.ifBlank { null }
+        ?: url.substringBefore('?').substringBefore('#').substringAfterLast('/').ifBlank { "download-${UUID.randomUUID()}" },
+    mimeType = mimeType,
+    userAgent = userAgent,
+    referer = referer.ifBlank { pageUrl }.ifBlank { null },
+    pageUrl = pageUrl.ifBlank { null },
+    headers = headers.toMap()
+)
 
 internal fun cn.olfact.download.DownloadRecord.toTask(speed: Long = 0L): DownloadTask = DownloadTask(
     id = id,

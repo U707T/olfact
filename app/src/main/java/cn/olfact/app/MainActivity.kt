@@ -54,10 +54,10 @@ class MainActivity : AppCompatActivity() {
 
     /** 字体缩放：设置页改完 recreate 后由这里生效（1.0 = 100%）。 */
     override fun attachBaseContext(newBase: Context) {
-        val scale = runCatching { AppSettings.get(K.FONT_SCALE) / 100f }.getOrDefault(1f)
+        val scale = runCatching { AppSettings.get(K.FONT_SCALE).coerceIn(90, 120) / 100f }.getOrDefault(1f)
         if (scale != 1f) {
             val config = android.content.res.Configuration(newBase.resources.configuration)
-            config.fontScale = scale
+            config.fontScale *= scale
             super.attachBaseContext(newBase.createConfigurationContext(config))
         } else {
             super.attachBaseContext(newBase)
@@ -66,22 +66,22 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // FragmentManager can restore a screen into a fresh process with savedInstanceState != null.
+        // Bootstrap the process-local session before any restored BrowserFragment binds its tab.
+        if (BrowserSession.tabs.isEmpty()) BrowserSession.restoreIfNeeded(this)
+        BrowserSession.ensureTab()
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         applyInsets()
 
         Nav.attach(this, R.id.container)
-        // 底栏角标、标签页列表与「1」的初始状态保持一致：会话至少有一个标签页。
-        BrowserSession.ensureTab()
         setupBottomBar()
         observeChrome()
         applyEyeCare()
         requestNotifyPermissionOnce()
 
         if (savedInstanceState == null) {
-            // restore 内部会替换掉启动时的唯一空白页，不会多出一个空标签。
-            BrowserSession.restoreIfNeeded(this)
             // 先落一个首页作为根页面，再处理外部链接/下载通知。
             // 否则冷启动直接 push 浏览器时，返回栈只有浏览器一项，按返回会把容器清空。
             Nav.openHome()
@@ -94,7 +94,15 @@ class MainActivity : AppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleIntent(intent)
+        // singleTask can receive an intent while FragmentManager is still state-saved.
+        if (supportFragmentManager.isStateSaved) pendingIntents.addLast(intent) else handleIntent(intent)
+    }
+
+    private val pendingIntents = ArrayDeque<Intent>()
+
+    override fun onPostResume() {
+        super.onPostResume()
+        while (pendingIntents.isNotEmpty()) handleIntent(pendingIntents.removeFirst())
     }
 
     override fun onResume() {
@@ -165,10 +173,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun applyInsets() {
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            bottomInset = bars.bottom
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            val keyboard = insets.getInsets(WindowInsetsCompat.Type.ime())
+            bottomInset = maxOf(bars.bottom, keyboard.bottom)
+            binding.contentColumn.updatePadding(left = bars.left, right = bars.right)
             binding.container.updatePadding(top = bars.top)
-            binding.bottomBar.updatePadding(bottom = bars.bottom)
+            binding.bottomBar.updatePadding(bottom = bottomInset)
             // 底栏隐藏时（设置/列表页）内容区要自己让出导航栏/手势条，否则最后一行被挡住。
             updateContainerBottomInset()
             insets
@@ -301,6 +311,7 @@ class MainActivity : AppCompatActivity() {
             else -> R.drawable.orig_b_refresh
         }
         binding.bottomBar.setIcon("refresh", refreshIcon)
+        binding.bottomBar.setDescription("refresh", if (refreshIcon == R.drawable.orig_b_forward) "前进" else "刷新")
         binding.bottomBar.setPillText("search", barTitle())
         binding.bottomBar.setBadge("tabs", BrowserSession.tabs.size)
     }
@@ -376,12 +387,13 @@ class MainActivity : AppCompatActivity() {
                 return true
             }
             Intent.ACTION_WEB_SEARCH -> {
-                val query = intent.getStringExtra(android.app.SearchManager.QUERY) ?: return false
-                Nav.openBrowser(SearchEngines.urlFor(query))
+                val query = intent.getStringExtra(android.app.SearchManager.QUERY)?.takeIf { it.isNotBlank() }
+                    ?: return false
+                Nav.openBrowser(SearchEngines.searchUrlFor(query))
                 return true
             }
             Intent.ACTION_SEND -> {
-                val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return false
+                val text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString() ?: return false
                 return openText(text)
             }
             Intent.ACTION_PROCESS_TEXT -> {
@@ -394,10 +406,11 @@ class MainActivity : AppCompatActivity() {
 
     /** 文本提链：一段话里的多个链接 → 首个打开，其余进后台标签。 */
     private fun openText(text: String): Boolean {
+        if (text.isBlank()) return false
         val links = LinkExtractor.extract(text)
         AppLog.i("intent", "文本提链命中 ${links.size} 条")
         if (links.isEmpty()) {
-            Nav.openBrowser(SearchEngines.urlFor(text.trim()))
+            Nav.openBrowser(SearchEngines.urlFor(text))
             return true
         }
         // 其余链接进后台标签，不抢当前页；否则 currentId 会停在最后一个后台标签上。

@@ -5,6 +5,9 @@ import kotlin.math.abs
 /** 纯计算，便于单元测试；不碰任何 Android 类。 */
 object PlayerMath {
 
+    /** A completed single-item session should replay from the beginning on the next play action. */
+    fun replayPositionIfEnded(isEnded: Boolean): Long? = if (isEnded) 0L else null
+
     fun formatDuration(positionMs: Long): String {
         if (positionMs <= 0L) return "00:00"
         val totalSeconds = positionMs / 1000

@@ -59,8 +59,6 @@ class PlatformBoundaryTest {
         val found = AtomicReference<MediaItem>()
         val sniffer = object : MediaSniffer {
             override fun onMediaDetected(item: MediaItem) { found.set(item) }
-            override fun currentPageTitle() = "title"
-            override fun currentPageUrl() = "https://page.example/watch"
         }
         val client = BrowserClient("tab", { BrowserConfig() }, sniffer = sniffer)
         val view = WebView(Context())
@@ -75,6 +73,27 @@ class PlatformBoundaryTest {
         assertEquals("https://page.example/watch", found.get().pageUrl)
         assertEquals("stub-agent", found.get().headers["User-Agent"])
         assertEquals("test", found.get().headers["Authorization"])
+    }
+
+    @Test fun `same media on two pages is reported with each page context`() {
+        val items = mutableListOf<MediaItem>()
+        val client = BrowserClient("tab", { BrowserConfig() }, sniffer = object : MediaSniffer {
+            override fun onMediaDetected(item: MediaItem) { items += item }
+        })
+        val view = WebView(Context())
+        val media = "https://cdn.example/song.M4A?token=one"
+        for (i in 1..2) {
+            val page = "https://page.example/watch/$i"
+            client.onPageStarted(view, page, null)
+            client.updatePageTitle("Page $i")
+            client.shouldInterceptRequest(view, request(media, headers = mapOf(
+                "referer" to "https://page.example/", "user-agent" to "actual-agent", "Range" to "bytes=0-1"
+            )))
+        }
+        assertEquals(listOf("https://page.example/watch/1", "https://page.example/watch/2"), items.map { it.pageUrl })
+        assertEquals(listOf("Page 1", "Page 2"), items.map { it.pageTitle })
+        assertTrue(items.all { it.type == cn.olfact.core.api.MediaType.AUDIO })
+        assertEquals(mapOf("Referer" to "https://page.example/", "User-Agent" to "actual-agent"), items.last().headers)
     }
 
     @Test fun `adblock gets page host rather than resource host`() {
@@ -137,5 +156,24 @@ class PlatformBoundaryTest {
             // 不调度已排队的上游竞速；真实 DoH 只在显式 LiveDohTest 中运行。
             scope.coroutineContext[kotlinx.coroutines.Job]!!.cancel()
         }
+    }
+
+    @Test fun `http error page remains available while network failures still show browser error`() {
+        val errors = mutableListOf<Pair<Int, String>>()
+        val client = BrowserClient("tab", { BrowserConfig() }, onError = { code, message, _ ->
+            errors += code to message
+        })
+        val view = WebView(Context())
+        val body = java.io.ByteArrayInputStream("<button>retry</button>".toByteArray())
+        val response = android.webkit.WebResourceResponse("text/html", "utf-8", body).apply {
+            statusCode = 403
+        }
+
+        client.onReceivedHttpError(view, request("https://site.example/blocked", main = true), response)
+        assertTrue("HTTP body must not be covered by the full-page network error UI", errors.isEmpty())
+
+        client.onReceivedError(view, request("https://site.example/offline", main = true),
+            android.webkit.WebResourceError(-2, "offline"))
+        assertEquals(listOf(-2 to "offline"), errors)
     }
 }

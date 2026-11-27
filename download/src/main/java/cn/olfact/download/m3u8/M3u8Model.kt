@@ -22,6 +22,8 @@ data class M3u8Segment(
     val byteRangeOffset: Long? = null,
     val mapByteRangeLength: Long? = null,
     val mapByteRangeOffset: Long? = null,
+    /** Encryption active when EXT-X-MAP was declared; not the following media segment key. */
+    val mapKey: M3u8Key? = null,
     val title: String? = null,
     /** 由 EXT-X-CUE-OUT / EXT-X-DATERANGE 判定出的广告区间。 */
     val adBreak: Boolean = false,
@@ -33,6 +35,8 @@ data class M3u8Variant(
     val resolution: String? = null,
     val codecs: String? = null,
     val frameRate: Double? = null,
+    /** EXT-X-STREAM-INF AUDIO group reference; non-null may require an external rendition. */
+    val audioGroupId: String? = null,
 ) {
     val height: Int
         get() = resolution?.substringAfter('x')?.toIntOrNull() ?: 0
@@ -51,6 +55,7 @@ data class M3u8Playlist(
     val ended: Boolean = false,
     val totalDurationMs: Long = 0L,
     val hasEncryption: Boolean = false,
+    val externalAudioGroupIds: Set<String> = emptySet(),
 ) {
     val segmentCount: Int get() = segments.size
 

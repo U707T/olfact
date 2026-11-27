@@ -29,7 +29,8 @@ class DohAdapterIntegrationTest {
 
     @Test fun `preset selection pins preset without forcing custom-only pool`() {
         settings.set(K.DOH_UPSTREAM, "https://doh.pub/dns-query")
-        adapter.startFromSettings()
+        settings.set(K.DOH_ENABLED, true)
+        adapter.applySettings()
         val cfg = runtimeConfig()
         assertEquals("tencent", cfg.preferredUpstreamId)
         assertTrue(cfg.customUpstreams.isEmpty())
@@ -38,7 +39,8 @@ class DohAdapterIntegrationTest {
 
     @Test fun `local HTTP custom setting reaches manager as custom-only normalized endpoint`() {
         settings.set(K.DOH_UPSTREAM, "http://[::1]:8080")
-        adapter.startFromSettings()
+        settings.set(K.DOH_ENABLED, true)
+        adapter.applySettings()
         val cfg = runtimeConfig()
         assertNull(cfg.preferredUpstreamId)
         assertTrue(cfg.customOnly)
@@ -48,10 +50,48 @@ class DohAdapterIntegrationTest {
 
     @Test fun `automatic setting keeps full built-in pool`() {
         settings.set(K.DOH_UPSTREAM, "auto")
-        adapter.startFromSettings()
+        settings.set(K.DOH_ENABLED, true)
+        adapter.applySettings()
         assertFalse(runtimeConfig().customOnly)
         assertTrue(runtimeConfig().customUpstreams.isEmpty())
         assertNull(runtimeConfig().preferredUpstreamId)
+    }
+
+    @Test fun `disabled snapshot wins over stale queued enable and initializes configured mode`() {
+        settings.set(K.DOH_ENABLED, true)
+        settings.set(K.DOH_MODE, "exclude")
+        settings.set(K.DOH_RULES, "local.example")
+        settings.set(K.DOH_ENABLED, false)
+        adapter.applySettings()
+        assertFalse(adapter.status().enabled)
+        assertEquals(DohMode.EXCLUDE, adapter.status().mode)
+        assertFalse(manager.rules().useDoh("local.example"))
+        assertNull(manager.appDns())
+    }
+
+    @Test fun `rule edits update running resolver without L2 rebuild and reset stops it`() {
+        settings.set(K.DOH_ENABLED, true)
+        adapter.applySettings()
+        val resolver = manager.appDns()
+        settings.set(K.DOH_RULES, "listed.example")
+        settings.set(K.DOH_MODE, "include")
+        adapter.applySettings()
+        assertSame(resolver, manager.appDns())
+        assertTrue(manager.rules().useDoh("listed.example"))
+        assertFalse(manager.rules().useDoh("unlisted.example"))
+        settings.reset()
+        adapter.applySettings()
+        assertFalse(adapter.status().enabled)
+        assertEquals(DohMode.SMART, adapter.status().mode)
+        assertNull(manager.appDns())
+    }
+
+    @Test fun `saved legacy Cloudflare preset remains a built-in preference`() {
+        settings.set(K.DOH_ENABLED, true)
+        settings.set(K.DOH_UPSTREAM, "https://1.1.1.1/dns-query")
+        adapter.applySettings()
+        assertEquals("cloudflare", runtimeConfig().preferredUpstreamId)
+        assertFalse(runtimeConfig().customOnly)
     }
 
     @Test fun `public controller start follows same preset and custom routing decisions`() {

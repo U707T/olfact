@@ -28,7 +28,10 @@ data class FavoriteRecord(
     val id: String,
     val title: String,
     val url: String,
-    val createdAt: Long = 0L
+    val createdAt: Long = 0L,
+    val sourcePage: String? = null,
+    val mediaType: String? = null,
+    val mimeType: String? = null
 )
 
 @Serializable
@@ -77,8 +80,8 @@ data class BackupManifest(
 ) {
     companion object {
         const val FORMAT = "olfact-backup"
-        /** v2：新增 favorites（收藏）。旧版读取时会因 version > VERSION 被拒绝，属预期。 */
-        const val VERSION = 2
+        /** v3：favorites增加可选来源页/媒体类型/MIME；旧版v1/v2仍按默认值恢复。 */
+        const val VERSION = 3
 
         /** 仍能读取的最旧版本。v1 没有 favorites，按空列表处理。 */
         const val MIN_SUPPORTED = 1

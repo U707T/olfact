@@ -119,7 +119,7 @@ class ChunkDownloader(
             try {
                 val from = range.start + already
                 val request = Http.request(spec, rangeHeader = "bytes=$from-${range.endInclusive}")
-                client.newCall(request).await { response ->
+                Http.execute(client, request) { response ->
                     Http.requireRange(response, from, range.endInclusive, total)
                     val body = response.body ?: throw IOException("分块 ${range.index} 响应为空")
                     var written = 0L
@@ -167,7 +167,7 @@ class ChunkDownloader(
             coroutineContext.ensureActive()
             attempt++
             try {
-                client.newCall(Http.request(spec)).await { response ->
+                Http.execute(client, Http.request(spec)) { response ->
                     if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
                     val total = response.header("Content-Length")?.toLongOrNull() ?: -1L
                     val body = response.body ?: throw IOException("响应为空")

@@ -149,7 +149,11 @@ object LongPressSheet {
         if (target != null) {
             out.add(Action("在新标签页打开") {
                 // 后台标签：不抢当前页，否则地址栏和 currentId 会错位。
-                BrowserSession.open(target, selectNew = false)
+                BrowserSession.openDerived(
+                    sourceTabId = BrowserSession.currentId,
+                    url = target,
+                    selectNew = false
+                )
                 (context as? cn.olfact.app.MainActivity)?.refreshBottomBar()
                 Nav.toast("已在新标签页打开")
             })
@@ -157,13 +161,17 @@ object LongPressSheet {
             out.add(Action("下载") {
                 AddDownloadSheet.show(context, initialUrl = target) { u, name ->
                     val page = BrowserSession.current()?.url.orEmpty()
-                    cn.olfact.core.api.OlfactServices.downloads?.enqueue(
+                    val center = cn.olfact.core.api.OlfactServices.downloads
+                    if (center == null) {
+                        Nav.toast("下载模块尚未就绪")
+                        return@show
+                    }
+                    center.enqueue(
                         url = u,
                         name = name,
                         pageUrl = page,
                         referer = page
                     )
-                    Nav.toast("已加入下载")
                 }
             })
             out.add(Action("加入书签") {

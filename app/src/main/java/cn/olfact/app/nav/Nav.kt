@@ -4,6 +4,7 @@ import android.widget.Toast
 import androidx.fragment.app.Fragment
 import cn.olfact.app.R
 import cn.olfact.app.MainActivity
+import cn.olfact.app.data.BrowserSession
 import cn.olfact.app.ui.HomeFragment
 import cn.olfact.app.ui.TabsFragment
 import cn.olfact.app.ui.browser.BrowserFragment
@@ -157,10 +158,10 @@ object Nav {
         val fm = host?.supportFragmentManager ?: return false
         if (current() !is TabsFragment) return false
         if (fm.backStackEntryCount > 0) fm.popBackStackImmediate()
-        val blank = cn.olfact.app.data.BrowserSession.tabs.firstOrNull { it.id == tabId }?.url.isNullOrBlank()
+        val blank = BrowserSession.tabs.firstOrNull { it.id == tabId }?.url.isNullOrBlank()
         return when (val under = current()) {
             is BrowserFragment -> {
-                under.showTab(tabId)
+                under.showTab(tabId, focusBlank = true)
                 true
             }
             is HomeFragment -> {
@@ -178,6 +179,14 @@ object Nav {
 
     fun openSettings() = toggle(SettingsFragment())
 
+    fun openTab(tabId: Long) {
+        val tab = BrowserSession.tabs.firstOrNull { it.id == tabId } ?: return
+        BrowserSession.select(tabId)
+        val browser = current() as? BrowserFragment
+        if (browser != null) browser.showTab(tabId, focusBlank = true)
+        else push(BrowserFragment.newInstance(tabId, focusUrl = tab.url.isBlank()))
+    }
+
     /**
      * 打开网址。
      *
@@ -185,26 +194,30 @@ object Nav {
      * 避免每点一次就新增一个标签；外部链接和书签默认新标签。
      */
     fun openBrowser(url: String?, reuseCurrent: Boolean = false) {
-        if (!reuseCurrent && cn.olfact.app.data.BrowserSession.tabs.size >= cn.olfact.app.data.BrowserSession.MAX_TABS) {
-            toast("标签已达上限（${cn.olfact.app.data.BrowserSession.MAX_TABS}），最早的标签会被关闭")
-        }
-        // 已经在浏览器页：只换当前标签的地址，不再叠一个 BrowserFragment
-        // （旧实现每点一次首页搜索/最近访问就多一层浏览器，返回键要按很多次）。
+        // 外部入口正在显示标签列表时，先收起列表，避免浏览器返回到一个陈旧覆盖层。
+        if (current() is TabsFragment) pop()
         val browser = current() as? BrowserFragment
-        if (reuseCurrent && browser != null) {
-            cn.olfact.app.data.BrowserSession.openInCurrent(url)
-            browser.load(url ?: "about:blank")
+        val previous = BrowserSession.current()
+        val reusesBlank = url != null && previous?.let { it.url.isBlank() && !it.incognito } == true
+        if (!reuseCurrent && !reusesBlank && BrowserSession.tabs.size >= BrowserSession.MAX_TABS) {
+            toast("标签已达上限（${BrowserSession.MAX_TABS}），最早的后台标签会被关闭")
+        }
+        if (reuseCurrent && browser != null && url != null) {
+            browser.navigate(url)
             return
         }
-        val tab = if (reuseCurrent) {
-            cn.olfact.app.data.BrowserSession.openInCurrent(url)
-        } else if (url != null) {
-            // 外部链接 / 书签：当前恰好是空白页时复用，避免「空白页 + 目标页」两个标签。
-            cn.olfact.app.data.BrowserSession.openOrReuseBlank(url)
-        } else {
-            cn.olfact.app.data.BrowserSession.open(null)
+        val tab = when {
+            reuseCurrent -> BrowserSession.openInCurrent(url)
+            url != null -> BrowserSession.openOrReuseBlank(url)
+            else -> BrowserSession.open(null)
         }
-        push(BrowserFragment.newInstance(tab.id, focusUrl = tab.url.isBlank()))
+        if (browser != null) {
+            // 浏览器已显示时新建/切换标签，不再增加一层 BrowserFragment。
+            if (reusesBlank && url != null) browser.navigate(url)
+            else browser.showTab(tab.id, recordHistory = url != null, focusBlank = true)
+        } else {
+            push(BrowserFragment.newInstance(tab.id, focusUrl = tab.url.isBlank()))
+        }
     }
 
     fun context(): android.content.Context? = host

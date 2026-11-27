@@ -17,7 +17,15 @@ object FavoriteStore {
     val items: List<Favorite>
         get() = synchronized(lock) { data.toList() }
 
-    data class Favorite(val id: Long, val title: String, val url: String, val at: Long = System.currentTimeMillis())
+    data class Favorite(
+        val id: Long,
+        val title: String,
+        val url: String,
+        val at: Long = System.currentTimeMillis(),
+        val sourcePage: String? = null,
+        val mediaType: String? = null,
+        val mimeType: String? = null
+    )
 
     fun init(context: Context) {
         synchronized(lock) {
@@ -26,16 +34,43 @@ object FavoriteStore {
             for (i in 0 until arr.length()) {
                 val o: JSONObject = arr.optJSONObject(i) ?: continue
                 val id = o.optLong("id", nextId)
-                data.add(Favorite(id, o.optString("title"), o.optString("url"), o.optLong("at")))
+                data.add(
+                    Favorite(
+                        id = id,
+                        title = o.optString("title"),
+                        url = o.optString("url"),
+                        at = o.optLong("at"),
+                        sourcePage = safeFavoriteSourcePage(o.optString("sourcePage").takeIf { it.isNotBlank() && it != "null" }),
+                        mediaType = o.optString("mediaType").takeIf { it.isNotBlank() && it != "null" },
+                        mimeType = o.optString("mimeType").takeIf { it.isNotBlank() && it != "null" }
+                    )
+                )
                 if (id >= nextId) nextId = id + 1
             }
         }
     }
 
-    fun add(context: Context, title: String, url: String): Boolean {
+    fun add(
+        context: Context,
+        title: String,
+        url: String,
+        sourcePage: String? = null,
+        mediaType: String? = null,
+        mimeType: String? = null
+    ): Boolean {
         synchronized(lock) {
             if (data.any { it.url == url }) return false
-            data.add(0, Favorite(nextId++, title.ifBlank { url }, url))
+            data.add(
+                0,
+                Favorite(
+                    id = nextId++,
+                    title = title.ifBlank { url },
+                    url = url,
+                    sourcePage = safeFavoriteSourcePage(sourcePage),
+                    mediaType = mediaType?.takeIf { it.isNotBlank() },
+                    mimeType = mimeType?.takeIf { it.isNotBlank() }
+                )
+            )
         }
         persist(context)
         return true
@@ -68,13 +103,23 @@ object FavoriteStore {
             list.forEach { f ->
                 if (f.url.isBlank() || !known.add(f.url)) return@forEach
                 val id = if (data.any { it.id == f.id }) nextId++ else f.id
-                data.add(Favorite(id, f.title.ifBlank { f.url }, f.url, f.at))
+                data.add(
+                    Favorite(
+                        id = id,
+                        title = f.title.ifBlank { f.url },
+                        url = f.url,
+                        at = f.at,
+                        sourcePage = safeFavoriteSourcePage(f.sourcePage),
+                        mediaType = f.mediaType?.takeIf { it.isNotBlank() },
+                        mimeType = f.mimeType?.takeIf { it.isNotBlank() }
+                    )
+                )
                 if (id >= nextId) nextId = id + 1
                 added++
             }
             if (added > 0) data.sortByDescending { it.at }
         }
-        if (added > 0) persist(context)
+        persistNow(context)
         return added
     }
 
@@ -82,13 +127,37 @@ object FavoriteStore {
     fun flush(context: Context) = persist(context, delayMs = 0)
 
     private fun persist(context: Context, delayMs: Long = 150) {
-        JsonPersist.schedule(context, KEY, delayMs) {
-            val snapshot = items
-            org.json.JSONArray().apply {
-                snapshot.forEach { f ->
-                    put(JsonStore.objOf("id" to f.id, "title" to f.title, "url" to f.url, "at" to f.at))
-                }
+        JsonPersist.schedule(context, KEY, delayMs) { snapshotArray() }
+    }
+
+    private fun persistNow(context: Context) {
+        JsonPersist.persistNow(context, KEY) { snapshotArray() }
+    }
+
+    private fun snapshotArray(): org.json.JSONArray {
+        val snapshot = items
+        return org.json.JSONArray().apply {
+            snapshot.forEach { f ->
+                put(JsonStore.objOf(
+                    "id" to f.id,
+                    "title" to f.title,
+                    "url" to f.url,
+                    "at" to f.at,
+                    "sourcePage" to f.sourcePage,
+                    "mediaType" to f.mediaType,
+                    "mimeType" to f.mimeType
+                ))
             }
         }
     }
 }
+
+/** Store only a safe page path for recovery; never persist URL credentials or query tokens. */
+internal fun safeFavoriteSourcePage(source: String?): String? = runCatching {
+    val uri = java.net.URI(source?.trim().orEmpty())
+    val scheme = uri.scheme?.lowercase() ?: return@runCatching null
+    val rawAuthority = uri.rawAuthority ?: return@runCatching null
+    val authority = if (uri.rawUserInfo != null) rawAuthority.substringAfterLast('@') else rawAuthority
+    if (authority.isBlank()) return@runCatching null
+    "$scheme://$authority${uri.rawPath.orEmpty()}"
+}.getOrNull()

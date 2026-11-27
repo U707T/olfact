@@ -1,6 +1,8 @@
 package cn.olfact.app.data
 
 import android.content.Context
+import android.net.Uri
+import android.provider.DocumentsContract
 import cn.olfact.app.BuildConfig
 import cn.olfact.core.backup.AutoBackupScheduler
 import cn.olfact.core.backup.BackupData
@@ -28,6 +30,13 @@ import cn.olfact.core.backup.WhitelistBackupSection
 import cn.olfact.core.crypto.KeystoreCrypto
 import cn.olfact.core.storage.DataStoreSettingsRepository
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.io.IOException
 import java.io.File
 
 /**
@@ -90,7 +99,16 @@ object AppBackup {
         BackupRuntime.runner = built
 
         // WorkManager 首次 getInstance 要建库，别放在 Application.onCreate 里等它
-        scope.launch { syncSchedule(app) }
+        scope.launch {
+            try {
+                WebDavSecret.migrateLegacy()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.w("AppBackup", "旧 WebDAV 密码迁移失败，保留原值等待重试", e)
+            }
+            syncSchedule(app)
+        }
     }
 
     /** 「自动备份」三个档位 → WorkManager 周期任务。 */
@@ -110,6 +128,7 @@ object AppBackup {
 
     suspend fun backupNow(trigger: String = "manual"): BackupResult {
         val runner = pipeline ?: return BackupResult(success = false, error = "备份未初始化", trigger = trigger)
+        WebDavSecret.migrateLegacy()
         val result = runner.run(trigger)
         if (result.success) AppSettings.set(K.BACKUP_LAST_AT, result.at)
         return result
@@ -121,11 +140,60 @@ object AppBackup {
         return restore(file)
     }
 
-    suspend fun restore(file: File): ImportResult {
+    suspend fun restore(file: File): ImportResult = restoreArchive { file.inputStream() }
+
+    /** SAF 的一次性读授权足够完成本次恢复；不保存 URI，不申请整盘存储权限。 */
+    suspend fun restore(context: Context, uri: Uri): ImportResult = restoreArchive {
+        context.applicationContext.contentResolver.openInputStream(uri)
+            ?: throw IOException("无法读取所选 ZIP，请重新选择文件")
+    }
+
+    /** 始终先生成本地备份，再以固定缓冲区流式导出；WebDAV 配置不影响此入口。 */
+    suspend fun exportLocal(context: Context, uri: Uri) = withContext(Dispatchers.IO) {
+        val resolver = context.applicationContext.contentResolver
+        var complete = false
+        try {
+            val runner = checkNotNull(pipeline) { "备份未初始化" }
+            val dir = checkNotNull(localDir) { "本地备份目录未初始化" }
+            val result = runner.runLocal(dir, "manual-export")
+            if (!result.success) throw IOException(result.error ?: "生成本地备份失败")
+            currentCoroutineContext().ensureActive()
+            File(result.location).inputStream().use { input ->
+                (resolver.openOutputStream(uri, "wt") ?: throw IOException("无法写入所选位置")).use { output ->
+                    val buffer = ByteArray(32 * 1024)
+                    while (true) {
+                        currentCoroutineContext().ensureActive()
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        output.write(buffer, 0, count)
+                    }
+                    output.flush()
+                }
+            }
+            currentCoroutineContext().ensureActive()
+            complete = true
+        } finally {
+            // CreateDocument 新建的文档失败/取消后可能只写入了一部分，尽力移除，完整本地副本保留。
+            if (!complete) runCatching { DocumentsContract.deleteDocument(resolver, uri) }
+        }
+    }
+
+    suspend fun latestRemote(): cn.olfact.core.backup.DavEntry? = remoteClient()
+        .list(WEBDAV_SUBDIR)
+        .filter { !it.isDirectory && BackupPipeline.isBackupFileName(it.name) }
+        .maxByOrNull { it.name }
+
+    suspend fun restoreRemote(entry: cn.olfact.core.backup.DavEntry): ImportResult {
+        require(!entry.isDirectory && BackupPipeline.isBackupFileName(entry.name)) { "无效的备份文件" }
+        return restoreArchive { remoteClient().get("$WEBDAV_SUBDIR/${entry.name}").inputStream() }
+    }
+
+    suspend fun testRemote(): Boolean = remoteClient().test()
+
+    private suspend fun restoreArchive(open: suspend () -> java.io.InputStream): ImportResult {
         val p = pipeline ?: return ImportResult(error = "备份未初始化")
-        // 读 zip 放到 IO：备份包可能几十 MB，不能占主线程。
         val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            file.inputStream().use { p.importArchive(it, MergeOptions(overwriteSettings = true)) }
+            open().use { p.importArchive(it, MergeOptions(overwriteSettings = true)) }
         }
         // 脚本/订阅/白名单恢复后让内存态跟上（否则界面还是旧的，注入也不生效）
         ModuleBackends.adBlockManager?.let { manager ->
@@ -134,7 +202,7 @@ object AppBackup {
         if (result.merged.any { it.section == "settings" }) {
             ModuleBackends.adBlockManager?.setEnabled(AppSettings.get(K.AD_ENABLED))
             (cn.olfact.core.api.OlfactServices.doh as? DohAdapter)?.let { doh ->
-                if (AppSettings.get(K.DOH_ENABLED)) doh.startFromSettings() else doh.stop()
+                doh.applySettingsAsync().await()
             }
             appContext?.let(::syncSchedule)
             RuntimeFlags.reloadPagesOnResume = true
@@ -167,11 +235,8 @@ object AppBackup {
         override suspend fun importSettings(values: Map<String, String>, overwrite: Boolean): MergeReport {
             // Keystore ciphertext is tied to its original installation; never replace this device's credential.
             val portable = values - K.BACKUP_WEBDAV_PASS.name
-            val previousTarget = repo.get(K.BACKUP_WEBDAV_URL) to repo.get(K.BACKUP_WEBDAV_USER)
-            val written = repo.importMap(portable, overwrite)
-            val restoredTarget = repo.get(K.BACKUP_WEBDAV_URL) to repo.get(K.BACKUP_WEBDAV_USER)
-            if (restoredTarget != previousTarget) {
-                repo.importMap(mapOf(K.BACKUP_WEBDAV_PASS.name to "s:"), overwrite = true)
+            val written = WebDavSecret.credentialLock.withLock {
+                repo.importMap(portable, overwrite, clearOnChange = clearPasswordOnTargetChange)
             }
             return MergeReport("settings", added = written, updated = 0, skipped = values.size - written)
         }
@@ -228,7 +293,10 @@ object AppBackup {
 
     private class FavoriteSection(private val context: Context) : ListSection<FavoriteRecord> {
         override fun exportItems(): List<FavoriteRecord> = FavoriteStore.items.map {
-            FavoriteRecord(id = it.id.toString(), title = it.title, url = it.url, createdAt = it.at)
+            FavoriteRecord(
+                id = it.id.toString(), title = it.title, url = it.url, createdAt = it.at,
+                sourcePage = it.sourcePage, mediaType = it.mediaType, mimeType = it.mimeType
+            )
         }
 
         override fun importItems(items: List<FavoriteRecord>, options: MergeOptions): MergeReport {
@@ -239,7 +307,10 @@ object AppBackup {
                         id = it.id.toLongOrNull() ?: 0L,
                         title = it.title,
                         url = it.url,
-                        at = it.createdAt
+                        at = it.createdAt,
+                        sourcePage = it.sourcePage,
+                        mediaType = it.mediaType,
+                        mimeType = it.mimeType
                     )
                 }
             )
@@ -250,15 +321,33 @@ object AppBackup {
     // ------------------------------------------------------------------ 投递目标
 
     private fun target(app: Context, dir: File): BackupTarget {
-        val url = AppSettings.get(K.BACKUP_WEBDAV_URL).trim()
-        if (url.isBlank()) return BackupTarget.Local(dir)
-        val client = WebDavClient(
-            baseUrl = url,
-            username = AppSettings.get(K.BACKUP_WEBDAV_USER).ifBlank { null },
-            password = WebDavSecret.read()
-        )
+        val client = configuredRemoteClient() ?: return BackupTarget.Local(dir)
         return BackupTarget.WebDav(client, dir = WEBDAV_SUBDIR)
     }
+
+    private suspend fun remoteClient(): WebDavClient {
+        WebDavSecret.migrateLegacy()
+        return requireNotNull(configuredRemoteClient()) { "请先配置 WebDAV 地址" }
+    }
+
+    private fun configuredRemoteClient(): WebDavClient? {
+        val settings = (AppSettings.repo as? DataStoreSettingsRepository)?.exportMap().orEmpty()
+        fun read(key: cn.olfact.core.api.SettingsKey<String>) = settings[key.name]?.removePrefix("s:").orEmpty()
+        val url = read(K.BACKUP_WEBDAV_URL).trim().takeIf { it.isNotEmpty() } ?: return null
+        return WebDavClient(url, read(K.BACKUP_WEBDAV_USER).ifBlank { null }, WebDavSecret.decode(read(K.BACKUP_WEBDAV_PASS)))
+    }
+
+    suspend fun setRemoteTarget(key: cn.olfact.core.api.SettingsKey<String>, value: String) {
+        require(key == K.BACKUP_WEBDAV_URL || key == K.BACKUP_WEBDAV_USER)
+        val repo = checkNotNull(AppSettings.repo as? DataStoreSettingsRepository) { "设置尚未就绪" }
+        WebDavSecret.credentialLock.withLock {
+            repo.importMap(mapOf(key.name to "s:$value"), overwrite = true, clearOnChange = clearPasswordOnTargetChange)
+        }
+        appContext?.let(::syncSchedule)
+    }
+
+    private val clearPasswordOnTargetChange = listOf(K.BACKUP_WEBDAV_URL, K.BACKUP_WEBDAV_USER)
+        .associate { it.name to setOf(K.BACKUP_WEBDAV_PASS.name) }
 }
 
 /**
@@ -269,25 +358,34 @@ object AppBackup {
 object WebDavSecret {
 
     private const val PREFIX = "enc:"
+    internal val credentialLock = Mutex()
 
-    fun write(plain: String) {
-        if (plain.isEmpty()) {
-            AppSettings.set(K.BACKUP_WEBDAV_PASS, "")
-            return
+    /** 在 IO 中加密成功后才提交；与用户修改目标/密码互斥，避免迁移覆盖新凭据。 */
+    suspend fun migrateLegacy() = withContext(Dispatchers.IO) {
+        credentialLock.withLock {
+            val repo = AppSettings.repo as? DataStoreSettingsRepository ?: return@withLock
+            val raw = repo.get(K.BACKUP_WEBDAV_PASS)
+            if (raw.isBlank() || raw.startsWith(PREFIX)) return@withLock
+            val encrypted = PREFIX + KeystoreCrypto.encryptString(raw)
+            repo.importMap(mapOf(K.BACKUP_WEBDAV_PASS.name to "s:$encrypted"), overwrite = true)
         }
-        val encoded = runCatching { PREFIX + KeystoreCrypto.encryptString(plain) }.getOrElse { plain }
-        AppSettings.set(K.BACKUP_WEBDAV_PASS, encoded)
     }
 
-    fun read(): String? {
-        val raw = AppSettings.get(K.BACKUP_WEBDAV_PASS)
-        if (raw.isBlank()) return null
-        if (!raw.startsWith(PREFIX)) {
-            write(raw)
-            return raw
+    suspend fun write(plain: String) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        credentialLock.withLock {
+            val repo = checkNotNull(AppSettings.repo as? DataStoreSettingsRepository) { "设置尚未就绪" }
+            val encoded = if (plain.isEmpty()) "" else PREFIX + KeystoreCrypto.encryptString(plain)
+            repo.importMap(mapOf(K.BACKUP_WEBDAV_PASS.name to "s:$encoded"), overwrite = true)
+            Unit
         }
+    }
+
+    /** Read legacy plaintext for compatibility. New passwords are only written after encryption succeeds. */
+    fun decode(raw: String): String? {
+        if (raw.isBlank()) return null
+        if (!raw.startsWith(PREFIX)) return raw
         return runCatching { KeystoreCrypto.decryptString(raw.removePrefix(PREFIX)) }.getOrNull()
     }
 
-    fun masked(): String = if (read().isNullOrEmpty()) "未配置" else "••••••"
+    fun masked(): String = if (AppSettings.get(K.BACKUP_WEBDAV_PASS).isBlank()) "未配置" else "••••••"
 }

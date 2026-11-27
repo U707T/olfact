@@ -34,13 +34,17 @@ object Dialogs {
         initial: String = "",
         hint: String = "",
         multiline: Boolean = false,
+        password: Boolean = false,
         onConfirm: (String) -> Unit
     ) {
         val edit = EditText(context).apply {
             setText(initial)
             this.hint = hint
-            inputType = if (multiline) InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-            else InputType.TYPE_CLASS_TEXT
+            inputType = InputType.TYPE_CLASS_TEXT or when {
+                password -> InputType.TYPE_TEXT_VARIATION_PASSWORD
+                multiline -> InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                else -> 0
+            }
             minLines = if (multiline) 6 else 1
             // 脚本 / 规则可能很长：给一个上限并在内部滚动，别让对话框撑出屏幕。
             maxLines = if (multiline) 14 else 1
@@ -53,7 +57,9 @@ object Dialogs {
             }
             setPadding(context.dpF(20f), context.dpF(8f), context.dpF(20f), context.dpF(8f))
         }
-        val wrapper = LinearLayout(context).apply { addView(edit) }
+        val wrapper = LinearLayout(context).apply {
+            addView(edit, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        }
         AlertDialog.Builder(context)
             .setTitle(title)
             .setView(wrapper)

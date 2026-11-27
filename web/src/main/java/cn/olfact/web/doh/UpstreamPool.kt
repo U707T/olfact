@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.util.concurrent.ConcurrentHashMap
@@ -42,8 +43,9 @@ class UpstreamPool(
     private val latencies = ConcurrentHashMap<String, Long>()
     private val failures = ConcurrentHashMap<String, AtomicInteger>()
 
-    /** 同一时刻只允许一场竞速；reraceAsync 的「先检查再启动」有窗口期，用 CAS 收口。 */
-    private val racing = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val raceLock = Any()
+    private var racing = false
+    private var networkRevision = 0L
 
     fun currentDomestic(): DohUpstream? = domesticBest
 
@@ -64,52 +66,71 @@ class UpstreamPool(
     /**
      * 阻塞式竞速，5 路并发，最慢 2.5s 出结果。返回每个池子的冠军。
      */
-    fun raceAndSelect(): Selection {
-        if (!racing.compareAndSet(false, true)) return selection()
+    fun raceAndSelect(): Selection = runBlocking { race() }
+
+    private suspend fun race(): Selection {
+        var revision = synchronized(raceLock) {
+            if (racing) return selection()
+            racing = true
+            networkRevision
+        }
         try {
-            val results = runBlocking {
-                upstreams.map { upstream ->
-                    async(Dispatchers.IO) { upstream to probeOrNull(upstream) }
-                }.awaitAll()
+            while (true) {
+                val results = coroutineScope {
+                    upstreams.map { upstream ->
+                        async(Dispatchers.IO) { upstream to runCatching { transport.probe(upstream) }.getOrNull() }
+                    }.awaitAll()
+                }
+                val selected = synchronized(raceLock) {
+                    if (revision != networkRevision) {
+                        revision = networkRevision
+                        null
+                    } else {
+                        select(results).also { racing = false }
+                    }
+                } ?: continue
+                return selected.also {
+                    runCatching {
+                        onEvent(
+                            "竞速完成：国内=${it.domestic?.label ?: "-"}(${it.domestic?.let { u -> it.latencies[u.id] } ?: -1}ms) " +
+                                "国外=${it.foreign?.label ?: "-"}(${it.foreign?.let { u -> it.latencies[u.id] } ?: -1}ms)"
+                        )
+                    }
+                }
             }
-            val succeeded = results.filter { it.second != null }
-            // 用户显式选过的上游优先：只要它探测通过，就不让竞速把它换掉；
-            // 它挂了才回落到同池最快的一个。
-            val pinned = upstreams.firstOrNull { it.id == preferredId }
-            val pinnedLatency = pinned?.let { p -> succeeded.firstOrNull { it.first.id == p.id }?.second }
-
-            val domestic = if (pinned != null && pinned.region == DohUpstream.Region.DOMESTIC && pinnedLatency != null) {
-                pinned
-            } else {
-                succeeded.filter { it.first.region == DohUpstream.Region.DOMESTIC }
-                    .minByOrNull { it.second ?: Long.MAX_VALUE }?.first
-            }
-            val foreign = if (pinned != null && pinned.region == DohUpstream.Region.FOREIGN && pinnedLatency != null) {
-                pinned
-            } else {
-                succeeded.filter { it.first.region == DohUpstream.Region.FOREIGN }
-                    .minByOrNull { it.second ?: Long.MAX_VALUE }?.first
-            }
-
-            if (domestic != null) domesticBest = domestic
-            if (foreign != null) foreignBest = foreign
-            if (domestic == null && foreign != null) domesticBest = foreign
-            if (foreign == null && domestic != null) foreignBest = domestic
-
-            failures.clear()
-            onEvent(
-                "竞速完成：国内=${domesticBest?.label ?: "-"}(${domesticBest?.let { latencyOf(it.id) } ?: -1}ms) " +
-                    "国外=${foreignBest?.label ?: "-"}(${foreignBest?.let { latencyOf(it.id) } ?: -1}ms)"
-            )
-            return selection()
-        } finally {
-            racing.set(false)
+        } catch (error: Throwable) {
+            synchronized(raceLock) { racing = false }
+            throw error
         }
     }
 
+    private fun select(results: List<Pair<DohUpstream, Long?>>): Selection {
+        val succeeded = results.filter { it.second != null }
+        succeeded.forEach { (upstream, latency) -> latencies[upstream.id] = checkNotNull(latency) }
+        fun winner(region: DohUpstream.Region): DohUpstream? {
+            val candidates = succeeded.filter { it.first.region == region }
+            return candidates.firstOrNull { it.first.id == preferredId }?.first
+                ?: candidates.minByOrNull { it.second ?: Long.MAX_VALUE }?.first
+        }
+        val domestic = winner(DohUpstream.Region.DOMESTIC)
+        val foreign = winner(DohUpstream.Region.FOREIGN)
+        domesticBest = domestic ?: foreign ?: domesticBest
+        foreignBest = foreign ?: domestic ?: foreignBest
+        failures.clear()
+        return selection()
+    }
+
     fun reraceAsync() {
-        if (racing.get()) return
-        scope.launch { runCatching { raceAndSelect() } }
+        scope.launch { race() }
+    }
+
+    /** 旧网络的一场竞速不得提交；正在竞速时由同一任务补跑最新网络。 */
+    fun onNetworkChanged() {
+        synchronized(raceLock) {
+            networkRevision++
+            if (racing) return
+        }
+        reraceAsync()
     }
 
     fun recordSuccess(upstream: DohUpstream, latencyMs: Long) {
@@ -132,9 +153,4 @@ class UpstreamPool(
 
     fun consecutiveFailures(upstream: DohUpstream): Int = failures[upstream.id]?.get() ?: 0
 
-    private fun probeOrNull(upstream: DohUpstream): Long? = runCatching {
-        val latency = transport.probe(upstream)
-        latencies[upstream.id] = latency
-        latency
-    }.getOrNull()
 }

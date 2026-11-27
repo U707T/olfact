@@ -2,7 +2,9 @@ package cn.olfact.app.ui.settings
 
 import android.os.Bundle
 import android.view.View
+import android.widget.EditText
 import android.widget.LinearLayout
+import androidx.appcompat.app.AlertDialog
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.ContextCompat
@@ -103,6 +105,9 @@ class SettingsPageFragment : Fragment(R.layout.fragment_settings_page) {
             onCheckedChange = {
                 AppSettings.set(row.key, it)
                 onSettingChanged(row.key.name, it)
+                if (row.key == K.DEV_MODE || row.key == K.DESKTOP_MODE) {
+                    renderSpec(SettingsSpecs.build(pageId))
+                }
             }
         }
 
@@ -113,7 +118,7 @@ class SettingsPageFragment : Fragment(R.layout.fragment_settings_page) {
             value = row.options.firstOrNull { it.first == AppSettings.get(row.key) }?.second ?: "未设置"
             onClickAction = {
                 val current = AppSettings.get(row.key)
-                val index = row.options.indexOfFirst { it.first == current }.coerceAtLeast(0)
+                val index = row.options.indexOfFirst { it.first == current }
                 Dialogs.choose(requireContext(), row.title, row.options.map { it.second }, index) { picked ->
                     val pickedValue = row.options[picked].first
                     AppSettings.set(row.key, pickedValue)
@@ -132,7 +137,7 @@ class SettingsPageFragment : Fragment(R.layout.fragment_settings_page) {
             value = row.options.firstOrNull { it.first == AppSettings.get(row.key) }?.second ?: "未设置"
             onClickAction = {
                 val current = AppSettings.get(row.key)
-                val index = row.options.indexOfFirst { it.first == current }.coerceAtLeast(0)
+                val index = row.options.indexOfFirst { it.first == current }
                 Dialogs.choose(requireContext(), row.title, row.options.map { it.second }, index) { picked ->
                     val pickedValue = row.options[picked].first
                     AppSettings.set(row.key, pickedValue)
@@ -152,6 +157,14 @@ class SettingsPageFragment : Fragment(R.layout.fragment_settings_page) {
             onClickAction = row.onClick
         }
 
+        is Row.TextInput -> SettingItem(requireContext()).apply {
+            title = row.title
+            summary = row.summary
+            mode = SettingItem.Mode.CHEVRON
+            value = row.value().ifBlank { "未设置" }
+            onClickAction = { editTextSetting(row) }
+        }
+
         is Row.Action -> SettingItem(requireContext()).apply {
             title = row.title
             summary = row.summary
@@ -165,6 +178,37 @@ class SettingsPageFragment : Fragment(R.layout.fragment_settings_page) {
             mode = SettingItem.Mode.CHEVRON
             onClickAction = { Nav.push(row.target()) }
         }
+    }
+
+    private fun editTextSetting(row: Row.TextInput) {
+        val context = requireContext()
+        val input = EditText(context).apply {
+            isSingleLine = true
+            setText(row.value())
+            setSelection(length())
+            hint = row.hint
+        }
+        val field = LinearLayout(context).apply {
+            setPadding(dp(20), dp(4), dp(20), 0)
+            addView(input, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        }
+        val dialog = AlertDialog.Builder(context).setTitle(row.title).setView(field)
+            .setPositiveButton("保存", null).setNegativeButton("取消", null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val text = input.text.toString().trim()
+                val error = row.validate(text)
+                if (error != null) {
+                    input.error = error
+                } else {
+                    row.onSave(text)
+                    dialog.dismiss()
+                    renderSpec(SettingsSpecs.build(pageId))
+                    Nav.toast("已更新${row.title}")
+                }
+            }
+        }
+        dialog.show()
     }
 
     /**
@@ -206,7 +250,8 @@ class SettingsPageFragment : Fragment(R.layout.fragment_settings_page) {
             }
 
             // 这些设置只影响新页面：标记一下，浏览器下次回到前台自动 reload。
-            "web.text_zoom", "web.no_image", "web.night", "web.desktop", "web.js" -> {
+            K.TEXT_ZOOM.name, K.NO_IMAGE.name, K.NIGHT_WEB.name, K.DESKTOP_MODE.name, K.JS_ENABLED.name,
+            K.PRIVACY_BLOCK_THIRD_PARTY.name -> {
                 RuntimeFlags.reloadPagesOnResume = true
             }
         }

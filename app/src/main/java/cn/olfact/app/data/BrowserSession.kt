@@ -27,6 +27,8 @@ object BrowserSession {
     /** 与原版 web 内核的 TabManager 对齐：最多 24 个，超出淘汰最早的标签。 */
     const val MAX_TABS = 24
     private var nextId = 1L
+    private var startupPlaceholderId: Long? = null
+    private val issuedIds = mutableSetOf<Long>()
     private val restoredOrigins = mutableMapOf<Pair<Long, String>, Long>()
 
     val tabs = mutableListOf<Tab>()
@@ -50,10 +52,21 @@ object BrowserSession {
             val victim = tabs.firstOrNull { it.id != currentId } ?: tabs.first()
             tabs.remove(victim)
         }
-        val tab = Tab(nextId++, url.orEmpty(), title, incognito)
+        val tab = Tab(issueId(), url.orEmpty(), title, incognito)
         tabs.add(tab)
         if (selectNew) currentId = tab.id
         return tab
+    }
+
+    /** 页面派生的后台标签继承来源无痕属性，避免私密页面创建普通持久化标签。 */
+    fun openDerived(
+        sourceTabId: Long?,
+        url: String?,
+        title: String = "",
+        selectNew: Boolean = false
+    ): Tab {
+        val inheritedIncognito = sourceTabId?.let { id -> tabs.firstOrNull { it.id == id }?.incognito } == true
+        return open(url, title, incognito = inheritedIncognito, selectNew = selectNew)
     }
 
     /**
@@ -92,7 +105,12 @@ object BrowserSession {
     }
 
     /** 启动/兜底：保证至少有一个标签页。 */
-    fun ensureTab(): Tab = current() ?: open(null)
+    fun ensureTab(): Tab = current() ?: open(null).also { startupPlaceholderId = it.id }
+
+    /** 未使用的启动占位页不能覆盖上次会话；显式关闭标签仍然会保存。 */
+    internal fun hasOnlyStartupPlaceholder(): Boolean = tabs.singleOrNull()?.let {
+        it.id == startupPlaceholderId && it.url.isBlank()
+    } == true
 
     fun select(id: Long) {
         if (tabs.any { it.id == id }) currentId = id
@@ -106,6 +124,8 @@ object BrowserSession {
         tabs.clear()
         currentId = null
         nextId = 1L
+        startupPlaceholderId = null
+        issuedIds.clear()
         restoredOrigins.clear()
     }
 
@@ -141,7 +161,11 @@ object BrowserSession {
     internal fun persistable(): List<Tab> = tabs.filterNot { it.incognito }
 
     fun save(context: Context) {
-        val saved = if (AppSettings.get(K.RESTORE_TABS) == "never") emptyList() else persistable()
+        val mode = AppSettings.get(K.RESTORE_TABS)
+        if (mode == "manual" && hasOnlyStartupPlaceholder()) return
+        val saved = if (mode == "never") emptyList() else persistable().takeIf { tabs ->
+            tabs.any { it.url.isNotBlank() }
+        }.orEmpty()
         val arr = JSONArray()
         saved.forEach { t ->
             arr.put(JsonStore.objOf("id" to t.id, "url" to t.url, "title" to t.title, "incognito" to false))
@@ -198,18 +222,32 @@ object BrowserSession {
             if (restoredOrigins[origin] != null) continue
             val existing = tabs.firstOrNull { it.id == savedTab.id }
             if (existing != null && existing.url == savedTab.url && !existing.incognito) continue
-            val id = savedTab.id.takeIf { it > 0 && it < Long.MAX_VALUE && existing == null } ?: nextId
+            val id = issueId(savedTab.id)
             tabs.add(savedTab.copy(id = id))
             restoredOrigins[origin] = id
-            if (id >= nextId) nextId = id + 1
             added++
         }
         if (tabs.isEmpty()) open(null)
         currentId = when {
             !onlyBlank && tabs.any { it.id == previous } -> previous
-            tabs.any { it.id == selectedId } -> selectedId
-            else -> tabs.lastOrNull()?.id
+            else -> saved.firstOrNull { it.id == selectedId && !it.incognito }?.let { selected ->
+                restoredOrigins[selected.id to selected.url]
+                    ?: tabs.firstOrNull { it.id == selectedId && it.url == selected.url && !it.incognito }?.id
+            } ?: tabs.lastOrNull()?.id
         }
         return added
+    }
+
+    /** ID 稳定且进程内不复用（已关闭的标签可能仍有迟到回调）。 */
+    private fun issueId(preferred: Long = 0L): Long {
+        if (preferred in 1L until Long.MAX_VALUE && issuedIds.add(preferred)) {
+            if (preferred >= nextId) nextId = preferred + 1L
+            return preferred
+        }
+        while (true) {
+            val id = nextId
+            nextId = if (id == Long.MAX_VALUE) 1L else id + 1L
+            if (issuedIds.add(id)) return id
+        }
     }
 }

@@ -45,7 +45,17 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
     private var recoveryContainer: android.view.ViewGroup? = null
     private var lastUrl: String? = null
     private var detectSink: ((String) -> Unit)? = null
+    private var mediaSniffer: cn.olfact.core.api.MediaSniffer? = null
     private val sticky = ModuleBackends.sessionSticky
+
+    /** Pending picker callback is independent of the Activity's temporary host detach. */
+    private var pendingFileChooserCancellation: (() -> Unit)? = null
+
+    private fun cancelPendingFileChooser() {
+        val cancel = pendingFileChooserCancellation
+        pendingFileChooserCancellation = null
+        cancel?.invoke()
+    }
 
     /** 当前宿主；View 重建后由 [attachHost] 替换。 */
     private var host: BrowserSurfaceHost? = null
@@ -59,28 +69,34 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
         web?.let { return it }
 
         tabId = UUID.randomUUID().toString()
-        incognito = BrowserSession.current()?.incognito == true
+        val tab = BrowserSession.current()
+        incognito = tab?.incognito == true
+        mediaSniffer = tab?.let { OlfactServices.snifferFactory?.invoke(it.id) }
 
         val view = BrowserView(context).apply {
             uaManager = UaManager(UaManager.systemMobileUa(context))
             applyConfig(configSnapshot())
         }
 
+        lateinit var client: BrowserClient
         val events = object : BrowserEvents {
             override fun onPageVisited(url: String, title: String) {
                 if (!incognito) HistoryStore.record(context, title, url)
             }
 
-            override fun onTitleChanged(tabId: String, title: String) = this@WebBrowserSurface.host?.onTitle(title) ?: Unit
+            override fun onTitleChanged(tabId: String, title: String) {
+                client.updatePageTitle(title)
+                this@WebBrowserSurface.host?.onTitle(title)
+            }
 
             override fun onProgress(tabId: String, progress: Int) = this@WebBrowserSurface.host?.onProgress(progress) ?: Unit
         }
 
-        view.webViewClient = BrowserClient(
+        client = BrowserClient(
             tabId = tabId,
             configProvider = { configSnapshot() },
             incognito = incognito,
-            sniffer = OlfactServices.sniffer,
+            sniffer = mediaSniffer,
             adblock = object : cn.olfact.core.api.AdBlockHook {
                 override fun shouldBlock(url: String, pageHost: String): Boolean =
                     OlfactServices.adBlock?.shouldBlock(url, pageHost) == true
@@ -108,6 +124,9 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
             onRenderProcessGone = { dead ->
                 // 渲染进程被系统杀掉：拆掉这个 WebView，提示用户重新加载，别让整个应用跟着崩
                 sticky.closeTab(tabId)
+                mediaSniffer?.close()
+                mediaSniffer = null
+                cancelPendingFileChooser()
                 recoveryContainer = dead.parent as? android.view.ViewGroup
                 recoveryContainer?.removeView(dead)
                 detectSink?.let { InjectionBus.detach(it) }
@@ -117,12 +136,51 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
                 this@WebBrowserSurface.host?.onError(-1, "页面进程已停止，请重试", lastUrl.orEmpty())
             }
         )
-        view.webChromeClient = BrowserChromeClient(tabId, events)
+        view.webViewClient = client
+        view.webChromeClient = BrowserChromeClient(
+            tabId,
+            events,
+            onChooseFiles = { _, params, callback ->
+                val activeHost = this@WebBrowserSurface.host
+                if (activeHost == null) {
+                    callback.onReceiveValue(null)
+                } else {
+                    var completed = false
+                    var ownCancellation: (() -> Unit)? = null
+                    fun complete(uris: List<android.net.Uri>?) {
+                        if (completed) return
+                        completed = true
+                        if (pendingFileChooserCancellation === ownCancellation) {
+                            pendingFileChooserCancellation = null
+                        }
+                        callback.onReceiveValue(uris?.toTypedArray())
+                    }
+                    val cancelRequest: () -> Unit = {
+                        if (!completed) {
+                            activeHost.onCancelFileChooser()
+                            complete(null)
+                        }
+                    }
+                    ownCancellation = cancelRequest
+                    pendingFileChooserCancellation = cancelRequest
+                    activeHost.onChooseFiles(
+                        mimeTypes = params.acceptTypes.orEmpty().filter { it.isNotBlank() },
+                        allowMultiple = params.mode == android.webkit.WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE
+                    ) { uris -> complete(uris) }
+                }
+                true
+            }
+        )
 
         view.onLongPress = { target, x, y ->
             this@WebBrowserSurface.host?.onLongPressAt(target.url ?: target.imageUrl, view.title, x, y)
         }
         view.onDownload = { request ->
+            // 普通网页下载要使用触发 URL 的 WebView Cookie，登录态资源不能因缺少 Cookie 失败。
+            val cookie = runCatching {
+                android.webkit.CookieManager.getInstance().getCookie(request.url)
+            }.getOrNull()?.takeIf { it.isNotBlank() }
+            val headers = cookie?.let { mapOf("Cookie" to it) }.orEmpty()
             // Content-Disposition 里的文件名比 URL 末段靠谱得多（尤其是 /download?id=1 这种）。
             OlfactServices.downloads?.enqueue(
                 url = request.url,
@@ -130,7 +188,8 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
                 pageUrl = request.pageUrl.orEmpty(),
                 referer = request.pageUrl.orEmpty(),
                 userAgent = request.userAgent,
-                mimeType = request.mimeType
+                mimeType = request.mimeType,
+                headers = headers
             )
         }
 
@@ -146,6 +205,10 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
     override fun view(): View? = web
 
     override fun attachHost(host: BrowserSurfaceHost?) {
+        val previousHost = this.host
+        if (host != null && previousHost != null && previousHost !== host) {
+            cancelPendingFileChooser()
+        }
         this.host = host
         if (host == null) {
             web?.onPause()
@@ -287,7 +350,11 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
     }
 
     override fun destroy() {
+        cancelPendingFileChooser()
+        host = null
         sticky.closeTab(tabId)
+        mediaSniffer?.close()
+        mediaSniffer = null
         ActiveSurface.clear(this)
         detectSink?.let { InjectionBus.detach(it) }
         detectSink = null

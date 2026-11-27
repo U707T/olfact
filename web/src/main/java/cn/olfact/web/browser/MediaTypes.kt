@@ -8,13 +8,26 @@ import cn.olfact.core.api.MediaType
 object MediaTypes {
 
     fun of(url: String): MediaType? {
-        val path = url.substringBefore('?').substringBefore('#').lowercase()
-        return when {
-            path.endsWith(".m3u8") -> MediaType.HLS
-            path.endsWith(".mpd") -> MediaType.DASH
-            path.endsWith(".mp4") || path.endsWith(".m4v") -> MediaType.MP4
-            path.endsWith(".webm") || path.endsWith(".mkv") || path.endsWith(".flv") -> MediaType.OTHER
+        val uri = runCatching { java.net.URI(url) }.getOrNull() ?: return null
+        if (!uri.scheme.equals("http", true) && !uri.scheme.equals("https", true)) return null
+        if (uri.rawAuthority.isNullOrEmpty()) return null
+        val path = uri.path.orEmpty().lowercase()
+        return when (path.substringAfterLast('/').substringAfterLast('.', "")) {
+            "m3u8" -> MediaType.HLS
+            "mpd" -> MediaType.DASH
+            "mp4", "m4v" -> MediaType.MP4
+            "webm", "mkv", "flv", "mov" -> MediaType.OTHER
+            "m4a", "mp3", "aac", "ogg", "opus", "flac", "wav" -> MediaType.AUDIO
             else -> null
+        }
+    }
+
+    /** Preserve request context, not Chromium's byte range, validators, or transport headers. */
+    internal fun replayHeaders(request: Map<String, String>, userAgent: String?): Map<String, String> = buildMap {
+        for (name in listOf("Referer", "User-Agent", "Cookie", "Authorization", "Origin")) {
+            val value = request.entries.firstOrNull { it.key.equals(name, true) }?.value
+                ?: userAgent.takeIf { name == "User-Agent" }
+            if (!value.isNullOrBlank()) put(name, value)
         }
     }
 

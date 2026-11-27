@@ -65,6 +65,25 @@ class SettingsWriteTest {
     }
 
     @Test
+    fun `target and dependent password update atomically only when target changes`() = runBlocking {
+        val fake = FakeStore()
+        val owner = CoroutineScope(coroutineContext + Job())
+        try {
+            val repo = DataStoreSettingsRepository(fake, owner)
+            assertTrue(repo.awaitLoaded())
+            val clear = mapOf("dav" to setOf("password"))
+            repo.importMap(mapOf("dav" to "s:old", "password" to "s:secret"), overwrite = true)
+            repo.importMap(mapOf("dav" to "s:old"), overwrite = true, clearOnChange = clear)
+            assertEquals("s:secret", repo.exportMap()["password"])
+            assertEquals(1, repo.importMap(mapOf("dav" to "s:new"), overwrite = true, clearOnChange = clear))
+            assertEquals(mapOf("dav" to "s:new"), repo.exportMap())
+            assertEquals(3, fake.attempts)
+        } finally {
+            owner.cancel()
+        }
+    }
+
+    @Test
     fun `wrong types do not crash getters and failed restore returns an error`() = runBlocking {
         val wrong = emptyPreferences().toMutablePreferences().also { it[stringPreferencesKey("number")] = "oops" }
         val fake = FakeStore(wrong)

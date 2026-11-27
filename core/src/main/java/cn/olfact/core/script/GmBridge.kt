@@ -268,14 +268,34 @@ function __async(method, args, cb) {
   catch (e) { delete window.__olfactGmCallbacks[callId]; if (cb && cb.onerror) cb.onerror({ error: String(e) }); }
 }
 var GM_info = { script: __meta, scriptHandler: "olfact", version: "0.1" };
+function __gmUnavailable(name) {
+  try {
+    if (window.console && console.warn) {
+      console.warn("[olfact] " + name + " 需要 GM 原生桥，当前版本没有接入：这次调用不会保存/读取任何值。");
+    }
+  } catch (e) {}
+}
 var GM_getValue = function(key, def) {
+  // 没有原生桥时返回 undefined（而不是调用方给的默认值）：否则脚本无法区分
+  // 「真的没存过值」和「GM 存储根本不可用」，只会以为自己的写入丢了。
+  if (!__bridge) return undefined;
   var raw = __call("get", [String(key)]);
   if (raw === null || raw === undefined || raw === "null") return def;
   try { return JSON.parse(raw); } catch (e) { return def; }
 };
-var GM_setValue = function(key, value) { __call("set", [String(key), value === undefined ? null : value]); };
-var GM_deleteValue = function(key) { __call("delete", [String(key)]); };
-var GM_listValues = function() { var raw = __call("keys", []); try { return JSON.parse(raw) || []; } catch (e) { return []; } };
+var GM_setValue = function(key, value) {
+  if (!__bridge) { __gmUnavailable("GM_setValue"); return; }
+  __call("set", [String(key), value === undefined ? null : value]);
+};
+var GM_deleteValue = function(key) {
+  if (!__bridge) { __gmUnavailable("GM_deleteValue"); return; }
+  __call("delete", [String(key)]);
+};
+var GM_listValues = function() {
+  if (!__bridge) return [];
+  var raw = __call("keys", []);
+  try { return JSON.parse(raw) || []; } catch (e) { return []; }
+};
 var GM_log = function() {
   var parts = [];
   for (var i = 0; i < arguments.length; i++) parts.push(String(arguments[i]));

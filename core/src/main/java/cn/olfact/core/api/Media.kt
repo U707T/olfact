@@ -70,7 +70,5 @@ enum class MediaType {
 interface MediaSniffer {
     fun onMediaDetected(item: MediaItem)
 
-    fun currentPageTitle(): String
-
-    fun currentPageUrl(): String
+    fun close() {}
 }

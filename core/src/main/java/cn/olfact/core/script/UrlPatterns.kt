@@ -11,6 +11,12 @@ object UrlPatterns {
 
     private val cache = HashMap<String, Regex?>(64)
 
+    /** 只有带 host 的网页地址才值得注入脚本（http/https；本地 file 调试也算）。 */
+    fun isRunnablePage(url: String): Boolean {
+        val scheme = url.substringBefore(':', "").lowercase()
+        return scheme == "http" || scheme == "https" || scheme == "file"
+    }
+
     fun matchesMatchPattern(pattern: String, url: String): Boolean =
         regexFor("m:" + pattern) { buildMatchPattern(it) }?.containsMatchIn(url) ?: false
 

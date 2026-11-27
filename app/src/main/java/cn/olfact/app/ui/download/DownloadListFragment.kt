@@ -99,7 +99,6 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list) {
             return
         }
         center.enqueue(url, name?.ifBlank { null })
-        Nav.toast("已加入下载队列")
         showRunning = true
         render()
     }
@@ -282,6 +281,8 @@ class DownloadListFragment : Fragment(R.layout.fragment_download_list) {
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     override fun onDestroyView() {
+        binding?.list?.adapter = null
+        adapter = null
         binding = null
         super.onDestroyView()
     }

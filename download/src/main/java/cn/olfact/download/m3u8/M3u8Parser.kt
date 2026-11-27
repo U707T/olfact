@@ -15,6 +15,7 @@ object M3u8Parser {
 
         val variants = mutableListOf<M3u8Variant>()
         val segments = mutableListOf<M3u8Segment>()
+        val externalAudioGroupIds = linkedSetOf<String>()
 
         var targetDuration = 0
         var mediaSequence = 0L
@@ -27,6 +28,7 @@ object M3u8Parser {
         var pendingByteRangeOffset: Long? = null
         var currentKey: M3u8Key? = null
         var currentMap: String? = null
+        var currentMapKey: M3u8Key? = null
         var mapRangeLength: Long? = null
         var mapRangeOffset: Long? = null
         var lastRangeUri: String? = null
@@ -62,9 +64,18 @@ object M3u8Parser {
                     if (currentKey?.isEncrypted == true) hasEncryption = true
                 }
 
+                line.startsWith("#EXT-X-MEDIA:") -> {
+                    val attrs = parseAttributes(line.substringAfter(':'))
+                    if (attrs["TYPE"]?.equals("AUDIO", ignoreCase = true) == true &&
+                        !attrs["URI"].isNullOrBlank()) {
+                        attrs["GROUP-ID"]?.let(externalAudioGroupIds::add)
+                    }
+                }
+
                 line.startsWith("#EXT-X-MAP") -> {
                     val attrs = parseAttributes(line.substringAfter(':'))
                     currentMap = attrs["URI"]?.let { resolve(baseUrl, it) }
+                    currentMapKey = currentKey
                     val range = attrs["BYTERANGE"]
                     mapRangeLength = range?.substringBefore('@')?.toLongOrNull()
                     mapRangeOffset = range?.substringAfter('@', "0")?.toLongOrNull()
@@ -136,6 +147,7 @@ object M3u8Parser {
                             byteRangeOffset = rangeOffset,
                             mapByteRangeLength = mapRangeLength,
                             mapByteRangeOffset = mapRangeOffset,
+                            mapKey = currentMapKey,
                             title = pendingTitle,
                             adBreak = ad,
                         )
@@ -170,6 +182,7 @@ object M3u8Parser {
             ended = ended,
             totalDurationMs = segments.sumOf { it.durationMs },
             hasEncryption = hasEncryption,
+            externalAudioGroupIds = externalAudioGroupIds,
         )
     }
 
@@ -187,6 +200,7 @@ object M3u8Parser {
             resolution = attrs["RESOLUTION"],
             codecs = attrs["CODECS"],
             frameRate = attrs["FRAME-RATE"]?.toDoubleOrNull(),
+            audioGroupId = attrs["AUDIO"],
         )
     }
 

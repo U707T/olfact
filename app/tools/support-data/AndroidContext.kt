@@ -16,5 +16,7 @@ class SharedPreferences {
         private val pending = HashMap<String, String?>()
         fun putString(key: String, value: String?) = apply { pending[key] = value }
         fun apply() { values.putAll(pending) }
+        // Boundary substitute only: no Android disk durability is exercised by this stub.
+        fun commit(): Boolean { apply(); return true }
     }
 }

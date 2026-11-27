@@ -35,21 +35,39 @@ class SubscriptionStore(
 
     @Synchronized
     fun load(): List<Subscription> {
-        val text = StoreFiles.readText(indexFile)
-        val parsed = if (text.isNullOrBlank()) {
-            SubscriptionCatalog.builtins()
-        } else {
-            runCatching { json.decodeFromString(StoreFile.serializer(), text) }
-                .onFailure { B4Log.w("SubStore", "subscriptions.json 损坏，重建", it) }
-                .getOrNull()
-                ?.items
-                ?.filter { isValidId(it.id) }
-                ?: SubscriptionCatalog.builtins()
+        // Only a confirmed missing index is initialized with built-ins. StoreFiles.readText
+        // returns null for both absence and I/O failure, so read an existing file directly.
+        if (!indexFile.exists()) {
+            val defaults = SubscriptionCatalog.builtins().sortedBy { it.order }
+            _items.value = defaults
+            runCatching { saveLocked(defaults) }
+                .onFailure { B4Log.w("SubStore", "写入默认订阅失败", it) }
+            return defaults
         }
+
+        val text = try {
+            indexFile.readText(Charsets.UTF_8)
+        } catch (failure: Throwable) {
+            B4Log.w("SubStore", "读取 subscriptions.json 失败，保留当前订阅", failure)
+            return _items.value
+        }
+        if (text.isBlank()) {
+            B4Log.w("SubStore", "subscriptions.json 为空，保留当前订阅")
+            return _items.value
+        }
+
+        val decoded = try {
+            json.decodeFromString(StoreFile.serializer(), text)
+        } catch (failure: Throwable) {
+            B4Log.w("SubStore", "subscriptions.json 损坏，保留当前订阅", failure)
+            return _items.value
+        }
+        val parsed = decoded.items.filter { isValidId(it.id) }
         val sorted = parsed.sortedBy { it.order }
         _items.value = sorted
-        if (text.isNullOrBlank() || parsed != sorted) {
-            runCatching { saveLocked(sorted) }.onFailure { B4Log.w("SubStore", "写入默认订阅失败", it) }
+        if (parsed != sorted) {
+            runCatching { saveLocked(sorted) }
+                .onFailure { B4Log.w("SubStore", "整理订阅顺序失败", it) }
         }
         return sorted
     }

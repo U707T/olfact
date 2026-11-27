@@ -1,7 +1,7 @@
 package cn.olfact.app.data
 
-import android.content.Context
 import cn.olfact.core.adblock.AdBlockManager
+import cn.olfact.core.adblock.SubscriptionUpdater
 import cn.olfact.core.api.AdBlockController
 import cn.olfact.core.api.AdBlockStats
 import cn.olfact.core.api.AdBlockSubscription
@@ -35,7 +35,7 @@ class AdBlockAdapter(private val manager: AdBlockManager) : AdBlockController {
 
     override fun subscriptions(): List<AdBlockSubscription> =
         manager.state.value.subscriptions.map {
-            AdBlockSubscription(it.id, it.title, it.url, it.enabled, it.ruleCount)
+            AdBlockSubscription(it.id, it.title, it.url, it.enabled, it.ruleCount, it.lastError)
         }
 
     override fun setSubscriptionEnabled(id: String, enabled: Boolean) =
@@ -57,7 +57,21 @@ class AdBlockAdapter(private val manager: AdBlockManager) : AdBlockController {
             val ruleCount = manager.state.value.ruleCount
             withContext(Dispatchers.Main) {
                 result.fold(
-                    onSuccess = { onDone(true, "规则已更新 · $ruleCount 条") },
+                    onSuccess = { summary ->
+                        val (ok, message) = when (summary.outcome()) {
+                            SubscriptionUpdater.UpdateOutcome.NOTHING_TO_UPDATE ->
+                                true to "没有启用的订阅 · 当前 $ruleCount 条规则"
+                            SubscriptionUpdater.UpdateOutcome.SUCCESS -> {
+                                val status = if (summary.updated == 0) "订阅已是最新" else "规则已更新"
+                                true to "$status · 更新 ${summary.updated}，未变更 ${summary.notModified} · 当前 $ruleCount 条规则"
+                            }
+                            SubscriptionUpdater.UpdateOutcome.PARTIAL_FAILURE ->
+                                false to "部分更新：${summary.updated} 个成功、${summary.notModified} 个未变更、${summary.failed} 个失败；已有规则保留（当前 $ruleCount 条）"
+                            SubscriptionUpdater.UpdateOutcome.ALL_FAILED ->
+                                false to "全部 ${summary.total} 个订阅更新失败；已有规则保留（当前 $ruleCount 条）"
+                        }
+                        onDone(ok, message)
+                    },
                     onFailure = { onDone(false, it.message ?: "更新失败") }
                 )
             }

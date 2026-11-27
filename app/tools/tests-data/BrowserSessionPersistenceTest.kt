@@ -41,8 +41,25 @@ class BrowserSessionPersistenceTest {
         BrowserSession.resetForTest()
         BrowserSession.ensureTab()
         assertEquals(2, BrowserSession.restore(context))
-        assertEquals(first.id, BrowserSession.currentId)
+        // 退役 ID 不复用：选中项跟随重映射后的新 ID，但仍指向当初选中的标签。
+        assertEquals(first.id, JsonStore.readArray(context, "tabs_selected").getLong(0))
         assertEquals("https://first.example", BrowserSession.current()!!.url)
+        assertEquals(
+            BrowserSession.tabs.first { it.url == "https://first.example" }.id,
+            BrowserSession.currentId
+        )
+        assertNotEquals(first.id, BrowserSession.currentId)
+    }
+
+    @Test fun `derived background private tabs never enter saved JSON`() {
+        val source = BrowserSession.open("https://private.example/page", incognito = true)
+        val child = BrowserSession.openDerived(source.id, "https://private.example/child", selectNew = false)
+        BrowserSession.save(context)
+
+        val saved = JsonStore.readArray(context, "tabs")
+        assertEquals(0, saved.length())
+        assertFalse(saved.toString().contains("private.example"))
+        assertTrue(BrowserSession.tabs.first { it.id == child.id }.incognito)
     }
 
     @Test fun `private URL title and id never enter saved JSON`() {
@@ -56,7 +73,8 @@ class BrowserSessionPersistenceTest {
         assertEquals(normalId, JsonStore.readArray(context, "tabs_selected").getLong(0))
         BrowserSession.resetForTest()
         assertEquals(1, BrowserSession.restore(context))
-        assertEquals(normalId, BrowserSession.currentId)
+        assertEquals(BrowserSession.tabs.single().id, BrowserSession.currentId)
+        assertEquals("https://normal.example", BrowserSession.current()!!.url)
     }
 
     @Test fun `manual mode does not automatically restore but explicit restore works`() {

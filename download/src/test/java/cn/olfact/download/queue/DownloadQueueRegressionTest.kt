@@ -52,6 +52,76 @@ class DownloadQueueRegressionTest {
         assertNull(store.get("failed")!!.systemDownloadId)
     }
 
+    @Test fun `completed HLS removes cache after persisted state while refused HLS keeps its cache`() = runBlocking {
+        MockWebServer().use { server ->
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                    "/success.m3u8" -> MockResponse().setBody("#EXTM3U\n#EXTINF:1,\nsegment.ts\n#EXT-X-ENDLIST")
+                    "/segment.ts" -> MockResponse().setBody("SEGMENT")
+                    "/external.m3u8" -> MockResponse().setBody("""
+                        #EXTM3U
+                        #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",URI="audio.m3u8"
+                        #EXT-X-STREAM-INF:BANDWIDTH=1000,AUDIO="audio"
+                        video.m3u8
+                    """.trimIndent())
+                    else -> MockResponse().setBody("#EXTM3U\n#EXTINF:1,\nvideo.ts\n#EXT-X-ENDLIST")
+                }
+            }
+            server.start()
+            val ctx = context()
+            val store = InMemoryDownloadStore()
+            val queue = DownloadQueue(ctx, store,
+                { DownloadConfig(notifyProgress = false, preferSystemDownloader = false, threadsPerTask = 1) },
+                client = OkHttpClient())
+            val success = queue.enqueue(DownloadSpec(server.url("/success.m3u8").toString(),
+                kind = DownloadKind.HLS, fileName = "success"))
+            val successfulWork = DownloadPaths.workDir(ctx, success.id)
+            withTimeout(10_000) { queue.processQueue() }
+            assertEquals(DownloadStatus.COMPLETED, store.get(success.id)?.status)
+            assertNotNull(store.get(success.id)?.filePath)
+            assertTrue(File(store.get(success.id)!!.filePath!!).isFile)
+            assertTrue("completion must persist before temporary cache removal", !successfulWork.exists())
+
+            val refused = queue.enqueue(DownloadSpec(server.url("/external.m3u8").toString(),
+                kind = DownloadKind.HLS, fileName = "external"))
+            val failedWork = DownloadPaths.workDir(ctx, refused.id)
+            withTimeout(10_000) { queue.processQueue() }
+            assertEquals(DownloadStatus.FAILED, store.get(refused.id)?.status)
+            assertTrue("failed task cache must remain available", failedWork.exists())
+        }
+    }
+
+    @Test fun `pausing an HLS download preserves its work cache`() = runBlocking {
+        MockWebServer().use { server ->
+            val segmentStarted = CountDownLatch(1)
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                    "/index.m3u8" -> MockResponse().setBody("#EXTM3U\n#EXTINF:1,\nslow.ts\n#EXT-X-ENDLIST")
+                    "/slow.ts" -> {
+                        segmentStarted.countDown()
+                        MockResponse().setBody("SLOW").setBodyDelay(5, TimeUnit.SECONDS)
+                    }
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+            server.start()
+            val ctx = context()
+            val store = InMemoryDownloadStore()
+            val queue = DownloadQueue(ctx, store,
+                { DownloadConfig(notifyProgress = false, preferSystemDownloader = false, threadsPerTask = 1) },
+                client = OkHttpClient())
+            val item = queue.enqueue(DownloadSpec(server.url("/index.m3u8").toString(),
+                kind = DownloadKind.HLS, fileName = "paused"))
+            val work = DownloadPaths.workDir(ctx, item.id)
+            val processing = launch(Dispatchers.IO) { queue.processQueue() }
+            assertTrue(segmentStarted.await(5, TimeUnit.SECONDS))
+            queue.pause(item.id)
+            withTimeout(5_000) { processing.join() }
+            assertEquals(DownloadStatus.PAUSED, store.get(item.id)?.status)
+            assertTrue("paused task cache must remain resumable", work.exists())
+        }
+    }
+
     @Test fun `pausing one download does not cancel the rest of the queue`() = runBlocking {
         MockWebServer().use { server ->
             val started = CountDownLatch(2)

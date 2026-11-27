@@ -35,13 +35,22 @@ class SubscriptionUpdater(
         val error: String? = null
     )
 
+    enum class UpdateOutcome { NOTHING_TO_UPDATE, SUCCESS, PARTIAL_FAILURE, ALL_FAILED }
+
     data class UpdateSummary(
         val total: Int = 0,
         val updated: Int = 0,
         val notModified: Int = 0,
         val failed: Int = 0,
         val ruleCount: Int = 0
-    )
+    ) {
+        fun outcome(): UpdateOutcome = when {
+            total <= 0 -> UpdateOutcome.NOTHING_TO_UPDATE
+            failed <= 0 -> UpdateOutcome.SUCCESS
+            failed >= total -> UpdateOutcome.ALL_FAILED
+            else -> UpdateOutcome.PARTIAL_FAILURE
+        }
+    }
 
     /** 把 assets 里的内置清单写到 `lists/`，只在缺失时写一次。 */
     suspend fun ensureBuiltinsInstalled() = withContext(Dispatchers.IO) {

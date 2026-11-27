@@ -49,6 +49,7 @@ open class WebView(context: Context, attrs: AttributeSet? = null, defStyleAttr: 
 interface WebResourceRequest {
     val url: android.net.Uri?
     val isForMainFrame: Boolean
+    val method: String get() = "GET"
     val requestHeaders: Map<String, String>?
 }
 class WebResourceError(val errorCode: Int, val description: CharSequence?)
@@ -68,11 +69,18 @@ open class WebViewClient {
     open fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse) {}
 }
 open class WebChromeClient {
+    open class FileChooserParams
     open fun onProgressChanged(view: WebView, newProgress: Int) {}
     open fun onReceivedTitle(view: WebView, title: String?) {}
     open fun onReceivedIcon(view: WebView, icon: Bitmap?) {}
     open fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: android.os.Message) = false
+    open fun onShowFileChooser(
+        webView: WebView,
+        filePathCallback: ValueCallback<Array<android.net.Uri>>,
+        fileChooserParams: FileChooserParams,
+    ) = false
 }
+interface ValueCallback<T> { fun onReceiveValue(value: T?) }
 class CookieManager private constructor() {
     fun setAcceptThirdPartyCookies(view: WebView, enabled: Boolean) {}
     fun removeAllCookies(callback: ((Boolean) -> Unit)?) { callback?.invoke(true) }

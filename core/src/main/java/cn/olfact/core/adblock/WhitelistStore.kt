@@ -84,7 +84,6 @@ class WhitelistStore(
             s = s.replace(" ", "")
             if (s.contains("://")) s = UrlTools.hostOf(s)
             s = s.removePrefix("*.").removePrefix(".").trimEnd('.')
-            if (s.isEmpty() || s.length > 253) return null
             if (s.any { it == '/' || it == '?' || it == '#' || it == '@' }) return null
             if (!s.all { it.isLetterOrDigit() || it == '.' || it == '-' || it == '_' || it == ':' || it == '[' || it == ']' }) return null
             return s.ifEmpty { null }

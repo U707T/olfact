@@ -38,7 +38,7 @@ class ToolsFragment : Fragment(R.layout.fragment_page) {
                     Nav.push(QrShareFragment.newInstance(url))
                 }
             },
-            setting("网络日志", "崩溃与网络请求记录") { Nav.push(LogFragment()) }
+            setting("网络日志", "拦截 / 脚本 / 备份 / 下载等模块的运行记录，不记录每个网页请求") { Nav.push(LogFragment()) }
         ).also { cardBottomMargin(it) })
 
         b.content.addView(note("扫一扫使用 CameraX + ZXing；二维码分享只生成当前页 URL，不上传任何内容。"))

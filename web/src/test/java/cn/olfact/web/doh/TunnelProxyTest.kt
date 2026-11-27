@@ -179,4 +179,134 @@ class TunnelProxyTest {
             assertEquals("GET /a/b?c=1 HTTP/1.1", requestLine)
         }
     }
+
+    @Test(timeout = 15_000)
+    fun `upload activity keeps tunnel alive while origin waits for full request body`() {
+        val origin = ServerSocket(0, 8, InetAddress.getByName("127.0.0.1"))
+        val expectedUpload = 12
+        val received = java.util.concurrent.CountDownLatch(1)
+        thread(isDaemon = true) {
+            origin.accept().use { socket ->
+                val buffer = ByteArray(expectedUpload)
+                var count = 0
+                while (count < expectedUpload) {
+                    val n = socket.getInputStream().read(buffer, count, expectedUpload - count)
+                    if (n < 0) break
+                    count += n
+                }
+                if (count == expectedUpload) {
+                    socket.getOutputStream().write("UPLOAD_OK".toByteArray())
+                    socket.getOutputStream().flush()
+                    received.countDown()
+                }
+            }
+        }
+        tunnel = TunnelProxy(
+            resolver = { listOf(InetAddress.getLoopbackAddress()) },
+            connectTimeoutMs = 1_000,
+            idleTimeoutMs = 120,
+            allowedPorts = setOf(origin.localPort),
+        )
+        val port = tunnel.start()
+        Socket("127.0.0.1", port).use { socket ->
+            socket.soTimeout = 3_000
+            socket.getOutputStream().write("CONNECT upload.example:${origin.localPort} HTTP/1.1\r\n\r\n".toByteArray())
+            assertTrue(socket.getInputStream().bufferedReader().readLine().contains("200"))
+            repeat(expectedUpload) { index ->
+                socket.getOutputStream().write(index)
+                socket.getOutputStream().flush()
+                Thread.sleep(30)
+            }
+            assertTrue("origin must respond only after receiving the full upload", received.await(2, java.util.concurrent.TimeUnit.SECONDS))
+            val response = ByteArray("UPLOAD_OK".length)
+            var count = 0
+            while (count < response.size) {
+                val n = socket.getInputStream().read(response, count, response.size - count)
+                if (n < 0) break
+                count += n
+            }
+            assertEquals("UPLOAD_OK", String(response, 0, count))
+        }
+        origin.close()
+    }
+
+    @Test(timeout = 10_000)
+    fun `tries third address after the first two IPv4 candidates fail`() {
+        ServerSocket(0, 8, InetAddress.getByName("127.0.0.1")).use { origin ->
+            val accepted = java.util.concurrent.CountDownLatch(1)
+            thread(isDaemon = true) {
+                origin.accept().use { accepted.countDown() }
+            }
+            val reachable = InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1))
+            val candidates = listOf(
+                InetAddress.getByAddress(byteArrayOf(127, 0, 0, 2)),
+                InetAddress.getByAddress(byteArrayOf(127, 0, 0, 3)),
+                reachable,
+            )
+            tunnel = TunnelProxy(
+                resolver = { candidates }, allowedPorts = setOf(origin.localPort), connectTimeoutMs = 2_000,
+            )
+            val port = tunnel.start()
+            Socket("127.0.0.1", port).use { socket ->
+                socket.soTimeout = 2_000
+                socket.getOutputStream().write("CONNECT multi.example:${origin.localPort} HTTP/1.1\r\n\r\n".toByteArray())
+                assertTrue(socket.getInputStream().bufferedReader().readLine().contains("200"))
+                assertTrue(accepted.await(2, java.util.concurrent.TimeUnit.SECONDS))
+            }
+        }
+    }
+
+    @Test(timeout = 5_000)
+    fun `blackhole candidate gets only its share of the total connection budget`() {
+        ServerSocket(0, 8, InetAddress.getByName("127.0.0.1")).use { origin ->
+            val accepted = java.util.concurrent.CountDownLatch(1)
+            thread(isDaemon = true) { origin.accept().use { accepted.countDown() } }
+            val blackhole = InetAddress.getByAddress(byteArrayOf(127, 0, 0, 2))
+            val reachable = InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1))
+            val firstAttemptBudget = java.util.concurrent.atomic.AtomicInteger(0)
+            tunnel = TunnelProxy(
+                resolver = { listOf(blackhole, reachable) },
+                allowedPorts = setOf(origin.localPort),
+                connectTimeoutMs = 600,
+                connectAttempt = { socket, address, targetPort, timeoutMs ->
+                    if (address == blackhole) {
+                        firstAttemptBudget.set(timeoutMs)
+                        Thread.sleep(timeoutMs.toLong())
+                        throw java.net.SocketTimeoutException("simulated blackhole")
+                    }
+                    socket.connect(InetSocketAddress(address, targetPort), timeoutMs)
+                },
+            )
+            val port = tunnel.start()
+            val started = System.nanoTime()
+            Socket("127.0.0.1", port).use { socket ->
+                socket.soTimeout = 2_000
+                socket.getOutputStream().write("CONNECT bounded.example:${origin.localPort} HTTP/1.1\r\n\r\n".toByteArray())
+                assertTrue(socket.getInputStream().bufferedReader().readLine().contains("200"))
+                assertTrue(accepted.await(1, java.util.concurrent.TimeUnit.SECONDS))
+            }
+            val elapsedMs = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
+            assertTrue("first address should receive only a fraction of total budget", firstAttemptBudget.get() in 1..300)
+            assertTrue("connection attempts must stay within the shared deadline", elapsedMs < 1_500)
+        }
+    }
+
+    @Test(timeout = 10_000)
+    fun `failed IPv6 candidate falls back to reachable IPv4`() {
+        ServerSocket(0, 8, InetAddress.getByName("127.0.0.1")).use { origin ->
+            val accepted = java.util.concurrent.CountDownLatch(1)
+            thread(isDaemon = true) { origin.accept().use { accepted.countDown() } }
+            val candidates = listOf(InetAddress.getByName("::1"), InetAddress.getLoopbackAddress())
+            tunnel = TunnelProxy(
+                resolver = { candidates }, allowedPorts = setOf(origin.localPort), connectTimeoutMs = 2_000,
+            )
+            val port = tunnel.start()
+            Socket("127.0.0.1", port).use { socket ->
+                socket.soTimeout = 2_000
+                socket.getOutputStream().write("CONNECT dual.example:${origin.localPort} HTTP/1.1\r\n\r\n".toByteArray())
+                assertTrue(socket.getInputStream().bufferedReader().readLine().contains("200"))
+                assertTrue(accepted.await(2, java.util.concurrent.TimeUnit.SECONDS))
+            }
+        }
+    }
 }

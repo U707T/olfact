@@ -10,6 +10,7 @@ object K {
     val RESTORE_TABS = SettingsKey("ui.restore_tabs", "manual")
     val SEARCH_ENGINE = SettingsKey("ui.search_engine", "baidu")
     val SEARCH_CUSTOM = SettingsKey("ui.search_custom", "")
+    val DOH_ENABLED = SettingsKey("doh.enabled", false)
     val DOH_MODE = SettingsKey("doh.mode", "smart")
     val DOH_UPSTREAM = SettingsKey("doh.upstream", "auto")
     val DOH_RULES = SettingsKey("doh.rules", "")

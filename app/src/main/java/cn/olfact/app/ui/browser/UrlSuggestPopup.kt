@@ -1,11 +1,13 @@
 package cn.olfact.app.ui.browser
 
 import android.app.Activity
+import android.graphics.Rect
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.widget.LinearLayout
 import android.widget.PopupWindow
 import android.widget.ScrollView
@@ -51,7 +53,20 @@ class UrlSuggestPopup(
         setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         isOutsideTouchable = true
         isFocusable = false
+        inputMethodMode = PopupWindow.INPUT_METHOD_NEEDED
         elevation = activity.dpF(8f).toFloat()
+    }
+
+    private var layoutObserver: ViewTreeObserver? = null
+    private val layoutListener = ViewTreeObserver.OnGlobalLayoutListener { positionPopup() }
+    private var geometry: List<Int>? = null
+
+    init {
+        popup.setOnDismissListener {
+            layoutObserver?.takeIf { it.isAlive }?.removeOnGlobalLayoutListener(layoutListener)
+            layoutObserver = null
+            geometry = null
+        }
     }
 
     var onOpen: ((String) -> Unit)? = null
@@ -59,13 +74,14 @@ class UrlSuggestPopup(
     var onSearch: ((String) -> Unit)? = null
 
     fun show(query: String) {
-        column.removeAllViews()
         val text = query.trim()
-        if (text.isEmpty()) {
+        if (text.isEmpty() || !anchor.isAttachedToWindow || !anchor.isShown || anchor.width <= 0) {
             dismiss()
             return
         }
 
+        column.removeAllViews()
+        scroll.scrollTo(0, 0)
         val candidates = LinkExtractor.extract(text)
         if (candidates.isNotEmpty()) {
             if (candidates.size > 1) {
@@ -116,29 +132,52 @@ class UrlSuggestPopup(
             })
         }
 
-        // 高度要按「锚点上方/下方实际可用空间」算，否则固定 360dp 会在小屏或
-        // 地址条贴底时被顶出屏幕，候选层直接看不见。
-        val metrics = activity.resources.displayMetrics
-        val loc = IntArray(2)
-        anchor.getLocationOnScreen(loc)
-        val margin = activity.dpF(8f)
-        val space = if (above) {
-            loc[1] - margin
-        } else {
-            metrics.heightPixels - (loc[1] + anchor.height) - margin
-        }
-        val maxHeight = activity.dpF(360f)
-        popup.width = anchor.width
-        popup.height = space.coerceIn(activity.dpF(96f), maxHeight)
+        positionPopup()
+    }
 
+    private fun positionPopup() {
+        if (!anchor.isAttachedToWindow || !anchor.isShown) {
+            dismiss()
+            return
+        }
+        // The visible window excludes the keyboard and system bars and has screen coordinates.
+        val frame = Rect()
+        anchor.getWindowVisibleDisplayFrame(frame)
+        val anchorScreen = IntArray(2).also(anchor::getLocationOnScreen)
+        val spacing = activity.dpF(4f)
+        val availableAbove = anchorScreen[1] - frame.top - spacing
+        val availableBelow = frame.bottom - anchorScreen[1] - anchor.height - spacing
+        val maxHeight = activity.dpF(360f)
+        val width = minOf(anchor.width, frame.width())
+        if (width <= 0) {
+            dismiss()
+            return
+        }
+        column.measure(
+            View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        val desiredHeight = minOf(column.measuredHeight, maxHeight)
+        val useAbove = if (above) availableAbove >= minOf(desiredHeight, availableBelow)
+            else availableBelow < minOf(desiredHeight, availableAbove)
+        val space = if (useAbove) availableAbove else availableBelow
+        if (space < minOf(desiredHeight, activity.dpF(48f))) {
+            dismiss()
+            return
+        }
+        val height = minOf(desiredHeight, space)
+        val x = anchorScreen[0].coerceIn(frame.left, frame.right - width) - anchorScreen[0]
+        val y = if (useAbove) -(anchor.height + spacing + height) else spacing
+        val newGeometry = listOf(x, y, width, height)
+        if (geometry == newGeometry && popup.isShowing) return
+        geometry = newGeometry
         if (popup.isShowing) {
-            val offset = if (above) -(anchor.height + popup.height) else activity.dpF(4f)
-            popup.update(anchor, 0, offset, popup.width, popup.height)
-        } else if (above) {
-            // 向上弹：底部对齐到锚点上方，列表从下往上长，避免遮住输入框。
-            popup.showAsDropDown(anchor, 0, -(anchor.height + popup.height), Gravity.BOTTOM)
+            popup.update(anchor, x, y, width, height)
         } else {
-            popup.showAsDropDown(anchor, 0, activity.dpF(4f))
+            popup.width = width
+            popup.height = height
+            popup.showAsDropDown(anchor, x, y, Gravity.LEFT)
+            layoutObserver = anchor.viewTreeObserver.also { it.addOnGlobalLayoutListener(layoutListener) }
         }
     }
 

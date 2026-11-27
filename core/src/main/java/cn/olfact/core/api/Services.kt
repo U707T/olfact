@@ -19,7 +19,7 @@ object OlfactServices {
      * 共享单例会让第二个标签页抢走第一个的视图。
      */
     @Volatile var browserSurfaceFactory: BrowserSurfaceFactory? = null
-    @Volatile var sniffer: MediaSniffer? = null
+    @Volatile var snifferFactory: ((Long) -> MediaSniffer)? = null
     @Volatile var adBlock: AdBlockHook? = null
     @Volatile var adBlockController: AdBlockController? = null
     @Volatile var scripts: ScriptSource? = null
@@ -32,7 +32,7 @@ object OlfactServices {
     /** 已注册模块的简报，供「关于」页与日志使用。 */
     fun modules(): List<Pair<String, Boolean>> = listOf(
         "web" to (browserSurfaceFactory != null || browserSurface != null || browserHost != null),
-        "player" to (sniffer != null),
+        "player" to (snifferFactory != null),
         "download" to (downloads != null),
         "ai" to (aiProviders != null),
         "adblock" to (adBlockController != null),

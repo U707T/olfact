@@ -8,6 +8,7 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.SocketTimeoutException
 import java.net.URI
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
@@ -30,7 +31,10 @@ class TunnelProxy(
     private val connectTimeoutMs: Int = 6_000,
     private val idleTimeoutMs: Int = 30_000,
     private val allowedPorts: Set<Int> = setOf(80, 443),
-    private val onEvent: (String) -> Unit = {}
+    private val onEvent: (String) -> Unit = {},
+    private val connectAttempt: (Socket, InetAddress, Int, Int) -> Unit = { socket, address, port, timeoutMs ->
+        socket.connect(InetSocketAddress(address, port), timeoutMs)
+    },
 ) {
 
     data class Stats(
@@ -265,10 +269,17 @@ class TunnelProxy(
             val addresses = resolver(host)
             if (addresses.isEmpty()) return null
             var lastError: Exception? = null
-            for (address in addresses.take(2)) {
-                // 每个地址一个 socket：connect() 失败后 Socket 实例不可复用（
-                // 之前是把同一个 socket 连着 connect 两次，第二个地址必然失败，
-                // 多 A 记录里第一条挂了就等于整条隧道挂了）。
+            val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(connectTimeoutMs.coerceAtLeast(1).toLong())
+            val candidates = interleaveFamilies(addresses)
+            for ((index, address) in candidates.withIndex()) {
+                val remainingNanos = deadline - System.nanoTime()
+                if (remainingNanos <= 0L) break
+                val remainingCandidates = candidates.size - index
+                val attemptNanos = (remainingNanos / remainingCandidates).coerceAtLeast(1L)
+                val attemptMs = TimeUnit.NANOSECONDS.toMillis(attemptNanos + 999_999L)
+                    .coerceAtLeast(1L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                // 每个地址一个 socket；将剩余期限分配给尚未尝试的地址，
+                // 避免第一个黑洞 IP 吃掉总预算，阻断后续候选。
                 val socket = Socket()
                 sockets.add(socket)
                 try {
@@ -278,8 +289,8 @@ class TunnelProxy(
                         return null
                     }
                     socket.tcpNoDelay = true
+                    connectAttempt(socket, address, port, attemptMs)
                     socket.soTimeout = idleTimeoutMs
-                    socket.connect(InetSocketAddress(address, port), connectTimeoutMs)
                     return socket
                 } catch (e: Exception) {
                     lastError = e
@@ -295,37 +306,91 @@ class TunnelProxy(
         }
     }
 
+    /** 在保留每族解析顺序的同时交错 IPv4/IPv6，最后追加未知族地址。 */
+    private fun interleaveFamilies(addresses: List<InetAddress>): List<InetAddress> {
+        val ipv4 = ArrayDeque(addresses.filter { it.address.size == 4 })
+        val ipv6 = ArrayDeque(addresses.filter { it.address.size == 16 })
+        val other = addresses.filter { it.address.size != 4 && it.address.size != 16 }
+        val firstFamily = addresses.firstOrNull { it.address.size == 4 || it.address.size == 16 }
+            ?.address?.size
+        val result = ArrayList<InetAddress>(addresses.size)
+        var preferV4 = firstFamily != 16
+        while (ipv4.isNotEmpty() || ipv6.isNotEmpty()) {
+            val preferred = if (preferV4) ipv4 else ipv6
+            val alternate = if (preferV4) ipv6 else ipv4
+            result += if (preferred.isNotEmpty()) preferred.removeFirst() else alternate.removeFirst()
+            preferV4 = !preferV4
+        }
+        result += other
+        return result
+    }
+
     private fun pipeBoth(client: Socket, clientIn: InputStream, upstream: Socket) {
         val executor = copyPool ?: return
         val upstreamIn = BufferedInputStream(upstream.getInputStream())
         val clientOut = client.getOutputStream()
         val upstreamOut = upstream.getOutputStream()
-        // 上行放转发池，下行直接在当前处理线程跑：每条隧道少占一个线程，
-        // 池子能撑住的并发隧道数直接翻倍；转发池与处理池分开，避免自锁。
-        val upload = executor.submit { copy(clientIn, upstreamOut, upstream, true) }
-        copy(upstreamIn, clientOut, client, false)
-        // 上行没及时收尾就取消它，别让任务挂着继续往已关闭的流里写。
-        runCatching { upload.get(30, TimeUnit.SECONDS) }.onFailure { upload.cancel(true) }
-        runCatching { upstream.close() }
-        sockets.remove(upstream)
+        val lastActivityNanos = AtomicLong(System.nanoTime())
+        val pollMs = readPollIntervalMs()
+        // SO_TIMEOUT 只用于周期性检查；是否空闲由共享的双向活动时间决定。
+        client.soTimeout = pollMs
+        upstream.soTimeout = pollMs
+        val upload = executor.submit {
+            copy(clientIn, upstreamOut, upstream, client, lastActivityNanos, isUpload = true)
+        }
+        try {
+            copy(upstreamIn, clientOut, client, upstream, lastActivityNanos, isUpload = false)
+            // 下行结束后等待上行正常结束；copy 自己负责检测共同空闲和关闭两端。
+            upload.get()
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            upload.cancel(true)
+        } catch (_: Exception) {
+            upload.cancel(true)
+        } finally {
+            runCatching { upstream.close() }
+            sockets.remove(upstream)
+        }
     }
 
-    private fun copy(from: InputStream, to: OutputStream, target: Socket, isUpload: Boolean) {
+    private fun copy(
+        from: InputStream,
+        to: OutputStream,
+        target: Socket,
+        peer: Socket,
+        lastActivityNanos: AtomicLong,
+        isUpload: Boolean,
+    ) {
         val buffer = ByteArray(16 * 1024)
+        val idleNanos = TimeUnit.MILLISECONDS.toNanos(idleTimeoutMs.coerceAtLeast(1).toLong())
         try {
             while (true) {
-                val read = from.read(buffer)
+                val read = try {
+                    from.read(buffer)
+                } catch (_: SocketTimeoutException) {
+                    if (System.nanoTime() - lastActivityNanos.get() >= idleNanos) {
+                        // 只有双向都没有传输超过期限才终止整条隧道。
+                        runCatching { target.close() }
+                        runCatching { peer.close() }
+                        break
+                    }
+                    continue
+                }
                 if (read < 0) break
+                lastActivityNanos.set(System.nanoTime())
                 to.write(buffer, 0, read)
                 to.flush()
                 if (isUpload) bytesUp.addAndGet(read.toLong()) else bytesDown.addAndGet(read.toLong())
             }
         } catch (_: Exception) {
-            // 对端关闭 / 超时，正常路径
+            // 对端关闭 / stop，正常收尾
         } finally {
             runCatching { target.shutdownOutput() }
         }
     }
+
+    private fun readPollIntervalMs(): Int =
+        (idleTimeoutMs.coerceAtLeast(1) / 4).coerceIn(1, 500)
 
     private fun respond(client: Socket, code: Int, message: String) {
         runCatching {

@@ -25,7 +25,17 @@ class FavoritesFragment : Fragment(R.layout.fragment_entry_list) {
         b.header.onBack = { Nav.pop() }
 
         val a = FavoritesAdapter(
-            onOpen = { Nav.push(PlayerFragment.newInstance(it.url, it.title)) },
+            onOpen = {
+                Nav.push(
+                    PlayerFragment.newInstance(
+                        url = it.url,
+                        title = it.title,
+                        pageUrl = it.sourcePage,
+                        mediaType = it.mediaType,
+                        mimeType = it.mimeType
+                    )
+                )
+            },
             onDelete = { confirmDelete(it) }
         )
         adapter = a

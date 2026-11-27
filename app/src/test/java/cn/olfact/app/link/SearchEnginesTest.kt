@@ -11,6 +11,17 @@ class SearchEnginesTest {
     }
 
     @Test
+    fun `完整HTTP网址保留路径查询和片段尾部标点`() {
+        val urls = listOf(
+            "https://en.wikipedia.org/wiki/Function_(mathematics)",
+            "https://example.com/report!",
+            "https://example.com/path?query=value!",
+            "https://example.com/path#section)"
+        )
+        urls.forEach { assertEquals(it, SearchEngines.urlFor(it, "baidu")) }
+    }
+
+    @Test
     fun `普通词走默认引擎并做 URL 编码`() {
         assertEquals(
             "https://www.baidu.com/s?wd=%E7%88%B1%E6%83%85+%E7%94%B5%E5%BD%B1",
@@ -38,6 +49,19 @@ class SearchEnginesTest {
             "https://www.baidu.com/s?wd=hello",
             SearchEngines.urlFor("hello", "custom", "https://s.example.com/search")
         )
+    }
+
+    @Test
+    fun `显式搜索不会直接导航到域名`() {
+        assertEquals("https://www.bing.com/search?q=example.com", SearchEngines.searchUrlFor("example.com", "bing"))
+    }
+
+    @Test
+    fun `非网页或缺主机的自定义模板回退默认引擎`() {
+        for (template in listOf("file:///search?q=%s", "https:///search?q=%s", "https://exa mple.com/%s")) {
+            assertEquals("https://www.baidu.com/s?wd=hello", SearchEngines.searchUrlFor("hello", "custom", template))
+        }
+        assertEquals("http://localhost:8080/search?q=a+b", SearchEngines.searchUrlFor("a b", "custom", "http://localhost:8080/search?q=%s"))
     }
 
     @Test

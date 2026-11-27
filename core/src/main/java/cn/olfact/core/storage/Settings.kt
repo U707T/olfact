@@ -48,10 +48,20 @@ class DataStoreSettingsRepository internal constructor(
         val overwrite: Boolean = true,
         val acknowledgement: CompletableDeferred<Int>? = null,
         val isImport: Boolean = false,
+        val clearOnChange: Map<String, Set<String>> = emptyMap(),
     ) {
-        fun valuesToWrite(current: Map<String, Any>): Map<String, Any?> = values.filter { (key, value) ->
-            val old = current[key]
-            if (isImport && old != null) overwrite && compatibleType(old, value) else true
+        fun valuesToWrite(current: Map<String, Any>): Map<String, Any?> {
+            val accepted = values.filter { (key, value) ->
+                val old = current[key]
+                if (isImport && old != null) overwrite && compatibleType(old, value) else true
+            }
+            if (clearOnChange.isEmpty()) return accepted
+            return accepted.toMutableMap().apply {
+                for ((key, value) in accepted) {
+                    if (current[key] == value || (current[key] == null && value == "")) continue
+                    clearOnChange[key]?.forEach { dependent -> put(dependent, null) }
+                }
+            }
         }
     }
 
@@ -128,7 +138,7 @@ class DataStoreSettingsRepository internal constructor(
                 publishSnapshot()
             }
             _loaded.value = true
-            edit.acknowledgement?.complete(written.size)
+            edit.acknowledgement?.complete(written.count { it in edit.values })
             written.forEach { emitter.emit(it) }
         } catch (e: CancellationException) {
             throw e
@@ -162,11 +172,15 @@ class DataStoreSettingsRepository internal constructor(
     fun exportMap(): Map<String, String> = snapshot.mapValues { (_, value) -> encodeValue(value) }
 
     /** Decode before writing and persist in one DataStore transaction. */
-    suspend fun importMap(values: Map<String, String>, overwrite: Boolean = false): Int {
+    suspend fun importMap(
+        values: Map<String, String>,
+        overwrite: Boolean = false,
+        clearOnChange: Map<String, Set<String>> = emptyMap(),
+    ): Int {
         val decoded = values.mapNotNull { (name, raw) -> decodeValue(raw)?.let { name to it } }.toMap()
         if (decoded.isEmpty()) return 0
         val acknowledgement = CompletableDeferred<Int>()
-        enqueue(Edit(decoded, overwrite = overwrite, acknowledgement = acknowledgement, isImport = true))
+        enqueue(Edit(decoded, overwrite = overwrite, acknowledgement = acknowledgement, isImport = true, clearOnChange = clearOnChange))
         return try {
             acknowledgement.await()
         } finally {

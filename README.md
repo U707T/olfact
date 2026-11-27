@@ -4,7 +4,7 @@
 原版（含规则引擎、迅雷 SDK、磁力、投屏等）只作为视觉与行为参照，范围见
 [`docs/TECH-PLAN.md`](docs/TECH-PLAN.md)。
 
-**源码版本：`1.0.0-rc15`（versionCode 15）** ·
+**源码版本：`1.0.0-rc16`（versionCode 16）** ·
 [已发布版本](https://github.com/U707T/olfact/releases)
 
 - **minSdk 24 / targetSdk 37**，Gradle 9.7.0 + AGP 9.0.1 + Kotlin 2.3.20，JDK 21
@@ -83,7 +83,7 @@ app lint 仍是发布门禁。仅在 app 中临时停用 `FragmentLiveDataObserv
 
 1. 改 `app/build.gradle.kts` 的 `versionName`（`versionCode` 递增）
 2. `CHANGELOG.md` 顶部加同版本段落（CI 会把它贴进 Release）
-3. 确认候选提交的完整 CI 通过后，创建并推送对应的新 tag，例如 `v1.0.0-rc15`；不要移动已有 tag
+3. 确认候选提交的完整 CI 通过后，创建并推送对应的新 tag，例如 `v1.0.0-rc16`；不要移动已有 tag
 4. CI 跑单测 / lint / debug → 签 `assembleRelease` → 上传 APK 并创建 Release
    （`-rc` / `-beta` 自动标 prerelease）
 
@@ -91,7 +91,8 @@ app lint 仍是发布门禁。仅在 app 中临时停用 `FragmentLiveDataObserv
 
 | 文件 | 内容 |
 |---|---|
-| [`docs/audit/2026-11-21-full-audit.md`](docs/audit/2026-11-21-full-audit.md) | **当前审计**：六模块覆盖、修复与功能优化、本地验证和待 CI/设备项 |
+| [`docs/audit/2026-11-27-rc16-fixes.md`](docs/audit/2026-11-27-rc16-fixes.md) | **当前修复记录**：rc16 审计问题对照、本地验证与发布边界 |
+| [`docs/audit/2026-11-21-full-audit.md`](docs/audit/2026-11-21-full-audit.md) | 上一轮六模块覆盖、修复与功能优化、本地验证和待 CI/设备项 |
 | [`docs/audit/2026-11-05-post-rc11-fixes.md`](docs/audit/2026-11-05-post-rc11-fixes.md) | rc11 之后的历史修复与真机复核清单 |
 | [`docs/audit/2026-11-01-rc11-status.md`](docs/audit/2026-11-01-rc11-status.md) | rc11 的逐屏对齐记录（历史对照） |
 | [`docs/audit/archive/`](docs/audit/archive/) | 历史审计（rc4 / rc6 基线，不再更新） |
@@ -103,11 +104,14 @@ app lint 仍是发布门禁。仅在 app 中临时停用 `FragmentLiveDataObserv
 ## 已知限制
 
 - 当前 Windows 验证环境未配置 Android SDK/adb；视觉与原生集成需在设备补跑（见 `docs/tasks/B5-SMOKE.md`）。
+- **资源嗅探只认带扩展名的网页请求**（`.m3u8/.mpd/.mp4/.m4v/.webm/.mkv/.flv/.mov/.m4a/.mp3/.aac/.ogg/.opus/.flac/.wav`，且必须是 GET）。
+  无扩展名的媒体地址、`blob:`、DRM 内容与需要额外请求才能拿到播放列表的站点不保证能被发现；结果按「标签 + 页面」隔离，不跨页复用。
 - **标签渲染缓存有界**：最多保留 3 个离屏渲染器，按最近使用顺序淘汰；可见页使用独立渲染器。
   缓存命中时保留网页状态，超过容量、内核进程退出或 Activity 重建时仍会重载。
   修改网页设置会丢弃离屏旧配置缓存，并刷新当前页。
 - **无痕标签与普通标签共用进程默认 WebView profile 的 Cookie/缓存**：渲染器按标签固定无痕属性，
   不写历史、URL/标题不落盘；这不等于 Cookie 隔离，用完仍需手动清 Cookie。
+- **HLS 外置音轨暂不支持合并**：遇到需要独立音轨的播放列表会明确拒绝下载，避免只保存视频却报告完成。
 - **GM 原生桥尚未接入 WebView**：普通 UserScript 可用；`GM_getValue` 持久化、
   `GM_xmlhttpRequest` 等原生能力暂不可用，设置页已明确显示限制。
 - 应用内默认 HTTP 客户端已接 DoH；系统 `DownloadManager` 与播放器的 Media3 HTTP 不经过此入口，

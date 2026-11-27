@@ -1,7 +1,11 @@
 package cn.olfact.app.ui.settings.pages
 
+import android.app.AlertDialog
 import android.os.Bundle
+import android.text.InputType
+import android.view.Gravity
 import android.view.View
+import android.widget.EditText
 import androidx.fragment.app.Fragment
 import cn.olfact.app.R
 import cn.olfact.app.data.AppLog
@@ -44,7 +48,7 @@ class ScriptFragment : Fragment(R.layout.fragment_page) {
         b.content.removeAllViews()
 
         if (store == null) {
-            b.content.addView(note("脚本模块未就绪：脚本会保存在本地，注入由浏览内核负责。"))
+            b.content.addView(note("脚本模块未就绪：暂时无法保存或管理脚本，请稍后重试。"))
         }
 
         b.content.addView(sectionTitle("注入"))
@@ -52,7 +56,7 @@ class ScriptFragment : Fragment(R.layout.fragment_page) {
             toggle("启用 UserScript", AppSettings.get(K.SCRIPT_ENABLED), "在 document start 注入匹配脚本") { on ->
                 AppSettings.set(K.SCRIPT_ENABLED, on)
             },
-            setting("GM_* API", "暂未接入", "GM_setValue / GM_xmlhttpRequest 当前不可用")
+            setting("GM_* API", "部分可用", "GM_info 可用；GM_setValue / GM_deleteValue / GM_xmlhttpRequest 需要原生桥，当前版本未接入")
         ).also { cardBottomMargin(it) })
 
         b.content.addView(sectionTitle("已安装 ${scripts.size}"))
@@ -71,26 +75,68 @@ class ScriptFragment : Fragment(R.layout.fragment_page) {
                 onRowClick = { edit(script) }
                 setOnLongClickListener {
                     Dialogs.confirm(ctx, "删除脚本", script.name, danger = true) {
-                        // 先留正文：列表里的对象已经不带 code 了，撤销要靠它恢复。
-                        val body = store?.code(script.id).orEmpty()
-                        store?.remove(script.id)
-                        render()
-                        com.google.android.material.snackbar.Snackbar
-                            .make(requireView(), "已删除「${script.name}」", com.google.android.material.snackbar.Snackbar.LENGTH_LONG)
-                            .setAction("撤销") {
-                                store?.save(script.copy(code = body))
-                                render()
+                        val activeStore = OlfactServices.scriptStore
+                        if (activeStore == null) {
+                            Nav.toast("脚本模块未就绪，未删除")
+                            return@confirm
+                        }
+                        val body = try {
+                            activeStore.code(script.id)
+                        } catch (failure: Exception) {
+                            Nav.toast("读取脚本失败，未删除：${failure.localizedMessage ?: "存储错误"}")
+                            return@confirm
+                        }
+                        if (body == null) {
+                            Nav.toast("脚本正文不可读取，未删除")
+                            return@confirm
+                        }
+                        try {
+                            if (activeStore.all().none { it.id == script.id }) {
+                                Nav.toast("脚本已不存在，未删除")
+                                return@confirm
                             }
-                            .show()
+                            activeStore.remove(script.id)
+                            if (activeStore.all().any { it.id == script.id }) {
+                                Nav.toast("删除未完成，请重试")
+                                return@confirm
+                            }
+                        } catch (failure: Exception) {
+                            Nav.toast("删除失败：${failure.localizedMessage ?: "存储错误"}")
+                            return@confirm
+                        }
+                        render()
+                        showDeletedScriptUndo(script, body)
                     }
                     true
                 }
             }
             val sw = UiSwitch(ctx).apply {
                 setChecked(script.enabled, false)
-                onCheckedChange = { on ->
-                    store?.setEnabled(script.id, on)
-                    Nav.toast(if (on) "已启用" else "已停用")
+            }
+            sw.onCheckedChange = { on ->
+                val activeStore = OlfactServices.scriptStore
+                if (activeStore == null) {
+                    sw.setChecked(!on)
+                    Nav.toast("脚本模块未就绪，状态未更改")
+                } else {
+                    try {
+                        if (activeStore.all().none { it.id == script.id }) {
+                            sw.setChecked(!on)
+                            Nav.toast("脚本已不存在，状态未更改")
+                        } else {
+                            activeStore.setEnabled(script.id, on)
+                            val saved = activeStore.all().firstOrNull { it.id == script.id }
+                            if (saved?.enabled != on) {
+                                sw.setChecked(!on)
+                                Nav.toast("状态未保存，请重试")
+                            } else {
+                                Nav.toast(if (on) "已启用" else "已停用")
+                            }
+                        }
+                    } catch (failure: Exception) {
+                        sw.setChecked(!on)
+                        Nav.toast("更改状态失败：${failure.localizedMessage ?: "存储错误"}")
+                    }
                 }
             }
             row.addTrailing(sw)
@@ -118,24 +164,110 @@ class ScriptFragment : Fragment(R.layout.fragment_page) {
             setting("新建脚本", "直接写一段 JS 也可以") { edit(null) }
         ).also { cardBottomMargin(it) })
 
-        b.content.addView(note("实现说明：UserScript 通过 addDocumentStartJavaScript 注入页面；GM_* API 尚未接入，因此需要这些 API 的脚本暂时不可用。"))
+        b.content.addView(note("实现说明：脚本通过 addDocumentStartJavaScript 注入页面，注入时机由 @run-at 决定（document-body 按 document-end 处理）。GM_info 可用；GM_setValue、GM_xmlhttpRequest 等需要原生桥的 API 当前未接入，调用时会在控制台提示且不会保存任何值。"))
+    }
+
+    private fun showDeletedScriptUndo(script: UserScript, body: String) {
+        val root = binding?.root ?: return
+        com.google.android.material.snackbar.Snackbar
+            .make(root, "已删除「${script.name}」", com.google.android.material.snackbar.Snackbar.LENGTH_LONG)
+            .setAction("撤销") { restoreDeletedScript(script, body) }
+            .show()
+    }
+
+    private fun restoreDeletedScript(script: UserScript, body: String) {
+        val activeStore = OlfactServices.scriptStore
+        if (activeStore == null) {
+            showUndoRetry(script, body, "脚本模块未就绪，撤销未完成")
+            return
+        }
+        try {
+            activeStore.save(script.copy(code = body))
+            if (activeStore.all().none { it.id == script.id }) {
+                showUndoRetry(script, body, "撤销未完成")
+                return
+            }
+        } catch (failure: Exception) {
+            showUndoRetry(script, body, "撤销失败：${failure.localizedMessage ?: "存储错误"}")
+            return
+        }
+        render()
+        Nav.toast("已恢复「${script.name}」")
+    }
+
+    private fun showUndoRetry(script: UserScript, body: String, message: String) {
+        Nav.toast("$message；正文仍保留，可重试")
+        val root = binding?.root ?: return
+        com.google.android.material.snackbar.Snackbar
+            .make(root, message, com.google.android.material.snackbar.Snackbar.LENGTH_LONG)
+            .setAction("重试") { restoreDeletedScript(script, body) }
+            .show()
     }
 
     private fun edit(script: UserScript?) {
         val ctx = Nav.context() ?: return
         val store = OlfactServices.scriptStore
-        Dialogs.input(ctx, if (script == null) "新建脚本" else "编辑：${script.name}", script?.let { store?.code(it.id) } ?: DEFAULT_CODE, "// ==UserScript==", multiline = true) { code ->
-            if (code.isBlank()) return@input
-            val target = script ?: UserScript(
-                id = UUID.randomUUID().toString(),
-                name = "未命名脚本",
-                matches = listOf("*://*/*")
-            )
-            store?.save(target.copy(code = code))
-            AppLog.i("script", "保存脚本 ${target.name}")
-            Nav.toast("已保存")
-            render()
+        if (store == null) {
+            Nav.toast("脚本模块未就绪，暂不能保存")
+            return
         }
+        val initialCode = if (script == null) DEFAULT_CODE else try {
+            store.code(script.id) ?: run {
+                Nav.toast("脚本正文不存在，无法编辑")
+                return
+            }
+        } catch (failure: Exception) {
+            Nav.toast("读取脚本失败：${failure.localizedMessage ?: "存储错误"}")
+            return
+        }
+        val editor = EditText(ctx).apply {
+            setText(initialCode)
+            hint = "// ==UserScript=="
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            minLines = 6
+            maxLines = 14
+            gravity = Gravity.TOP or Gravity.START
+            setHorizontallyScrolling(false)
+            isVerticalScrollBarEnabled = true
+            setSelection(text.length)
+        }
+        val dialog = AlertDialog.Builder(ctx)
+            .setTitle(if (script == null) "新建脚本" else "编辑：${script.name}")
+            .setView(editor)
+            .setPositiveButton("保存", null)
+            .setNegativeButton("取消", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val code = editor.text.toString()
+                if (code.isBlank()) {
+                    Nav.toast("脚本内容不能为空")
+                    return@setOnClickListener
+                }
+                val activeStore = OlfactServices.scriptStore
+                if (activeStore == null) {
+                    Nav.toast("脚本模块未就绪，输入仍保留，请稍后重试")
+                    return@setOnClickListener
+                }
+                val target = script ?: UserScript(
+                    id = UUID.randomUUID().toString(),
+                    name = "未命名脚本",
+                    matches = listOf("*://*/*")
+                )
+                try {
+                    activeStore.save(target.copy(code = code))
+                } catch (failure: Exception) {
+                    Nav.toast("保存失败：${failure.localizedMessage ?: "存储错误"}；输入仍保留")
+                    editor.requestFocus()
+                    return@setOnClickListener
+                }
+                AppLog.i("script", "保存脚本 ${target.name}")
+                dialog.dismiss()
+                Nav.toast("已保存")
+                render()
+            }
+        }
+        dialog.show()
     }
 
     companion object {

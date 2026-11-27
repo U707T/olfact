@@ -14,7 +14,9 @@ object UserScriptParser {
     data class Parsed(
         val meta: UserScript,
         val body: String,
-        val warnings: List<String> = emptyList()
+        val warnings: List<String> = emptyList(),
+        /** 头部真正出现过的 @key（小写），用于区分「声明了空值」与「根本没写」。 */
+        val keys: Set<String> = emptySet()
     )
 
     private const val HEADER_START = "==UserScript=="
@@ -71,6 +73,7 @@ object UserScriptParser {
         val includes = ArrayList<String>()
         val excludes = ArrayList<String>()
         val grants = ArrayList<String>()
+        val keys = LinkedHashSet<String>()
 
         for (rawLine in metaBlock.lineSequence()) {
             val line = rawLine.trim().removePrefix("//").removePrefix("*").trim()
@@ -79,6 +82,7 @@ object UserScriptParser {
             val key = if (space < 0) line.substring(1) else line.substring(1, space)
             val value = if (space < 0) "" else line.substring(space + 1).trim()
             if (value.isEmpty() && key != "grant") continue
+            keys.add(key.lowercase(Locale.US))
             when (key.lowercase(Locale.US)) {
                 "name" -> name = value
                 "namespace" -> namespace = value
@@ -121,7 +125,7 @@ object UserScriptParser {
             updatedAt = now,
             sizeBytes = source.length
         )
-        return Parsed(meta, body.trimStart('\n', '\r'))
+        return Parsed(meta, body.trimStart('\n', '\r'), keys = keys)
     }
 
     /** 同一 namespace+name 视为同一脚本，重复安装等于"更新"。 */

@@ -43,34 +43,32 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
                 val imm = requireContext().getSystemService(android.view.inputmethod.InputMethodManager::class.java)
                 imm?.hideSoftInputFromWindow(v.windowToken, 0)
                 v.clearFocus()
+                searchHandler.removeCallbacks(searchRunnable)
+                searchRunnable.run()
                 true
             } else {
                 false
             }
         }
-        render("")
+        pendingQuery = b.search.text.toString()
+        render(pendingQuery)
     }
 
     private fun render(query: String) {
         val b = binding ?: return
+        val text = query.trim()
         b.sections.removeAllViews()
         var first = true
         var added = 0
         groups().forEach { rows ->
-            val filtered = if (query.isBlank()) rows else rows.filter { row ->
-                row.title.contains(query, ignoreCase = true) ||
-                    row.keywords.any { it.contains(query, ignoreCase = true) } ||
-                    hitInPage(row.pageId, query) != null
+            val filtered = rows.mapNotNull { row ->
+                val hit = if (text.isEmpty()) null else
+                    row.keywords.firstOrNull { it.contains(text, ignoreCase = true) } ?: hitInPage(row.pageId, text)
+                (row to hit).takeIf { hit != null || row.title.contains(text, ignoreCase = true) }
             }
             if (filtered.isEmpty()) return@forEach
             val group = SettingGroup(requireContext())
-            filtered.forEach { row ->
-                val hit = if (query.isBlank()) {
-                    null
-                } else {
-                    row.keywords.firstOrNull { it.contains(query, ignoreCase = true) }
-                        ?: hitInPage(row.pageId, query)
-                }
+            filtered.forEach { (row, hit) ->
                 val item = SettingItem(requireContext()).apply {
                     title = row.title
                     if (row.rawIcon) setIconOriginal(row.icon) else setIcon(row.icon)
@@ -116,6 +114,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
         is cn.olfact.app.ui.settings.Row.Choice -> row.title
         is cn.olfact.app.ui.settings.Row.IntChoice -> row.title
         is cn.olfact.app.ui.settings.Row.Value -> row.title
+        is cn.olfact.app.ui.settings.Row.TextInput -> row.title
         is cn.olfact.app.ui.settings.Row.Action -> row.title
         is cn.olfact.app.ui.settings.Row.Nav -> row.title
     }

@@ -115,6 +115,27 @@ class BackupPipelineTest {
     }
 
     @Test
+    fun `显式本地导出跳过已配置目标并更新统一状态`() = runBlocking<Unit> {
+        val root = Files.createTempDirectory("olfact-backup-forced-local").toFile()
+        try {
+            val state = BackupStateStore(File(root, "state.json"))
+            val pipeline = BackupPipeline(
+                root, BackupProviders(),
+                targetProvider = { error("本地导出不应读取远端目标") },
+                stateStore = state, clock = { 1_700_000_000_001L }
+            )
+            val result = pipeline.runLocal(File(root, "local"), "manual-export")
+            assertTrue(result.error.orEmpty(), result.success)
+            assertTrue(File(result.location).isFile)
+            File(result.location).inputStream().use { BackupReader().read(it) }
+            assertEquals(result.at, state.load().lastRunAt)
+            assertEquals("manual-export", state.load().lastTrigger)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `恢复部分分段写失败返回现场而不是显示全部成功`() = runBlocking<Unit> {
         val root = Files.createTempDirectory("olfact-backup-partial").toFile()
         try {

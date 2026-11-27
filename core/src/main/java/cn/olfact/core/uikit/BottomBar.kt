@@ -115,6 +115,7 @@ class BottomBar @JvmOverloads constructor(
             slots[item.id] = slot
 
             // 点击/长按都只回调宿主：底栏自身不改选中态（原版没有这一层）。
+            slot.isFocusable = true
             slot.setOnClickListener { onSelect?.invoke(item.id) }
             slot.setOnLongClickListener {
                 val handler = onLongSelect ?: return@setOnLongClickListener false
@@ -134,7 +135,7 @@ class BottomBar @JvmOverloads constructor(
             setImageResource(item.icon)
             imageTintList = ContextCompat.getColorStateList(context, R.color.uikit_text_bar)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            contentDescription = item.description.ifBlank { null }
+            importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
             layoutParams = FrameLayout.LayoutParams(context.dpF(26f), context.dpF(26f), Gravity.CENTER)
         }
         container.addView(icon)
@@ -154,7 +155,7 @@ class BottomBar @JvmOverloads constructor(
             setImageResource(R.drawable.uikit_ic_tab_count_1)
             imageTintList = ContextCompat.getColorStateList(context, R.color.uikit_text_bar)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            contentDescription = "1 个标签页"
+            importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
             layoutParams = FrameLayout.LayoutParams(context.dpF(26f), context.dpF(26f), Gravity.CENTER)
         }
         container.addView(image)
@@ -166,6 +167,7 @@ class BottomBar @JvmOverloads constructor(
         // 原版 `bottom_bar_text_bg`：gray_rice #F5F5F5、32dp 高、圆角 18dp、文字 #444444。
         val pill = TextView(context).apply {
             text = item.label
+            importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             setTypeface(typeface, Typeface.NORMAL)
             gravity = Gravity.CENTER
@@ -186,7 +188,9 @@ class BottomBar @JvmOverloads constructor(
     }
 
     fun setPillText(id: String, text: CharSequence?) {
-        pills[id]?.text = text?.takeIf { it.isNotBlank() } ?: "主页"
+        val label = text?.takeIf { it.isNotBlank() } ?: "主页"
+        pills[id]?.text = label
+        setDescription(id, "地址与搜索，$label")
     }
 
     /**
@@ -196,12 +200,17 @@ class BottomBar @JvmOverloads constructor(
      */
     fun select(id: String?, notify: Boolean = false) {
         selectedId = id
+        slots.forEach { (key, slot) -> slot.isSelected = key == id }
         if (notify) onSelect?.invoke(id ?: return)
     }
 
     /** 换某个槽位的图标（底栏第二格在可前进时显示前进箭头）。 */
     fun setIcon(id: String, iconRes: Int) {
         icons[id]?.setImageResource(iconRes)
+    }
+
+    fun setDescription(id: String, description: CharSequence) {
+        slots[id]?.let { if (it.contentDescription != description) it.contentDescription = description }
     }
 
     fun setBadge(id: String, count: Int) {
@@ -213,7 +222,7 @@ class BottomBar @JvmOverloads constructor(
                 else -> R.drawable.uikit_ic_tab_count_many
             }
         )
-        image.contentDescription = "$safe 个标签页"
+        setDescription(id, "打开标签列表，共 $safe 个标签页")
     }
 
     fun currentId(): String? = selectedId

@@ -71,6 +71,35 @@ class ScriptStore(
         _scripts.value = items
     }
 
+    /**
+     * 正文和索引分属两个文件，无法做单次原子提交；索引提交失败时恢复原正文，
+     * 新脚本则删除刚写入的正文。旧正文无法读取时在改写前终止，避免丢失回滚点。
+     */
+    private fun saveBodyAndIndex(id: String, code: String, items: List<UserScript>) {
+        val target = bodyFile(id)
+        val previous = when {
+            !target.exists() -> null
+            !target.isFile -> throw IllegalStateException("脚本正文路径不是文件: $target")
+            else -> target.readText()
+        }
+        StoreFiles.writeAtomic(target, code)
+        try {
+            saveLocked(items)
+        } catch (failure: Throwable) {
+            try {
+                if (previous != null) {
+                    StoreFiles.writeAtomic(target, previous)
+                } else if (target.exists() && !target.delete()) {
+                    throw IllegalStateException("无法删除未提交的脚本正文: $target")
+                }
+            } catch (rollbackFailure: Throwable) {
+                failure.addSuppressed(rollbackFailure)
+                B4Log.w(TAG, "脚本索引写入失败且正文回滚失败: $id", rollbackFailure)
+            }
+            throw failure
+        }
+    }
+
     private fun requireDistinctFile(id: String) {
         val key = fileId(id)
         require(_scripts.value.none { it.id != id && fileId(it.id) == key }) { "脚本文件名冲突" }
@@ -107,11 +136,10 @@ class ScriptStore(
             updatedAt = System.currentTimeMillis()
         )
         requireDistinctFile(meta.id)
-        StoreFiles.writeAtomic(bodyFile(meta.id), parsed.body.ifBlank { source })
         val items = _scripts.value.toMutableList()
         val idx = items.indexOfFirst { it.id == meta.id }
         if (idx >= 0) items[idx] = meta else items.add(meta)
-        saveLocked(items.sortedBy { it.name.lowercase() })
+        saveBodyAndIndex(meta.id, parsed.body.ifBlank { source }, items.sortedBy { it.name.lowercase() })
         B4Log.d(TAG, "安装脚本 ${meta.name} (${meta.id})，${parsed.body.length} 字符")
         return parsed.copy(meta = meta)
     }
@@ -152,17 +180,39 @@ class ScriptStore(
     fun save(meta: UserScript, code: String): UserScript {
         val now = System.currentTimeMillis()
         val existing = find(meta.id)
-        val item = meta.copy(
+        // 编辑器里粘贴的完整 .user.js：正文带元数据头时，名称/匹配/调度以头为准，
+        // 否则「未命名脚本 + *://*/*」会把脚本真正想匹配的页面冲掉。
+        val header = UserScriptParser.parse(code)
+        val item = meta.mergeHeader(header).copy(
             installedAt = existing?.installedAt ?: now,
             updatedAt = now
         )
         requireDistinctFile(item.id)
-        StoreFiles.writeAtomic(bodyFile(item.id), code)
         val items = _scripts.value.toMutableList()
         val idx = items.indexOfFirst { it.id == item.id }
         if (idx >= 0) items[idx] = item else items.add(item)
-        saveLocked(items.sortedBy { it.name.lowercase() })
+        saveBodyAndIndex(item.id, code, items.sortedBy { it.name.lowercase() })
         return item
+    }
+
+    /** 头部写了哪个字段就采用哪个；启用状态、来源地址与安装时间始终以仓库里的为准。 */
+    private fun UserScript.mergeHeader(header: UserScriptParser.Parsed?): UserScript {
+        if (header == null) return this
+        val declared = header.meta
+        val keys = header.keys
+        return copy(
+            name = declared.name.takeIf { "name" in keys } ?: name,
+            namespace = declared.namespace.takeIf { "namespace" in keys } ?: namespace,
+            version = declared.version.takeIf { "version" in keys } ?: version,
+            description = declared.description.takeIf { "description" in keys } ?: description,
+            author = declared.author.takeIf { "author" in keys } ?: author,
+            icon = declared.icon.takeIf { "icon" in keys } ?: icon,
+            matches = declared.matches.takeIf { "match" in keys } ?: matches,
+            includes = declared.includes.takeIf { "include" in keys } ?: includes,
+            excludes = declared.excludes.takeIf { "exclude" in keys } ?: excludes,
+            grants = declared.grants.takeIf { "grant" in keys } ?: grants,
+            runAt = if ("run-at" in keys) declared.runAt else runAt
+        )
     }
 
     /**
@@ -178,11 +228,10 @@ class ScriptStore(
             installedAt = meta.installedAt.takeIf { it > 0 } ?: System.currentTimeMillis()
         )
         requireDistinctFile(item.id)
-        StoreFiles.writeAtomic(bodyFile(item.id), code)
         val items = _scripts.value.toMutableList()
         val idx = items.indexOfFirst { it.id == item.id }
         if (idx >= 0) items[idx] = item else items.add(item)
-        saveLocked(items.sortedBy { it.name.lowercase() })
+        saveBodyAndIndex(item.id, code, items.sortedBy { it.name.lowercase() })
         return item
     }
 
@@ -216,9 +265,20 @@ class ScriptStore(
         return true
     }
 
-    /** 命中该 URL 且处于 [runAt] 阶段、已启用的脚本。 */
+    /**
+     * 命中该 URL 且处于 [runAt] 阶段、已启用的脚本。
+     *
+     * `@run-at document-body` 没有独立的注入时机（浏览内核只在 document-start、
+     * document-end、document-idle 三处回调），按 document-end 处理；
+     * 否则这类脚本在任何页面都不会执行，用户却看不到任何提示。
+     */
     fun enabledFor(url: String, runAt: RunAt): List<UserScript> =
-        _scripts.value.filter { it.enabled && it.runAt == runAt && it.matches(url) }
+        _scripts.value.filter { script ->
+            script.enabled && script.matches(url) && when (runAt) {
+                RunAt.DOCUMENT_END -> script.runAt == RunAt.DOCUMENT_END || script.runAt == RunAt.BODY_END
+                else -> script.runAt == runAt
+            }
+        }
 
     fun count(): Int = _scripts.value.size
 

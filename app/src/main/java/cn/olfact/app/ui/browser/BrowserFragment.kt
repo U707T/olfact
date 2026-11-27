@@ -4,6 +4,10 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
+import android.view.KeyEvent
+import android.view.inputmethod.EditorInfo
+import android.webkit.WebView
+import androidx.core.widget.doAfterTextChanged
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
@@ -34,6 +38,42 @@ import cn.olfact.core.uikit.dpF
  */
 class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
 
+    private val fileChooser = SingleFlightFileChooser<List<android.net.Uri>>()
+    private var filePickerAllowMultiple = false
+    private val filePickerLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val chooserContext = context
+        val packageName = chooserContext?.packageName
+        val ownProvider = packageName?.let { "$it.fileprovider" }
+        val callbackData = if (result.resultCode == android.app.Activity.RESULT_OK && chooserContext != null) {
+            val data = result.data
+            buildList {
+                data?.clipData?.let { clip ->
+                    repeat(clip.itemCount) { index -> clip.getItemAt(index).uri?.let(::add) }
+                }
+                data?.data?.let(::add)
+            }.distinct()
+                .filter { uri ->
+                    chooserUriAllowed(
+                        scheme = uri.scheme,
+                        authority = uri.authority,
+                        ownAuthority = ownProvider,
+                        readPermissionGranted = chooserContext.checkUriPermission(
+                            uri,
+                            android.os.Process.myPid(),
+                            android.os.Process.myUid(),
+                            android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                    )
+                }
+                .let { if (filePickerAllowMultiple) it else it.take(1) }
+                .takeIf { it.isNotEmpty() }
+        } else null
+        filePickerAllowMultiple = false
+        fileChooser.complete(callbackData)
+    }
+
     override val showsBottomBar: Boolean = true
 
     /** 底栏高亮在标题胶囊（地址/搜索入口）。 */
@@ -45,6 +85,8 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
     private var surfaceHost: BrowserSurfaceHost? = null
     private var suggest: UrlSuggestPopup? = null
     private var findVisible = false
+    private var findWebView: WebView? = null
+    private var findRequest = 0
     private var addressVisible = false
     private val handler = Handler(Looper.getMainLooper())
     private val debounce = Runnable { openSuggestions() }
@@ -66,6 +108,7 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
         val restored = savedInstanceState?.getLong(KEY_BOUND_TAB, -1L) ?: -1L
         val initial = if (restored > 0L) restored else boundTabId
         boundTabId = resolveBoundTabId(initial, requireArguments().getLong(ARG_TAB))
+        if (tab == null) boundTabId = BrowserSession.ensureTab().id
         BrowserSession.select(boundTabId)
         SurfaceCache.retainTabs(BrowserSession.tabs.mapTo(mutableSetOf()) { it.id })
         // 这两个状态是 Fragment 字段，View 重建后布局默认是 GONE，状态也必须一起重置；
@@ -96,8 +139,8 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
                 load(url)
             }
         }
-        if (url.isBlank() && arguments?.getBoolean(ARG_FOCUS_URL) == true) {
-            showAddressBar()
+        if (url.isBlank() && arguments?.getBoolean(ARG_FOCUS_URL) == true && initial <= 0L) {
+            b.urlBar.post { if (binding === b && Nav.current() === this && tab?.url.isNullOrBlank()) showAddressBar() }
         }
     }
 
@@ -105,8 +148,7 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
         super.onResume()
         // 标签页里可能刚把这个标签关掉；退回浏览器时切到当前标签，而不是停在一个空壳页。
         if (tab == null) {
-            view?.post { if (isAdded && tab == null) switchToCurrentTabOrHome() }
-            return
+            showTab(BrowserSession.ensureTab().id)
         }
         surfaceHost?.let { surface?.attachHost(it) }
         syncBottomBar()
@@ -115,25 +157,17 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
             RuntimeFlags.reloadPagesOnResume = false
             SurfaceCache.destroyCurrent()
             surface?.refreshConfig()
-            surface?.reload()
+            if (!tab?.url.isNullOrBlank()) surface?.reload()
         }
     }
 
     override fun onPause() {
         super.onPause()
+        // Launching the system file picker pauses this Activity; keep its pending callback alive.
+        fileChooser.onActivityPause()
         surface?.attachHost(null)
         handler.removeCallbacks(debounce)
         suggest?.dismiss()
-    }
-
-    private fun switchToCurrentTabOrHome() {
-        val current = BrowserSession.current()
-        if (current != null) {
-            // 只换绑当前 Fragment，不再 Nav.root 重建整页；否则 Home/返回栈会被一起清掉。
-            showTab(current.id)
-        } else {
-            Nav.openHome()
-        }
     }
 
     /**
@@ -141,9 +175,11 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
      *
      * 只换 WebView 的内容，不重建 Fragment，因此 Home / 返回栈 / 滚动位置都能保住。
      */
-    fun showTab(id: Long) {
+    fun showTab(id: Long, recordHistory: Boolean = false, focusBlank: Boolean = false) {
         val target = BrowserSession.tabs.firstOrNull { it.id == id } ?: return
         if (id == boundTabId) {
+            BrowserSession.select(id)
+            if (focusBlank && target.url.isBlank()) showAddressBar()
             syncBottomBar()
             return
         }
@@ -164,11 +200,12 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
             b.urlBar.setText("")
             b.blankPage.visibility = View.VISIBLE
             renderBlank(b)
+            if (focusBlank) showAddressBar()
             syncBottomBar()
         } else {
             b.blankPage.visibility = View.GONE
             b.urlBar.setText(surface?.url() ?: url)
-            if (!surfaceReused || surface?.url() != url) load(url, recordHistory = false)
+            if (!surfaceReused || surface?.url() != url) load(url, recordHistory)
             syncBottomBar()
         }
     }
@@ -183,12 +220,19 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
         b.urlBar.setActionDescription("搜索建议")
         b.urlBar.onTextChanged = { text ->
             handler.removeCallbacks(debounce)
-            if (text.isNotBlank() && b.urlBar.editor.hasFocus()) handler.postDelayed(debounce, 200)
+            if (addressVisible && text.isNotBlank() && b.urlBar.editor.hasFocus()) {
+                handler.postDelayed(debounce, 200)
+            } else {
+                suggest?.dismiss()
+            }
         }
-        b.urlBar.onSubmit = { text ->
-            commit(text)
-            hideAddressBar()
+        b.urlBar.onEditorFocusChanged = { focused ->
+            if (!focused) {
+                handler.removeCallbacks(debounce)
+                suggest?.dismiss()
+            }
         }
+        b.urlBar.onSubmit = ::commit
         b.urlBar.onActionClick = { openSuggestions() }
         b.addressClose.setOnClickListener { hideAddressBar() }
     }
@@ -200,17 +244,21 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
 
     private fun showAddressBar(selectAll: Boolean = false) {
         val b = binding ?: return
-        addressVisible = true
-        b.addressBar.visibility = View.VISIBLE
-        b.urlBar.setText(tab?.url.orEmpty())
-        if (selectAll) b.urlBar.editor.setSelection(b.urlBar.text().length)
-        b.urlBar.post { b.urlBar.focusEditor() }
+        if (findVisible) hideFind()
+        if (!addressVisible) {
+            b.urlBar.setText(tab?.url.orEmpty())
+            addressVisible = true
+            b.addressBar.visibility = View.VISIBLE
+        }
+        b.urlBar.focusEditor()
+        if (selectAll) b.urlBar.editor.selectAll()
     }
 
     private fun hideAddressBar(clearText: Boolean = true) {
         val b = binding ?: return
         if (!addressVisible) return
         addressVisible = false
+        handler.removeCallbacks(debounce)
         suggest?.dismiss()
         b.urlBar.clearFocusCompat()
         b.addressBar.visibility = View.GONE
@@ -249,18 +297,19 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
             override fun onTitle(title: String?) {
                 tab?.title = title.orEmpty()
                 // 用户正在输入地址时不要抢文本（页面标题变化很频繁）
-                if (!b.urlBar.editor.hasFocus()) b.urlBar.setText(s.url())
+                if (!addressVisible) b.urlBar.setText(s.url())
                 syncBottomBar()
             }
 
             override fun onUrl(url: String) {
                 tab?.url = url
-                if (!b.urlBar.editor.hasFocus()) b.urlBar.setText(url)
+                if (!addressVisible) b.urlBar.setText(url)
             }
 
             override fun onPageStarted(url: String) {
+                if (findVisible) hideFind()
                 tab?.url = url
-                if (!b.urlBar.editor.hasFocus()) b.urlBar.setText(url)
+                if (!addressVisible) b.urlBar.setText(url)
                 b.blankPage.visibility = View.GONE
                 hideError()
             }
@@ -272,6 +321,34 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
 
             override fun onError(code: Int, description: String, url: String) {
                 showError(code, description, url)
+            }
+
+            override fun onChooseFiles(
+                mimeTypes: List<String>,
+                allowMultiple: Boolean,
+                onResult: (List<android.net.Uri>?) -> Unit
+            ) {
+                if (!fileChooser.begin(onResult)) return
+                filePickerAllowMultiple = allowMultiple
+                val accepted = browserAcceptMimeTypes(mimeTypes)
+                val intent = android.content.Intent(android.content.Intent.ACTION_GET_CONTENT).apply {
+                    addCategory(android.content.Intent.CATEGORY_OPENABLE)
+                    type = accepted.singleOrNull() ?: "*/*"
+                    if (accepted.size > 1) putExtra(android.content.Intent.EXTRA_MIME_TYPES, accepted.toTypedArray())
+                    putExtra(android.content.Intent.EXTRA_ALLOW_MULTIPLE, allowMultiple)
+                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                try {
+                    filePickerLauncher.launch(android.content.Intent.createChooser(intent, "选择文件"))
+                } catch (_: Exception) {
+                    filePickerAllowMultiple = false
+                    fileChooser.complete(null)
+                    Nav.toast("无法打开文件选择器")
+                }
+            }
+
+            override fun onCancelFileChooser() {
+                fileChooser.cancelPending()
             }
 
             override fun onLongPress(url: String?, title: String?) {
@@ -302,6 +379,9 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
     private fun showError(code: Int, description: String, url: String) {
         val b = binding ?: return
         hideError()
+        if (findVisible) hideFind()
+        b.loading.visibility = View.GONE
+        b.urlBar.setProgress(0)
         val ctx = requireContext()
         val box = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
@@ -360,6 +440,7 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
             ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         )
         errorView = box
+        box.announceForAccessibility("网页加载失败")
     }
 
     private fun hideError() {
@@ -369,10 +450,16 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
 
     private fun buildFindBar(b: FragmentBrowserBinding) {
         b.findClose.setOnClickListener { hideFind() }
-        b.findInput.setOnEditorActionListener { _, _, _ ->
-            surface?.findAll(b.findInput.text.toString())
-            true
+        b.findInput.doAfterTextChanged { text ->
+            if (findVisible) searchInPage(b, text.toString())
         }
+        b.findInput.setOnEditorActionListener { _, actionId, event ->
+            val submit = actionId == EditorInfo.IME_ACTION_SEARCH ||
+                (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)
+            if (submit) hideFindKeyboard(b)
+            submit
+        }
+        updateFindStatus(b, "", false)
         b.findPrev.setOnClickListener { surface?.findNext(false) }
         b.findNext.setOnClickListener { surface?.findNext(true) }
     }
@@ -415,31 +502,27 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
     private fun openSuggestions() {
         val b = binding ?: return
         val text = b.urlBar.text()
-        if (text.isBlank()) return
+        if (!addressVisible || !b.urlBar.editor.hasFocus() || text.isBlank()) {
+            suggest?.dismiss()
+            return
+        }
         if (suggest == null) {
             // 地址条贴在底栏上方，候选要往上弹，否则会落到屏幕外。
             suggest = UrlSuggestPopup(requireActivity(), b.urlBar, above = true).apply {
                 onOpen = { url ->
-                    b.urlBar.setText(url)
-                    load(url)
-                    hideAddressBar()
+                    navigate(url)
                 }
                 onOpenAll = { list ->
                     // 其余候选进后台标签，不能改 currentId，否则地址栏还是 A、
                     // 会话已经指向最后一个后台标签，切标签/加书签都会错位。
-                    list.drop(1).forEach { BrowserSession.open(it.url, selectNew = false) }
+                    list.drop(1).forEach { BrowserSession.openDerived(boundTabId, it.url, selectNew = false) }
                     list.firstOrNull()?.let {
-                        b.urlBar.setText(it.url)
-                        load(it.url)
+                        navigate(it.url)
                     }
-                    hideAddressBar()
                     syncBottomBar()
                     Nav.toast("已打开 ${list.size} 个标签页")
                 }
-                onSearch = { text ->
-                    commit(text)
-                    hideAddressBar()
-                }
+                onSearch = { text -> navigate(SearchEngines.searchUrlFor(text)) }
             }
         }
         suggest?.show(text)
@@ -448,17 +531,26 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
     /** 输入框提交：是链接就直接开，否则搜索。 */
     private fun commit(text: String) {
         if (text.isBlank()) return
-        val url = SearchEngines.urlFor(text)
+        navigate(SearchEngines.urlFor(text))
+    }
+
+    fun navigate(url: String) {
+        hideAddressBar(clearText = false)
+        if (findVisible) hideFind()
         load(url)
     }
 
     fun load(url: String, recordHistory: Boolean = true) {
+        hideError()
         binding?.blankPage?.visibility = View.GONE
+        tab?.let {
+            if (it.url != url) it.title = ""
+            it.url = url
+        }
         surface?.loadUrl(url)
-        tab?.url = url
         // 无痕标签不写历史：之前只有渲染层的 onPageVisited 判断了 incognito，
         // 地址栏 / 快捷入口 / 书签走的这条 load() 照样落一条记录。
-        if (recordHistory && tab?.incognito != true) {
+        if (recordHistory && tab?.incognito == false) {
             HistoryStore.record(requireContext(), url, url)
         }
         binding?.urlBar?.setText(url)
@@ -480,10 +572,7 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
     }
 
     /** 底栏变体「前进后退」里的后退格。 */
-    fun goBack() {
-        if (surface?.canGoBack() == true) surface?.goBack() else Nav.pop()
-        syncBottomBar()
-    }
+    fun goBack() = handleBack()
 
     fun canGoForward(): Boolean = surface?.canGoForward() == true
 
@@ -503,6 +592,10 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
 
     private fun showFind() {
         val b = binding ?: return
+        if (tab?.url.isNullOrBlank() || errorView != null) {
+            Nav.toast("当前没有可查找的网页")
+            return
+        }
         hideAddressBar(clearText = false)
         findVisible = true
         b.findBar.visibility = View.VISIBLE
@@ -515,10 +608,56 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
     private fun hideFind() {
         val b = binding ?: return
         findVisible = false
+        clearFindListener()
+        surface?.clearFind()
+        hideFindKeyboard(b)
+        b.findInput.clearFocus()
         b.findBar.visibility = View.GONE
         b.findInput.setText("")
-        surface?.clearFind()
-        b.findInput.clearFocus()
+        updateFindStatus(b, "", false)
+    }
+
+    private fun searchInPage(b: FragmentBrowserBinding, query: String) {
+        clearFindListener()
+        val s = surface ?: return
+        if (query.isBlank()) {
+            s.clearFind()
+            updateFindStatus(b, "", false)
+            return
+        }
+        // The in-app surfaces both expose a WebView; leave navigation available for a non-WebView fallback.
+        val web = s.view() as? WebView
+        updateFindStatus(b, if (web == null) "" else "查找中", web == null)
+        val request = findRequest
+        if (web != null) {
+            findWebView = web
+            web.setFindListener { active, count, done ->
+                if (done && request == findRequest && findVisible && findWebView === web && binding === b) {
+                    val status = if (count == 0) "无匹配" else "${active + 1}/$count"
+                    updateFindStatus(b, status, count > 0)
+                }
+            }
+        }
+        s.findAll(query)
+    }
+
+    private fun updateFindStatus(b: FragmentBrowserBinding, text: String, canMove: Boolean) {
+        b.findCount.text = text
+        for (button in listOf(b.findPrev, b.findNext)) {
+            button.isEnabled = canMove
+            button.alpha = if (canMove) 1f else 0.38f
+        }
+    }
+
+    private fun clearFindListener() {
+        findRequest++
+        findWebView?.takeIf { it === surface?.view() }?.setFindListener(null)
+        findWebView = null
+    }
+
+    private fun hideFindKeyboard(b: FragmentBrowserBinding) {
+        val imm = requireContext().getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+        imm?.hideSoftInputFromWindow(b.findInput.windowToken, 0)
     }
 
     override fun onDestroyView() {
@@ -535,7 +674,10 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
     }
 
     private fun releaseSurface() {
+        fileChooser.cancelPending()
+        clearFindListener()
         val s = surface ?: return
+        if (findVisible) s.clearFind()
         surface = null
         surfaceHost = null
         s.attachHost(null)

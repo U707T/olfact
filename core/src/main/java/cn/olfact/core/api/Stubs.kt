@@ -14,9 +14,6 @@ import java.util.concurrent.ConcurrentHashMap
 object NoopMediaSniffer : MediaSniffer {
     override fun onMediaDetected(item: MediaItem) = Unit
 
-    override fun currentPageTitle(): String = ""
-
-    override fun currentPageUrl(): String = ""
 }
 
 object NoopAdBlockHook : AdBlockHook {

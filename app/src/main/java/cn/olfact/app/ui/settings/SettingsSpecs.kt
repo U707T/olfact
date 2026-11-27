@@ -3,6 +3,7 @@ package cn.olfact.app.ui.settings
 import cn.olfact.app.data.AppSettings
 import cn.olfact.app.data.K
 import cn.olfact.app.data.RuntimeFlags
+import cn.olfact.app.link.SearchEngines
 import cn.olfact.app.nav.Nav
 import cn.olfact.app.ui.common.Dialogs
 import cn.olfact.app.ui.settings.pages.AdBlockFragment
@@ -69,7 +70,8 @@ object SettingsSpecs {
                                 ctx,
                                 "恢复默认设置",
                                 "所有设置项将回到初始值，书签、历史、脚本与下载不受影响。继续？",
-                                danger = true
+                                danger = true,
+                                positiveLabel = "恢复"
                             ) {
                                 AppSettings.reset()
                                 RuntimeFlags.reloadPagesOnResume = true
@@ -80,7 +82,7 @@ object SettingsSpecs {
                                     ?.setEnabled(AppSettings.get(K.AD_ENABLED))
                                 val doh = OlfactServices.doh as? cn.olfact.app.data.DohAdapter
                                 kotlin.concurrent.thread(isDaemon = true, name = "olfact-reset-defaults") {
-                                    runCatching { if (doh != null && !AppSettings.get(K.DOH_ENABLED)) doh.stop() }
+                                    runCatching { doh?.applySettings() }
                                     runCatching { cn.olfact.app.data.AppBackup.syncSchedule(ctx) }
                                 }
                                 // 夜间模式也要回到「跟随系统」，否则 delegate 还停留在旧值
@@ -127,7 +129,7 @@ object SettingsSpecs {
                     Row.Toggle(K.DESKTOP_MODE, "桌面模式（默认 UA）"),
                     Row.Toggle(K.JS_ENABLED, "启用 JavaScript")
                 ),
-                footer = "UA 与站点级开关请在「UA 管理」「网站配置」里设置，会覆盖这里的全局默认。"
+                footer = "「网站配置」和这里共享全局网页开关。「UA 管理」的自定义 UA 优先于桌面模式。"
             )
         )
     )
@@ -170,8 +172,7 @@ object SettingsSpecs {
         sections = listOf(
             Section(
                 listOf(
-                    Row.Toggle(K.SNIFF_ENABLED, "启用视频嗅探"),
-                    Row.Toggle(K.SNIFF_FILTER_SMALL, "过滤小于 256 KB 的媒体")
+                    Row.Toggle(K.SNIFF_ENABLED, "启用媒体嗅探")
                 )
             ),
             Section(
@@ -183,7 +184,7 @@ object SettingsSpecs {
                 )
             )
         ),
-        footer = "嗅探结果只保留当前页面发起的请求；跨域分片由浏览器内核负责带上 Referer，避免 403。"
+        footer = "只显示当前标签页的结果。可识别带常见媒体文件扩展名的网页请求；无扩展名、blob URL 和 DRM 不保证可识别或下载。"
     )
 
     private fun ua() = Spec(
@@ -205,15 +206,10 @@ object SettingsSpecs {
             ),
             Section(
                 listOf(
-                    Row.Action("自定义 UA", summary = "留空则用全局默认；保存后刷新页面生效") {
-                        val ctx = Nav.context()
-                        if (ctx != null) {
-                            Dialogs.input(ctx, "自定义 UA", AppSettings.get(K.WEB_CUSTOM_UA), "留空恢复默认") { ua ->
-                                AppSettings.set(K.WEB_CUSTOM_UA, ua.trim())
-                                RuntimeFlags.reloadPagesOnResume = true
-                                Nav.toast(if (ua.isBlank()) "已恢复默认 UA" else "已保存，刷新页面后生效")
-                            }
-                        }
+                    Row.TextInput("自定义 UA", value = { AppSettings.get(K.WEB_CUSTOM_UA) },
+                        hint = "留空恢复默认", summary = "保存后刷新页面生效") { ua ->
+                        AppSettings.set(K.WEB_CUSTOM_UA, ua)
+                        RuntimeFlags.reloadPagesOnResume = true
                     }
                 )
             )
@@ -247,8 +243,10 @@ object SettingsSpecs {
             Section(
                 buildList {
                     add(Row.Action("清除缓存", summary = "只清网页缓存，不影响书签/历史") {
-                        val freed = runCatching { PrivacyCleaner(Core.context).clearCache() }.getOrDefault(0L)
-                        Nav.toast(if (freed > 0) "已清理 ${formatBytes(freed)} 缓存" else "缓存已是空的")
+                        runCatching { PrivacyCleaner(Core.context).clearCache() }.fold(
+                            onSuccess = { Nav.toast(if (it > 0) "已处理 ${formatBytes(it)} 缓存" else "已请求清理网页缓存") },
+                            onFailure = { Nav.toast("清除缓存失败，请稍后重试") }
+                        )
                     })
                     add(Row.Action("清除 Cookie") {
                         val ctx = Nav.context()
@@ -304,20 +302,13 @@ object SettingsSpecs {
                     Row.Choice(K.SEARCH_ENGINE, "默认引擎", listOf(
                         "baidu" to "百度", "bing" to "必应", "google" to "Google", "custom" to "自定义"
                     )),
-                    Row.Value("自定义模板", value = {
-                        AppSettings.get(K.SEARCH_CUSTOM).ifBlank { "https://example.com/search?q=%s" }
-                    }, onClick = {
-                        Dialogs.input(Nav.context()!!, "搜索模板", AppSettings.get(K.SEARCH_CUSTOM), "https://…/search?q=%s") { raw ->
-                            val template = raw.trim()
-                            // 没有 %s 的模板会把关键词直接拼在末尾（得到一个废链接），当场拒绝。
-                            if (template.isNotEmpty() && !template.contains("%s")) {
-                                Nav.toast("模板必须包含 %s，例如 https://…/search?q=%s")
-                                return@input
-                            }
-                            AppSettings.set(K.SEARCH_CUSTOM, template)
-                            Nav.pop()
+                    Row.TextInput("自定义模板", value = { AppSettings.get(K.SEARCH_CUSTOM) },
+                        hint = "https://example.com/search?q=%s",
+                        validate = { template ->
+                            if (template.isEmpty() || SearchEngines.isCustomTemplateValid(template)) null
+                            else "请输入包含 %s 的 HTTP 或 HTTPS 搜索网址"
                         }
-                    })
+                    ) { AppSettings.set(K.SEARCH_CUSTOM, it) }
                 ),
                 footer = "模板里的 %s 会被替换成 URL 编码后的关键词。"
             )

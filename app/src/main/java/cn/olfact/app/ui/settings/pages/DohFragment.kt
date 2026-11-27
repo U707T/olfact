@@ -2,14 +2,15 @@ package cn.olfact.app.ui.settings.pages
 
 import android.os.Bundle
 import android.content.Intent
-import android.os.Build
-import android.provider.Settings
 import android.view.View
 import android.widget.EditText
 import android.widget.LinearLayout
-import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import cn.olfact.app.R
 import cn.olfact.app.data.AppSettings
@@ -29,7 +30,7 @@ import cn.olfact.core.api.DohMode
 import cn.olfact.core.api.DohStatus
 import cn.olfact.core.api.OlfactServices
 import cn.olfact.core.uikit.ListRow
-import cn.olfact.core.uikit.SettingItem
+import cn.olfact.web.doh.DohUpstream
 
 /**
  * 加密 DNS 面板（TECH-PLAN §4.5-8）。
@@ -40,6 +41,7 @@ import cn.olfact.core.uikit.SettingItem
 class DohFragment : Fragment(R.layout.fragment_page) {
 
     private var binding: FragmentPageBinding? = null
+    private var updateStatusRows: (() -> Unit)? = null
 
     /**
      * 规则编辑区的草稿。
@@ -55,81 +57,81 @@ class DohFragment : Fragment(R.layout.fragment_page) {
         b.header.title = "加密 DNS"
         b.header.onBack = { Nav.pop() }
         render()
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (true) {
+                    updateStatusRows?.invoke()
+                    delay(1_000)
+                }
+            }
+        }
     }
 
     private fun render() {
         val b = binding ?: return
         val ctx = requireContext()
-        val manager = OlfactServices.doh
-        val engineReady = manager != null
-        val status: DohStatus = manager?.status() ?: DohStatus(
-            enabled = AppSettings.get(K.DOH_ENABLED),
-            mode = DohMode.of(AppSettings.get(K.DOH_MODE)),
-            upstream = AppSettings.get(K.DOH_UPSTREAM),
-            engineReady = false
-        )
+        val configuredMode = DohMode.of(AppSettings.get(K.DOH_MODE))
         b.content.removeAllViews()
 
-        if (!engineReady) {
-            b.content.addView(banner("DoH 引擎未就绪：下列配置会保存，但暂时不会生效。"))
-        }
-
         b.content.addView(sectionTitle("状态"))
-        b.content.addView(settingGroup(
-            toggle("启用加密 DNS", status.enabled, "开启后按下面的分流策略走 DoH") { on ->
-                AppSettings.set(K.DOH_ENABLED, on)
-                // 引擎要真的跟着开关走，否则要重启应用才生效
-                val engine = OlfactServices.doh
-                if (engine is DohAdapter) {
-                    if (on) {
-                        viewLifecycleOwner.lifecycleScope.launch {
-                            runCatching { engine.startFromSettings() }
-                                .onFailure { Nav.toast("DoH 启动失败：${it.message}") }
-                            render()
-                        }
-                    } else {
-                        // 关 socket / shutdownNow 不能放主线程
-                        viewLifecycleOwner.lifecycleScope.launch {
-                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                runCatching { engine.stop() }
-                            }
-                            render()
-                        }
-                    }
-                }
-                render()
-            },
-            setting("当前上游", status.upstream),
-            setting("平均解析耗时", if (status.avgCostMs > 0) "${status.avgCostMs} ms" else "—"),
-            setting("缓存命中率", if (status.cacheHitRate > 0) "${status.cacheHitRate}%" else "—"),
-            setting("失败次数", status.failures.toString()),
-            setting("今日查询", status.queriesToday.toString()),
-            setting("代理通道", if (status.proxying) "L2 已生效（WebView TCP）" else "未启用")
-        ).also { cardBottomMargin(it) })
+        val enabledRow = toggle("启用加密 DNS", AppSettings.get(K.DOH_ENABLED), "开启后按下面的分流策略尝试 DoH") { on ->
+            AppSettings.set(K.DOH_ENABLED, on)
+            applySettings()
+            updateStatusRows?.invoke()
+        }
+        val upstream = setting("当前上游")
+        val latency = setting("平均解析耗时")
+        val hitRate = setting("缓存命中率")
+        val failures = setting("失败次数")
+        val queries = setting("今日查询")
+        val channel = setting("代理通道")
+        b.content.addView(settingGroup(enabledRow, upstream, latency, hitRate, failures, queries, channel)
+            .also { cardBottomMargin(it) })
+        updateStatusRows = {
+            val manager = OlfactServices.doh
+            val status = manager?.status() ?: DohStatus()
+            val requested = AppSettings.get(K.DOH_ENABLED)
+            enabledRow.isCheckedItem = requested
+            upstream.value = status.upstream
+            latency.value = if (status.avgCostMs > 0) "${status.avgCostMs} ms" else "—"
+            hitRate.value = if (status.queriesToday > 0 || status.cacheHitRate > 0) "${status.cacheHitRate}%" else "—"
+            failures.value = status.failures.toString()
+            queries.value = status.queriesToday.toString()
+            channel.value = when {
+                manager == null -> "引擎未就绪"
+                status.proxying -> "L2 已挂载（WebView TCP）"
+                status.enabled -> "仅应用内使用 DoH 分流"
+                requested -> "引擎未运行"
+                else -> "未启用"
+            }
+            channel.summary = if (status.enabled) (manager as? DohAdapter)?.proxyError() else null
+        }
+        updateStatusRows?.invoke()
 
         b.content.addView(sectionTitle("分流策略"))
         b.content.addView(settingGroup(
-            setting("智能分流（默认）", if (status.mode == DohMode.SMART) "已选" else null,
-                "国内域名走系统 DNS，国外与清单内走 DoH") { pick(DohMode.SMART, "smart") },
-            setting("仅指定域名", if (status.mode == DohMode.INCLUDE) "已选" else null,
-                "默认系统 DNS，清单内走 DoH") { pick(DohMode.INCLUDE, "include") },
-            setting("仅排除域名", if (status.mode == DohMode.EXCLUDE) "已选" else null,
-                "默认 DoH，清单内走系统 DNS") { pick(DohMode.EXCLUDE, "exclude") }
+            setting("智能分流（默认）", if (configuredMode == DohMode.SMART) "已选" else null,
+                "国内域名走系统 DNS，国外与清单内走 DoH") { pick(DohMode.SMART) },
+            setting("仅指定域名", if (configuredMode == DohMode.INCLUDE) "已选" else null,
+                "默认系统 DNS，清单内走 DoH") { pick(DohMode.INCLUDE) },
+            setting("仅排除域名", if (configuredMode == DohMode.EXCLUDE) "已选" else null,
+                "默认 DoH，清单内走系统 DNS") { pick(DohMode.EXCLUDE) }
         ).also { cardBottomMargin(it) })
 
         b.content.addView(sectionTitle("上游"))
         val engine = OlfactServices.doh as? DohAdapter
         val selected = (engine?.selectedUpstreamUrl() ?: AppSettings.get(K.DOH_UPSTREAM)).trim()
         val savedCustom = AppSettings.get(K.DOH_UPSTREAM_CUSTOM).trim()
-        val isAuto = selected.isBlank() || selected == DohAdapter.AUTO
-        val isCustom = !isAuto && !DohAdapter.isPresetUrl(selected)
+        val isAuto = selected.isBlank() || selected.equals(DohAdapter.AUTO, ignoreCase = true)
+        val selectedPreset = DohUpstream.byUrl(selected)
+        val isCustom = !isAuto && selectedPreset == null
 
         val presets = listOf(
-            "https://doh.pub/dns-query" to "腾讯 DNSPod（国内）",
-            "https://dns.alidns.com/dns-query" to "阿里 AliDNS（国内）",
-            "https://1.1.1.1/dns-query" to "Cloudflare（国外）",
-            "https://dns.quad9.net/dns-query" to "Quad9（国外）",
-            "https://dns.google/dns-query" to "Google（国外）"
+            DohUpstream.TENCENT to "腾讯 DNSPod（国内）",
+            DohUpstream.ALI to "阿里 AliDNS（国内）",
+            DohUpstream.CLOUDFLARE to "Cloudflare（国外）",
+            DohUpstream.QUAD9 to "Quad9（国外）",
+            DohUpstream.GOOGLE to "Google（国外）"
         )
         val group = cn.olfact.core.uikit.SettingGroup(ctx)
 
@@ -142,12 +144,12 @@ class DohFragment : Fragment(R.layout.fragment_page) {
             onRowClick = { applyUpstream(DohAdapter.AUTO) }
         }, dividerInsetDp = 0)
 
-        presets.forEach { (url, name) ->
+        presets.forEach { (upstream, name) ->
             group.addRow(ListRow(ctx).apply {
                 title = name
-                subtitle = url
-                trailing = if (!isAuto && !isCustom && DohUpstreams.normalize(selected) == url) "当前" else null
-                onRowClick = { applyUpstream(url) }
+                subtitle = upstream.url
+                trailing = if (selectedPreset?.id == upstream.id) "当前" else null
+                onRowClick = { applyUpstream(upstream.url) }
             }, dividerInsetDp = 0)
         }
 
@@ -165,7 +167,7 @@ class DohFragment : Fragment(R.layout.fragment_page) {
                 Dialogs.input(
                     ctx,
                     "自定义 DoH 上游",
-                    if (savedCustom.isNotBlank()) savedCustom else "",
+                    if (isCustom) selected else savedCustom,
                     "https://dns.example.com/dns-query"
                 ) { raw ->
                     when (val parsed = DohUpstreams.parse(raw)) {
@@ -185,12 +187,11 @@ class DohFragment : Fragment(R.layout.fragment_page) {
 
         b.content.addView(note(
             if (isCustom) {
-                "自定义上游已生效：只使用这一个地址，不再与内置上游混跑。\n" +
-                    "· 域名形式的地址仍需先解析域名（走系统 DNS）；网络 DNS 被污染时建议填 IP 形式；\n" +
+                "已选择自定义上游；DoH 查询只使用这一上游，失败时可能回落系统 DNS。\n" +
+                    "· 域名形式的地址仍需先解析域名（走系统 DNS）；\n" +
                     "· 不支持 ECS（不向第三方上游暴露你的网段）。"
             } else {
-                "「自动」并发探测内置上游并按延迟切换；选中某个上游后固定用它，" +
-                    "只有它探测失败才回落到同池最快的一个。"
+                "「自动」并发探测内置上游并按延迟选择；预设在所属分池内优先，探测失败才改用其他可用上游。"
             }
         ))
 
@@ -198,13 +199,17 @@ class DohFragment : Fragment(R.layout.fragment_page) {
         b.content.addView(settingGroup(
             setting("立即重新竞速", "并发探测全部上游，取最快") {
                 val m = OlfactServices.doh
-                if (m == null) Nav.toast("DoH 引擎未接入") else { m.rerace(); Nav.toast("已重新竞速") }
+                when {
+                    m == null -> Nav.toast("DoH 引擎未接入")
+                    !m.status().enabled -> Nav.toast("请先启用加密 DNS")
+                    else -> { m.rerace(); Nav.toast("已请求重新竞速") }
+                }
             },
             setting("清空 DNS 缓存") {
                 val m = OlfactServices.doh
                 if (m == null) Nav.toast("DoH 引擎未接入") else { m.clearCache(); Nav.toast("缓存已清空") }
             },
-            setting("系统私有 DNS 设置", "兜底：让整个系统走 DoH") {
+            setting("系统私有 DNS 设置", "配置 Android 系统级私有 DNS（DoT）") {
                 runCatching {
                     startActivity(Intent("android.settings.PRIVATE_DNS_SETTINGS"))
                 }.onFailure { Nav.toast("当前系统没有该设置页") }
@@ -234,31 +239,16 @@ class DohFragment : Fragment(R.layout.fragment_page) {
             setting("保存规则") {
                 val text = rules.text.toString()
                 AppSettings.set(K.DOH_RULES, text)
-                val mode = DohMode.of(AppSettings.get(K.DOH_MODE))
-                val engine = OlfactServices.doh as? DohAdapter
-                if (engine != null && AppSettings.get(K.DOH_ENABLED)) {
-                    // 之前只写 DataStore，引擎还在用旧规则，必须重启才生效。
-                    viewLifecycleOwner.lifecycleScope.launch {
-                        runCatching {
-                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                engine.applyRules(text, mode)
-                            }
-                        }.onFailure { Nav.toast("规则已保存，但应用失败：${it.message}") }
-                        rulesDraft = null
-                        render()
-                    }
-                } else {
-                    rulesDraft = null
-                    Nav.toast("已保存 ${text.lines().count { it.isNotBlank() }} 条规则")
-                    render()
-                }
+                rulesDraft = null
+                applySettings()
+                Nav.toast("规则已保存")
             },
             setting("导入 / 导出", "导出到剪贴板，或从剪贴板粘贴导入") { importExport(rules) }
         ).also { cardBottomMargin(it) })
 
         b.content.addView(note(
             "边界说明：\n" +
-                "· HTTP/3（QUIC）走 UDP，ProxyController 不覆盖，L2 约覆盖 90% 流量；\n" +
+                "· HTTP/3（QUIC）不经本地 TCP 隧道；需要时解析仍可能回落系统 DNS。\n" +
                 "· DoH 只解决 DNS 污染/劫持，IP 层封锁与 SNI 阻断不在范围内；\n" +
                 "· 不做 MITM/ECH，避免要求系统信任用户证书。"
         ))
@@ -283,36 +273,28 @@ class DohFragment : Fragment(R.layout.fragment_page) {
             }
         }
         AppSettings.set(K.DOH_UPSTREAM, target)
-
-        val engine = OlfactServices.doh as? DohAdapter
-        if (engine != null && AppSettings.get(K.DOH_ENABLED)) {
-            viewLifecycleOwner.lifecycleScope.launch {
-                runCatching { engine.startFromSettings() }
-                    .onFailure { Nav.toast("DoH 启动失败：${it.message}") }
-                render()
-            }
-        } else {
-            Nav.toast(if (target == DohAdapter.AUTO) "已切回自动竞速" else "已切换上游")
-            render()
-        }
+        applySettings()
+        render()
     }
 
-    private fun pick(mode: DohMode, id: String) {
-        AppSettings.set(K.DOH_MODE, id)
-        Nav.toast("已切换为「${if (mode == DohMode.SMART) "智能分流" else if (mode == DohMode.INCLUDE) "仅指定域名" else "仅排除域名"}」")
-        val engine = OlfactServices.doh as? DohAdapter
-        if (engine != null && AppSettings.get(K.DOH_ENABLED)) {
-            // 只写 DataStore 的话，引擎仍在用旧模式；这里让规则表按新模式重解析。
-            viewLifecycleOwner.lifecycleScope.launch {
-                runCatching {
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        engine.applyMode(mode)
-                    }
-                }.onFailure { Nav.toast("模式已保存，引擎应用失败：${it.message}") }
-                render()
+    private fun pick(mode: DohMode) {
+        AppSettings.set(K.DOH_MODE, mode.id)
+        applySettings()
+        render()
+    }
+
+    private fun applySettings() {
+        val engine = OlfactServices.doh as? DohAdapter ?: return
+        val update = engine.applySettingsAsync()
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                update.await()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Nav.toast("DoH 设置应用失败：${error.message}")
             }
-        } else {
-            render()
+            updateStatusRows?.invoke()
         }
     }
 
@@ -348,16 +330,8 @@ class DohFragment : Fragment(R.layout.fragment_page) {
         }
     }
 
-    private fun banner(text: String) = android.widget.TextView(requireContext()).apply {
-        this.text = text
-        setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f)
-        setTextColor(ContextCompat.getColor(context, R.color.text_primary))
-        setBackgroundResource(R.drawable.bg_round_12)
-        setPadding(24, 16, 24, 16)
-        setLineSpacing(0f, 1.3f)
-    }
-
     override fun onDestroyView() {
+        updateStatusRows = null
         binding = null
         super.onDestroyView()
     }
