@@ -37,3 +37,12 @@ Windows 系统 `%TEMP%` 曾导致 `AccessDeniedException`（脚本测试临时�
 
 - 未新增网页摄像头/麦克风/定位授权，未改 GM 原生桥、无痕 Cookie 隔离、HLS 外置音轨等既有边界。
 - 本机没有 Android SDK/adb；完整 Gradle 编译、资源链接、lint、R8 与签名以 `v1.0.0-rc17` 的 CI 结果为准，交互仍需设备验收。
+
+## 复审修正
+
+独立只读复审在推送前发现两处生命周期问题，已修：
+
+1. `WebBrowserSurface.attachHost(null)` 原来会无条件收掉 custom view；而 `BrowserFragment.onPause()` 正是这么做的，于是打开系统文件选择器、来电或切后台都会把正在播放的全屏直接关掉。现改为只在换成另一个宿主（或真正销毁）时收尾，普通暂停保留全屏。
+2. `clearBrowserFullscreen()` 在没有展示时也会执行系统栏 `show()` 并打日志，`onDestroy` 每次退出都会触发。现增加 `hadPresentation` 早退；同时 `exitBrowserFullscreen()` 在退出请求未真正生效时兜底摘除，避免返回键被重复吞掉。
+
+复审用工作区 JDK 21 + Kotlin 2.x 实际编译了能离线编译的部分：web 58 个源文件 exit 0、app 数据链路 56 个源文件 exit 0，`CustomViewSessionTest` 7 项断言均真实触达分支。`MainActivity`/`BrowserFragment`/`WebBrowserSurface`/`PlayerFragment`/`FavoritesFragment` 因本机没有 `android.jar` 无法编译，只做了静态核对（未发现阻断），最终由 CI 的 `test`、`assembleDebug`、`lint` 裁决。
