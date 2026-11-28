@@ -41,6 +41,11 @@ $testRoot = Join-Path $repoRoot 'web/src/test/java'
 $tests = @(Get-ChildItem $testRoot -Recurse -Filter '*Test.kt' | ForEach-Object {
     $_.FullName.Substring($testRoot.Length + 1).Replace('\', '.').Replace('/', '.').Replace('.kt', '')
 })
-$tests += 'cn.olfact.web.tools.PlatformBoundaryTest'
+# 工具目录里的平台边界测试同样要执行；漏列会让新增用例静默不跑。
+$tests += @(Get-ChildItem (Join-Path $PSScriptRoot 'tests') -Filter '*Test.kt' | ForEach-Object {
+    $packageLine = [regex]::Match([IO.File]::ReadAllText($_.FullName), '(?m)^package ([\w.]+)').Groups[1].Value
+    if (!$packageLine) { throw "Missing package in $($_.Name)" }
+    "$packageLine.$($_.BaseName)"
+})
 & $Java '-Dolfact.liveDoh=0' '-cp' ($classes + [IO.Path]::PathSeparator + $classpath) 'org.junit.runner.JUnitCore' @tests
 if ($LASTEXITCODE -ne 0) { throw "JVM regression tests failed: $LASTEXITCODE" }

@@ -128,7 +128,7 @@ class PlayerFragment : Fragment(R.layout.fragment_player) {
                         sniffedPageUrl = sniffed?.pageUrl,
                         currentPageUrl = originPage,
                         headers = sniffed?.headers.orEmpty(),
-                        mimeType = sniffed?.mimeType
+                        mimeType = sniffed?.mimeType ?: savedMimeType
                     )
                     center.enqueue(
                         url = url,
@@ -150,15 +150,19 @@ class PlayerFragment : Fragment(R.layout.fragment_player) {
         val selectActions = mutableListOf(
             Action(R.drawable.ic_star, "收藏") {
                 val sniffed = sniffedItem(url)
-                val inferredType = sniffed?.type ?: cn.olfact.core.api.MediaType.fromUrl(url)
+                val inferredType = sniffed?.type ?: savedMediaType ?: cn.olfact.core.api.MediaType.fromUrl(url)
                 val mediaType = inferredType.takeIf { it != cn.olfact.core.api.MediaType.OTHER }?.name
-                val added = FavoriteStore.add(
+                val result = FavoriteStore.saveOrEnrich(
                     requireContext(), title, url,
                     sourcePage = if (requireArguments().getBoolean(ARG_PRIVATE)) null else originPage,
                     mediaType = mediaType,
-                    mimeType = sniffed?.mimeType
+                    mimeType = sniffed?.mimeType ?: savedMimeType
                 )
-                Nav.toast(if (added) "已收藏" else "已经在收藏里了")
+                Nav.toast(when (result) {
+                    FavoriteStore.SaveResult.ADDED -> "已收藏"
+                    FavoriteStore.SaveResult.UPDATED -> "已补全收藏信息"
+                    FavoriteStore.SaveResult.UNCHANGED -> "已经在收藏里了"
+                })
             },
             Action(R.drawable.ic_star, "我的收藏") {
                 // 从收藏页进播放时，再点「我的收藏」应回到收藏页，而不是再叠一层
@@ -210,7 +214,11 @@ class PlayerFragment : Fragment(R.layout.fragment_player) {
 
     private fun openSourcePage() {
         val source = originPage.takeIf { it.isNotBlank() } ?: return
-        val tab = cn.olfact.app.data.BrowserSession.openOrReuseBlank(source)
+        val tab = if (requireArguments().getBoolean(ARG_PRIVATE)) {
+            cn.olfact.app.data.BrowserSession.open(source, incognito = true)
+        } else {
+            cn.olfact.app.data.BrowserSession.openOrReuseBlank(source)
+        }
         Nav.root(cn.olfact.app.ui.browser.BrowserFragment.newInstance(tab.id))
         Nav.toast("已返回来源页，可重新嗅探媒体")
     }

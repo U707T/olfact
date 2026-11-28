@@ -270,6 +270,7 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
      */
     private fun handleBack() {
         when {
+            (activity as? cn.olfact.app.MainActivity)?.exitBrowserFullscreen() == true -> Unit
             addressVisible -> hideAddressBar()
             findVisible -> hideFind()
             surface?.canGoBack() == true -> surface?.goBack()
@@ -349,6 +350,19 @@ class BrowserFragment : Fragment(R.layout.fragment_browser), ChromeAware {
 
             override fun onCancelFileChooser() {
                 fileChooser.cancelPending()
+            }
+
+            override fun onShowCustomView(view: View, onExit: () -> Unit): Boolean {
+                // Cached/paused renderers and stale hosts must never present on a different tab.
+                if (surface !== s || binding !== b || !isResumed || Nav.current() !== this@BrowserFragment) return false
+                val activity = activity as? cn.olfact.app.MainActivity ?: return false
+                hideAddressBar()
+                if (findVisible) hideFind()
+                return activity.showBrowserFullscreen(s, view, onExit)
+            }
+
+            override fun onHideCustomView() {
+                (activity as? cn.olfact.app.MainActivity)?.hideBrowserFullscreen(s)
             }
 
             override fun onLongPress(url: String?, title: String?) {

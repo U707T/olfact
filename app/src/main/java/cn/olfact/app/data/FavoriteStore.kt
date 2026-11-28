@@ -50,6 +50,8 @@ object FavoriteStore {
         }
     }
 
+    enum class SaveResult { ADDED, UPDATED, UNCHANGED }
+
     fun add(
         context: Context,
         title: String,
@@ -57,35 +59,69 @@ object FavoriteStore {
         sourcePage: String? = null,
         mediaType: String? = null,
         mimeType: String? = null
-    ): Boolean {
-        synchronized(lock) {
-            if (data.any { it.url == url }) return false
-            data.add(
-                0,
-                Favorite(
-                    id = nextId++,
-                    title = title.ifBlank { url },
-                    url = url,
-                    sourcePage = safeFavoriteSourcePage(sourcePage),
-                    mediaType = mediaType?.takeIf { it.isNotBlank() },
-                    mimeType = mimeType?.takeIf { it.isNotBlank() }
-                )
+    ): Boolean = saveOrEnrich(context, title, url, sourcePage, mediaType, mimeType) == SaveResult.ADDED
+
+    /** 补齐旧收藏的缺失上下文，保留原 ID、收藏时间、排序与已有有效信息。 */
+    fun saveOrEnrich(
+        context: Context,
+        title: String,
+        url: String,
+        sourcePage: String? = null,
+        mediaType: String? = null,
+        mimeType: String? = null
+    ): SaveResult {
+        val result = synchronized(lock) {
+            val index = data.indexOfFirst { it.url == url }
+            val incoming = Favorite(
+                id = 0,
+                title = title.ifBlank { url },
+                url = url,
+                sourcePage = safeFavoriteSourcePage(sourcePage),
+                mediaType = mediaType?.takeIf { it.isNotBlank() },
+                mimeType = mimeType?.takeIf { it.isNotBlank() }
             )
+            if (index >= 0) {
+                val original = data[index]
+                val enriched = enrich(original, incoming)
+                if (enriched == original) return@synchronized SaveResult.UNCHANGED
+                data[index] = enriched
+                SaveResult.UPDATED
+            } else {
+                data.add(0, incoming.copy(id = nextId++))
+                SaveResult.ADDED
+            }
         }
-        persist(context)
-        return true
+        if (result != SaveResult.UNCHANGED) persist(context)
+        return result
     }
+
+    private fun enrich(original: Favorite, incoming: Favorite): Favorite = original.copy(
+        title = incoming.title.takeIf {
+            (original.title.isBlank() || original.title == original.url) && it.isNotBlank() && it != incoming.url
+        } ?: original.title,
+        sourcePage = safeFavoriteSourcePage(original.sourcePage) ?: safeFavoriteSourcePage(incoming.sourcePage),
+        mediaType = original.mediaType?.takeIf { it.isNotBlank() }
+            ?: incoming.mediaType?.takeIf { it.isNotBlank() },
+        mimeType = original.mimeType?.takeIf { it.isNotBlank() }
+            ?: incoming.mimeType?.takeIf { it.isNotBlank() }
+    )
 
     fun remove(context: Context, id: Long) {
         synchronized(lock) { data.removeAll { it.id == id } }
         persist(context)
     }
 
-    /** 撤销删除：原样放回。 */
+    /** 撤销期间同一媒体被重新收藏时只补齐缺失信息，不产生重复项。 */
     fun restore(context: Context, favorite: Favorite) {
         synchronized(lock) {
-            if (data.any { it.id == favorite.id }) return
-            data.add(0, favorite)
+            val index = data.indexOfFirst { it.url == favorite.url }
+            if (index >= 0) {
+                data[index] = enrich(data[index], favorite)
+            } else {
+                if (data.any { it.id == favorite.id }) return
+                data.add(0, favorite.copy(sourcePage = safeFavoriteSourcePage(favorite.sourcePage)))
+                if (favorite.id >= nextId) nextId = favorite.id + 1
+            }
         }
         persist(context)
     }
@@ -99,10 +135,16 @@ object FavoriteStore {
     fun importAll(context: Context, list: List<Favorite>): Int {
         var added = 0
         synchronized(lock) {
-            val known = data.mapTo(mutableSetOf()) { it.url }
+            val known = data.mapIndexed { index, item -> item.url to index }.toMap().toMutableMap()
             list.forEach { f ->
-                if (f.url.isBlank() || !known.add(f.url)) return@forEach
+                if (f.url.isBlank()) return@forEach
+                val existingIndex = known[f.url]
+                if (existingIndex != null) {
+                    data[existingIndex] = enrich(data[existingIndex], f)
+                    return@forEach
+                }
                 val id = if (data.any { it.id == f.id }) nextId++ else f.id
+                known[f.url] = data.size
                 data.add(
                     Favorite(
                         id = id,
@@ -156,6 +198,8 @@ object FavoriteStore {
 internal fun safeFavoriteSourcePage(source: String?): String? = runCatching {
     val uri = java.net.URI(source?.trim().orEmpty())
     val scheme = uri.scheme?.lowercase() ?: return@runCatching null
+    if (scheme !in setOf("http", "https") || uri.host.isNullOrBlank()) return@runCatching null
+    if (uri.port < -1 || uri.port > 65535) return@runCatching null
     val rawAuthority = uri.rawAuthority ?: return@runCatching null
     val authority = if (uri.rawUserInfo != null) rawAuthority.substringAfterLast('@') else rawAuthority
     if (authority.isBlank()) return@runCatching null

@@ -70,6 +70,8 @@ open class WebViewClient {
 }
 open class WebChromeClient {
     open class FileChooserParams
+    /** Real SDK declares this as an interface; mirror it so stubs cannot hide that shape. */
+    interface CustomViewCallback { fun onCustomViewHidden() }
     open fun onProgressChanged(view: WebView, newProgress: Int) {}
     open fun onReceivedTitle(view: WebView, title: String?) {}
     open fun onReceivedIcon(view: WebView, icon: Bitmap?) {}
@@ -79,6 +81,11 @@ open class WebChromeClient {
         filePathCallback: ValueCallback<Array<android.net.Uri>>,
         fileChooserParams: FileChooserParams,
     ) = false
+    open fun onShowCustomView(view: android.view.View?, callback: CustomViewCallback) {}
+    open fun onShowCustomView(view: android.view.View?, requestedOrientation: Int, callback: CustomViewCallback) {
+        onShowCustomView(view, callback)
+    }
+    open fun onHideCustomView() {}
 }
 interface ValueCallback<T> { fun onReceiveValue(value: T?) }
 class CookieManager private constructor() {

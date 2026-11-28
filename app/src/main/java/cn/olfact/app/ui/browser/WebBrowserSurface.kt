@@ -42,6 +42,8 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
 
     private val main = Handler(Looper.getMainLooper())
     private var web: BrowserView? = null
+    private var chrome: BrowserChromeClient? = null
+    private var customViewHost: BrowserSurfaceHost? = null
     private var recoveryContainer: android.view.ViewGroup? = null
     private var lastUrl: String? = null
     private var detectSink: ((String) -> Unit)? = null
@@ -108,6 +110,7 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
             dohPredicate = { hostName -> ModuleBackends.shouldUseDoh(hostName) },
             events = events,
             onPageStarted = { url ->
+                chrome?.hideCustomView()
                 lastUrl = url
                 this@WebBrowserSurface.host?.onPageStarted(url)
                 injectScripts(view, url)
@@ -126,6 +129,8 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
                 sticky.closeTab(tabId)
                 mediaSniffer?.close()
                 mediaSniffer = null
+                chrome?.hideCustomView()
+                chrome = null
                 cancelPendingFileChooser()
                 recoveryContainer = dead.parent as? android.view.ViewGroup
                 recoveryContainer?.removeView(dead)
@@ -137,7 +142,7 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
             }
         )
         view.webViewClient = client
-        view.webChromeClient = BrowserChromeClient(
+        val chromeClient = BrowserChromeClient(
             tabId,
             events,
             onChooseFiles = { _, params, callback ->
@@ -169,8 +174,25 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
                     ) { uris -> complete(uris) }
                 }
                 true
+            },
+            onShowCustomView = { customView, onExit ->
+                val activeHost = this@WebBrowserSurface.host
+                // 只有宿主真正接住（当前可见标签）才记住归属；被拒绝时不要留下悬挂的 owner。
+                if (activeHost != null && activeHost.onShowCustomView(customView, onExit)) {
+                    customViewHost = activeHost
+                    true
+                } else {
+                    false
+                }
+            },
+            onHideCustomView = {
+                val owner = customViewHost
+                customViewHost = null
+                owner?.onHideCustomView()
             }
         )
+        chrome = chromeClient
+        view.webChromeClient = chromeClient
 
         view.onLongPress = { target, x, y ->
             this@WebBrowserSurface.host?.onLongPressAt(target.url ?: target.imageUrl, view.title, x, y)
@@ -206,6 +228,9 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
 
     override fun attachHost(host: BrowserSurfaceHost?) {
         val previousHost = this.host
+        // 普通 onPause 只是把宿主摘成 null（进系统文件选择器、来电、切后台），
+        // 这种「暂时离开」不能收掉正在播放的网页全屏；只有换成另一个宿主或真正销毁时才收。
+        if (previousHost !== host && host != null) chrome?.hideCustomView()
         if (host != null && previousHost != null && previousHost !== host) {
             cancelPendingFileChooser()
         }
@@ -266,6 +291,7 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
     }
 
     override fun loadUrl(url: String) {
+        chrome?.hideCustomView()
         lastUrl = url
         val view = web ?: recoverView() ?: return
         // 地址栏 / 书签 / 首页搜索都走这里：先注册 document-start 脚本，再加载。
@@ -274,6 +300,7 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
     }
 
     override fun reload() {
+        chrome?.hideCustomView()
         val current = web
         if (current != null) current.reload() else lastUrl?.let(::loadUrl)
     }
@@ -297,12 +324,14 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
     override fun canGoBack(): Boolean = web?.canGoBack() == true
 
     override fun goBack() {
+        chrome?.hideCustomView()
         web?.goBack()
     }
 
     override fun canGoForward(): Boolean = web?.canGoForward() == true
 
     override fun goForward() {
+        chrome?.hideCustomView()
         web?.goForward()
     }
 
@@ -350,6 +379,8 @@ class WebBrowserSurface(private val context: Context) : BrowserSurface {
     }
 
     override fun destroy() {
+        chrome?.hideCustomView()
+        chrome = null
         cancelPendingFileChooser()
         host = null
         sticky.closeTab(tabId)

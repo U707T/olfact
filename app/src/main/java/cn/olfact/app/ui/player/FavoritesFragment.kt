@@ -78,7 +78,13 @@ class FavoritesFragment : Fragment(R.layout.fragment_entry_list) {
         a.submit(items)
     }
 
+    override fun onResume() {
+        super.onResume()
+        render()
+    }
+
     override fun onDestroyView() {
+        binding?.list?.adapter = null
         binding = null
         adapter = null
         super.onDestroyView()

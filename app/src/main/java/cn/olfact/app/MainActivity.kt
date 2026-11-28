@@ -133,6 +133,11 @@ class MainActivity : AppCompatActivity() {
 
         // 「退出时清除数据」：只在本 Activity 真被销毁（返回键/划掉）时清，
         // 配置变更（旋转、切深色）不能误清。
+        // 网页全屏的覆盖层在 Activity 销毁前必须先收：否则自定义视图会挂在一个死窗口上，
+        // WebChromeClient 的 custom-view 会话也拿不到 onCustomViewHidden。
+        if (::binding.isInitialized && isBrowserFullscreen) exitBrowserFullscreen()
+        if (::binding.isInitialized) clearBrowserFullscreen()
+
         Nav.detach(this)
 
         if (isFinishing && ::binding.isInitialized && AppSettings.get(K.PRIVACY_CLEAR_ON_EXIT)) {
@@ -154,6 +159,93 @@ class MainActivity : AppCompatActivity() {
 
     private var fullscreen = false
     private var bottomInset = 0
+
+    /**
+     * 网页 HTML5 全屏（`<video>` / Fullscreen API）的宿主。
+     *
+     * 只允许当前可见渲染器挂载；离屏缓存或别的标签请求时直接拒绝，避免把 A 标签的视频
+     * 盖到 B 标签上。退出统一走 [customViewExit]，由渲染器的会话负责回调
+     * `onCustomViewHidden` 并收掉覆盖层，保证恰好执行一次。
+     */
+    private var customViewOwner: cn.olfact.core.api.BrowserSurface? = null
+    private var customViewOverlay: android.view.ViewGroup? = null
+    private var customViewExit: (() -> Unit)? = null
+
+    fun showBrowserFullscreen(
+        owner: cn.olfact.core.api.BrowserSurface,
+        view: android.view.View,
+        onExit: () -> Unit
+    ): Boolean {
+        if (!::binding.isInitialized) return false
+        if (customViewOverlay != null) return false
+        (view.parent as? android.view.ViewGroup)?.removeView(view)
+        val overlay = android.widget.FrameLayout(this).apply {
+            setBackgroundColor(android.graphics.Color.BLACK)
+            keepScreenOn = true
+            isClickable = true
+        }
+        overlay.addView(view, android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+        binding.root.addView(overlay, android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+            android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+        ))
+        customViewOwner = owner
+        customViewOverlay = overlay
+        customViewExit = onExit
+        // 菜单「全屏」已经藏过系统栏；这里统一按当前 fullscreen 状态重设，退出时同一规则恢复。
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.systemBars())
+        }
+        AppLog.i("ui", "网页全屏：进入")
+        return true
+    }
+
+    /** 返回键 / 返回手势：先退出网页全屏。返回 true 表示这次返回已被消费。 */
+    fun exitBrowserFullscreen(): Boolean {
+        val exit = customViewExit ?: return false
+        exit()
+        // 退出请求可能已不属于当前会话而没有真正收尾；兜底摘除，避免下次返回键被重复吞掉。
+        if (customViewExit != null) clearBrowserFullscreen()
+        return true
+    }
+
+    /** 渲染器主动结束（退出按钮、页面导航、切标签、销毁）：只由拥有者摘除覆盖层。 */
+    fun hideBrowserFullscreen(owner: cn.olfact.core.api.BrowserSurface) {
+        if (customViewOwner !== owner) return
+        clearBrowserFullscreen()
+    }
+
+    /** 网页全屏的最终收尾：摘掉覆盖层并按菜单「全屏」的当前状态恢复系统栏。 */
+    fun clearBrowserFullscreen() {
+        val overlay = customViewOverlay
+        val hadPresentation = overlay != null || customViewExit != null
+        customViewOwner = null
+        customViewOverlay = null
+        customViewExit = null
+        // 没有在展示时直接返回：否则每次 Activity 销毁都会多打一条日志并强制显示系统栏。
+        if (!hadPresentation) return
+        if (overlay != null && ::binding.isInitialized) {
+            (overlay.getChildAt(0)?.parent as? android.view.ViewGroup)?.removeView(overlay.getChildAt(0))
+            binding.root.removeView(overlay)
+            overlay.removeAllViews()
+        }
+        if (::binding.isInitialized) {
+            if (fullscreen) {
+                WindowCompat.getInsetsController(window, window.decorView)
+                    .hide(WindowInsetsCompat.Type.systemBars())
+            } else {
+                WindowCompat.getInsetsController(window, window.decorView)
+                    .show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+        AppLog.i("ui", "网页全屏：退出")
+    }
+
+    val isBrowserFullscreen: Boolean get() = customViewOverlay != null
     private var currentBottomStyle: BottomBar.Style? = null
     private var currentBottomVariant: String? = null
     private var eyeCareOverlay: android.view.View? = null

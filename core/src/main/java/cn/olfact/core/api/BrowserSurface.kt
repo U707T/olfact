@@ -100,4 +100,10 @@ interface BrowserSurfaceHost {
 
     /** WebView崩溃或当前渲染器关闭时，完成未完成的选择回调。 */
     fun onCancelFileChooser() {}
+
+    /** Accept only the visible surface's HTML5 custom view; false means unsupported/offscreen. */
+    fun onShowCustomView(view: android.view.View, onExit: () -> Unit): Boolean = false
+
+    /** Remove this host's presentation; the renderer completes the WebChromeClient callback. */
+    fun onHideCustomView() {}
 }
